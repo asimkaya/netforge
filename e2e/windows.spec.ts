@@ -52,8 +52,12 @@ test('windows can be moved, stacked, minimized and closed', async ({ page }) => 
   // The last opened window is in front; clicking the other brings it forward.
   const z = async (w: typeof pc) => Number(await w.evaluate((el) => getComputedStyle(el).zIndex));
   expect(await z(sw)).toBeGreaterThan(await z(pc));
-  await pc.getByRole('heading', { name: 'pc1' }).click();
+  // Clicking the device (or anywhere in its window) brings the window forward.
+  await open(page, 'pc1');
   expect(await z(pc)).toBeGreaterThan(await z(sw));
+  await sw.getByRole('tab', { name: 'Physical' }).dispatchEvent('pointerdown');
+  expect(await z(sw)).toBeGreaterThan(await z(pc));
+  await open(page, 'pc1');
 
   // Drag by the title bar.
   const before = await pc.boundingBox();
