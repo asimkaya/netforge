@@ -15,6 +15,7 @@ import type { Network } from './network.ts';
 import { hasCarrier, type Port } from './port.ts';
 import { cat, echo, ls, mkdir, parseLine, pwd, rm, touch } from './shell-files.ts';
 import { conntrack, nft } from './shell-firewall.ts';
+import { bird, birdc } from './shell-routing.ts';
 import { pathCost } from './stp.ts';
 import {
   curl,
@@ -91,6 +92,8 @@ const HELP = [
   '  nmcli dev wifi list                list Wi-Fi networks in range',
   '  nmcli dev wifi connect SSID password PASS   join a Wi-Fi network',
   '  hostapd -B /etc/hostapd/hostapd.conf        start an access point (APs)',
+  '  bird; birdc show ospf neighbors    OSPF dynamic routing (config: /etc/bird.conf)',
+  '  birdc show route|show protocols|configure|down   inspect or control BIRD',
   '  nft list ruleset | nft add ...     firewall and NAT (see nft with no arguments)',
   '  conntrack -L                       list tracked connections (firewall, NAT)',
   '  ss -t                              list TCP sockets',
@@ -360,6 +363,9 @@ function routeLine(r: { dst: Cidr; via: Ip | null; port: Port; src?: Ip; proto: 
   if (r.proto === 'kernel') {
     return `${dst} dev ${r.port.name} proto kernel scope link src ${formatIp(r.src ?? 0)}${down}`;
   }
+  if (r.proto === 'bird') {
+    return `${dst} via ${formatIp(r.via ?? 0)} dev ${r.port.name} proto bird metric 32${down}`;
+  }
   return r.via === null
     ? `${dst} dev ${r.port.name} scope link${down}`
     : `${dst} via ${formatIp(r.via)} dev ${r.port.name}${down}`;
@@ -378,7 +384,8 @@ function ipRoute(_net: Network, device: Device, args: string[], io: ShellIO): un
     if (!stack) return;
     const kernel = stack.routes().filter((r) => r.proto === 'kernel');
     const statics = stack.staticRoutes.map((r) => ({ ...r, port: r.dev, proto: 'static' }));
-    const all = [...kernel, ...statics].sort((a, b) =>
+    const learned = stack.routes().filter((r) => r.proto === 'bird');
+    const all = [...kernel, ...statics, ...learned].sort((a, b) =>
       a.dst.prefix === 0
         ? -1
         : b.dst.prefix === 0
@@ -867,6 +874,8 @@ const ping: Command = (net, device, args, io) => {
 
 const COMMANDS: Record<string, Command> = {
   ip,
+  bird,
+  birdc,
   nft,
   conntrack,
   cat,

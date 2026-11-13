@@ -110,7 +110,10 @@ function readIpSettings(value: unknown, what: string) {
 /** Service command lines; the engine's own option parser checks their content. */
 function readServices(value: unknown, what: string) {
   const services = obj(value, `${what} services`);
-  const list = (key: 'dnsmasq' | 'httpd' | 'postfix' | 'dovecot' | 'hostapd', pattern: RegExp) =>
+  const list = (
+    key: 'dnsmasq' | 'httpd' | 'postfix' | 'dovecot' | 'hostapd' | 'bird',
+    pattern: RegExp,
+  ) =>
     services[key] === undefined
       ? {}
       : {
@@ -124,6 +127,7 @@ function readServices(value: unknown, what: string) {
     ...list('postfix', /^$/),
     ...list('dovecot', /^$/),
     ...list('hostapd', /^[\w./-]{1,240}$/),
+    ...list('bird', /^[\w./-]{1,240}$/),
   };
 }
 

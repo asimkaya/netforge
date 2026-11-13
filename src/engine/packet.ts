@@ -71,12 +71,29 @@ export interface TcpSegment {
   data?: string;
 }
 
+/** One link in an OSPF router LSA: to a neighbor router, or a network it serves. */
+export type OspfLink =
+  | { kind: 'router'; id: Ip; cost: number }
+  | { kind: 'stub'; net: Ip; prefix: number; cost: number };
+
+/** A router's description of its links, flooded to every OSPF router in the area. */
+export interface OspfLsa {
+  routerId: Ip;
+  seq: number;
+  links: OspfLink[];
+}
+
+/** OSPF (IP protocol 89): hellos find neighbors, link state updates flood LSAs. */
+export type OspfPacket =
+  | { kind: 'ospf'; type: 'hello'; routerId: Ip; area: number; neighbors: Ip[] }
+  | { kind: 'ospf'; type: 'lsu'; routerId: Ip; area: number; lsas: OspfLsa[] };
+
 export interface Ipv4Packet {
   kind: 'ipv4';
   src: Ip;
   dst: Ip;
   ttl: number;
-  payload: IcmpPacket | UdpDatagram | TcpSegment;
+  payload: IcmpPacket | UdpDatagram | TcpSegment | OspfPacket;
 }
 
 /** Well-known TCP ports and the protocol name shown for them. */
@@ -187,13 +204,30 @@ function describePayload(frame: EthernetFrame): string {
   if (p.payload.kind === 'icmp') {
     return `IP ${formatIp(p.src)} > ${formatIp(p.dst)}: ${describeIcmp(p, p.payload)}`;
   }
+  if (p.payload.kind === 'ospf') {
+    const o = p.payload;
+    const what = o.type === 'hello' ? 'Hello' : 'LS-Update';
+    const length = o.type === 'hello' ? 44 : 24 + 36 * o.lsas.length;
+    return `IP ${formatIp(p.src)} > ${formatIp(p.dst)}: OSPFv2, ${what}, length ${length}`;
+  }
   const u = p.payload;
   const what = u.kind === 'udp' ? describeUdp(u) : describeTcp(u);
   return `IP ${formatIp(p.src)}.${u.srcPort} > ${formatIp(p.dst)}.${u.dstPort}: ${what}`;
 }
 
 export type Protocol =
-  'arp' | 'stp' | 'icmp' | 'udp' | 'dhcp' | 'dns' | 'tcp' | 'http' | 'smtp' | 'pop3' | 'ssh';
+  | 'arp'
+  | 'stp'
+  | 'icmp'
+  | 'ospf'
+  | 'udp'
+  | 'dhcp'
+  | 'dns'
+  | 'tcp'
+  | 'http'
+  | 'smtp'
+  | 'pop3'
+  | 'ssh';
 
 /** Protocol label used to color packets in the UI. */
 export function protocolOf(frame: EthernetFrame): Protocol {
@@ -201,6 +235,7 @@ export function protocolOf(frame: EthernetFrame): Protocol {
   if (p.kind === 'arp') return 'arp';
   if (p.kind === 'bpdu') return 'stp';
   if (p.payload.kind === 'icmp') return 'icmp';
+  if (p.payload.kind === 'ospf') return 'ospf';
   if (p.payload.kind === 'tcp') {
     const t = p.payload;
     return TCP_SERVICES[t.dstPort] ?? TCP_SERVICES[t.srcPort] ?? 'tcp';

@@ -36,6 +36,7 @@ export interface NetworkSnapshot {
       postfix?: string[];
       dovecot?: string[];
       hostapd?: string[];
+      bird?: string[];
     };
     /** Files on the device (absolute path to text). */
     files?: Record<string, string>;
@@ -299,9 +300,10 @@ export class Network implements Fabric {
               },
             }
           : {}),
-        ...(d.dnsmasq || d.httpd || d.postfix || d.dovecot || d.hostapd
+        ...(d.dnsmasq || d.httpd || d.postfix || d.dovecot || d.hostapd || d.bird
           ? {
               services: {
+                ...(d.bird ? { bird: [...d.bird.args] } : {}),
                 ...(d.hostapd ? { hostapd: [...d.hostapd.args] } : {}),
                 ...(d.dnsmasq ? { dnsmasq: [...d.dnsmasq.args] } : {}),
                 ...(d.httpd ? { httpd: [...d.httpd.args] } : {}),
@@ -414,6 +416,10 @@ export class Network implements Fabric {
       }
       if (d.services?.hostapd) {
         const error = device.startHostapd(d.services.hostapd);
+        if (error) throw new Error(`${d.id}: ${error}`);
+      }
+      if (d.services?.bird) {
+        const error = device.startBird(d.services.bird);
         if (error) throw new Error(`${d.id}: ${error}`);
       }
       if (d.services?.httpd) {

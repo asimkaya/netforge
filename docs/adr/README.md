@@ -13,3 +13,4 @@ Template: `# NNNN: Title`, then **Status**, **Context**, **Decision**, **Consequ
 | [0004](0004-tech-stack.md)                  | Technology stack                                               |
 | [0005](0005-local-first-no-accounts.md)     | Local-first storage, no accounts, static hosting               |
 | [0006](0006-device-specs-ports-and-apps.md) | Device specs, typed ports and apps backed by protocols         |
+| [0007](0007-dynamic-routing-with-bird.md)   | Dynamic routing with BIRD                                      |

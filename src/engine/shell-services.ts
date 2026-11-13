@@ -40,7 +40,9 @@ export const killall: Command = (_net, device, args, io) => {
           ? device.stopMail(name)
           : name === 'hostapd'
             ? device.stopHostapd()
-            : false;
+            : name === 'bird'
+              ? device.stopBird()
+              : false;
   // Clients of a stopped access point lose their wireless link.
   if (stopped) checkWireless(_net);
   if (!stopped) io.out(`${name}: no process found`);

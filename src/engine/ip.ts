@@ -18,6 +18,7 @@ import type {
   UdpDatagram,
   UnreachableCode,
 } from './packet.ts';
+import { OSPF_ALL_ROUTERS, OSPF_MAC } from './bird.ts';
 import { Netfilter, type Tracked } from './netfilter.ts';
 import { hasCarrier, type Port } from './port.ts';
 import { TcpLayer, type TcpHost } from './tcp.ts';
@@ -55,7 +56,13 @@ export interface Route {
   via: Ip | null;
   port: Port;
   src: Ip;
-  proto: 'kernel' | 'static';
+  proto: 'kernel' | 'static' | 'bird';
+}
+
+/** What a routing daemon (BIRD) needs from the stack's receive path. */
+export interface RoutingDaemon {
+  receive(packet: Ipv4Packet, port: Port): void;
+  carrierChanged(port: Port): void;
 }
 
 /** Settings a DHCP client got for one interface, so it can renew or release them. */
@@ -97,6 +104,10 @@ export class IpStack implements TcpHost {
   readonly addrs = new Map<string, Cidr[]>();
   readonly neighbors = new Map<Ip, Neighbor>();
   readonly staticRoutes: StaticRoute[] = [];
+  /** Routes a routing daemon exported to the kernel table (`proto bird`). */
+  dynamicRoutes: { dst: Cidr; via: Ip; dev: Port }[] = [];
+  /** The running OSPF daemon, which gets OSPF packets and carrier changes. */
+  routing: RoutingDaemon | null = null;
   /** Name servers, like the `nameserver` lines of /etc/resolv.conf. */
   dns: Ip[] = [];
   /** Leases obtained with dhclient, per interface name. Not saved with the lab. */
@@ -221,7 +232,14 @@ export class IpStack implements TcpHost {
       const src = this.#srcOn(r.dev, r.via ?? r.dst.ip);
       return src === null ? [] : [{ dst: r.dst, via: r.via, port: r.dev, src, proto: 'static' }];
     });
-    return [...connected, ...statics];
+    const learned = this.dynamicRoutes.flatMap((r): Route[] => {
+      const src = this.#srcOn(r.dev, r.via);
+      return hasCarrier(r.dev) && src !== null
+        ? [{ dst: r.dst, via: r.via, port: r.dev, src, proto: 'bird' }]
+        : [];
+    });
+    // On equal prefixes the first wins: connected, then static, then learned.
+    return [...connected, ...statics, ...learned];
   }
 
   /** Longest prefix match; on a tie, connected routes win. */
@@ -322,7 +340,8 @@ export class IpStack implements TcpHost {
   // ----------------------------------------------------------------- receive
 
   receive(port: Port, frame: EthernetFrame): void {
-    if (frame.dst !== port.mac && frame.dst !== BROADCAST_MAC) return;
+    const multicast = frame.dst === OSPF_MAC && this.routing !== null;
+    if (frame.dst !== port.mac && frame.dst !== BROADCAST_MAC && !multicast) return;
     const p = frame.payload;
     if (p.kind === 'arp') {
       this.#handleArp(port, p);
@@ -332,6 +351,7 @@ export class IpStack implements TcpHost {
     const isLocal = (q: Ipv4Packet) =>
       this.ownsIp(q.dst) ||
       q.dst === LIMITED_BROADCAST ||
+      (q.dst === OSPF_ALL_ROUTERS && this.routing !== null) ||
       this.addrsOn(port).some((a) => broadcastOf(a) === q.dst);
     if (!this.nf.active) {
       if (isLocal(p)) this.#deliver(p, port);
@@ -371,6 +391,16 @@ export class IpStack implements TcpHost {
   carrierChanged(port: Port): void {
     // Linux flushes neighbor entries of an interface that loses carrier.
     this.flushNeighbors(port);
+    this.routing?.carrierChanged(port);
+  }
+
+  /** Sends a packet to a multicast group out of one interface (TTL 1, like OSPF). */
+  multicast(out: Port, src: Ip, dst: Ip, mac: Mac, payload: Ipv4Packet['payload']): void {
+    this.fabric.transmit(out, {
+      src: out.mac,
+      dst: mac,
+      payload: { kind: 'ipv4', src, dst, ttl: 1, payload },
+    });
   }
 
   // ------------------------------------------------------------ packet path
@@ -557,6 +587,10 @@ export class IpStack implements TcpHost {
 
   #deliver(packet: Ipv4Packet, port: Port): void {
     const p = packet.payload;
+    if (p.kind === 'ospf') {
+      this.routing?.receive(packet, port);
+      return;
+    }
     if (p.kind === 'tcp') {
       this.tcp.receive(packet);
       return;

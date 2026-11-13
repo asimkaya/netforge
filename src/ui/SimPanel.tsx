@@ -68,12 +68,35 @@ function layers(frame: EthernetFrame): { name: string; fields: Field[] }[] {
       ['Source', formatIp(p.src)],
       ['Destination', formatIp(p.dst)],
       ['Time to live', String(p.ttl)],
-      ['Protocol', { icmp: 'ICMP (1)', tcp: 'TCP (6)', udp: 'UDP (17)' }[inner.kind]],
+      [
+        'Protocol',
+        { icmp: 'ICMP (1)', tcp: 'TCP (6)', udp: 'UDP (17)', ospf: 'OSPF (89)' }[inner.kind],
+      ],
     ] satisfies Field[],
   };
   if (inner.kind === 'icmp') {
     const fields = icmpFields(inner);
     return [ethernet, ip, { name: 'Internet Control Message Protocol', fields }];
+  }
+  if (inner.kind === 'ospf') {
+    const fields: Field[] = [
+      ['Message type', inner.type === 'hello' ? 'Hello' : 'Link State Update'],
+      ['Router ID', formatIp(inner.routerId)],
+      ['Area', String(inner.area)],
+    ];
+    if (inner.type === 'hello') {
+      fields.push(['Neighbors seen', inner.neighbors.map(formatIp).join(', ') || 'none']);
+    } else {
+      for (const lsa of inner.lsas) {
+        const links = lsa.links.map((l) =>
+          l.kind === 'router'
+            ? `router ${formatIp(l.id)} cost ${l.cost}`
+            : `${formatIp(l.net)}/${l.prefix} cost ${l.cost}`,
+        );
+        fields.push([`LSA ${formatIp(lsa.routerId)} #${lsa.seq}`, links.join('; ')]);
+      }
+    }
+    return [ethernet, ip, { name: 'Open Shortest Path First', fields }];
   }
   if (inner.kind === 'tcp') {
     const tcp = {

@@ -40,6 +40,28 @@ const SAMPLE_PAGE = `<!doctype html>
 </html>
 `;
 
+/** BIRD's configuration on a new router: OSPF on every Ethernet port, routes exported. */
+const BIRD_SAMPLE = `# BIRD routing daemon. Start it with \`bird\`; check it with \`birdc show ospf neighbors\`.
+# router id 10.0.0.1;
+
+protocol device {
+}
+
+protocol kernel {
+	ipv4 {
+		export all;
+	};
+}
+
+protocol ospf v2 {
+	area 0 {
+		interface "eth*" {
+			cost 10;
+		};
+	};
+}
+`;
+
 const INTERNET_PAGE = `<!doctype html>
 <html>
   <head><title>Example site</title></head>
@@ -137,6 +159,7 @@ export const SPECS: Record<SpecId, DeviceSpec> = {
     bridge: false,
     ip: true,
     forwarding: true,
+    files: { '/etc/bird.conf': BIRD_SAMPLE },
   },
   internet: {
     id: 'internet',

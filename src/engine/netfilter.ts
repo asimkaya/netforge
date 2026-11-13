@@ -114,6 +114,7 @@ export function tupleOf(p: Ipv4Packet): Tuple | null {
       return { proto: 'icmp', src: p.src, dst: p.dst, sport: 0, dport: l4.id };
     return null;
   }
+  if (l4.kind === 'ospf') return null;
   return { proto: l4.kind, src: p.src, dst: p.dst, sport: l4.srcPort, dport: l4.dstPort };
 }
 
@@ -126,6 +127,7 @@ function withTuple(p: Ipv4Packet, t: Tuple): Ipv4Packet {
       return { ...p, src: t.src, dst: t.dst, payload: { ...l4, id: t.dport } };
     return { ...p, src: t.src, dst: t.dst };
   }
+  if (l4.kind === 'ospf') return { ...p, src: t.src, dst: t.dst };
   return { ...p, src: t.src, dst: t.dst, payload: { ...l4, srcPort: t.sport, dstPort: t.dport } };
 }
 
@@ -134,6 +136,7 @@ export function packetBytes(p: Ipv4Packet): number {
   const l4 = p.payload;
   if (l4.kind === 'icmp') return l4.type.startsWith('echo') ? 84 : 56;
   if (l4.kind === 'udp') return 20 + 8 + 32;
+  if (l4.kind === 'ospf') return l4.type === 'hello' ? 20 + 44 : 20 + 24 + 36 * l4.lsas.length;
   return 20 + 20 + (l4.data?.length ?? 0);
 }
 

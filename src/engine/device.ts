@@ -1,4 +1,5 @@
 import type { Mac } from './addr.ts';
+import { BIRD_CONF, Bird, parseBirdConf } from './bird.ts';
 import { Bridge } from './bridge.ts';
 import { Dnsmasq } from './dnsmasq.ts';
 import { FileSystem } from './fs.ts';
@@ -34,6 +35,8 @@ export class Device {
   /** Stop functions of the running mail servers (postfix: SMTP, dovecot: POP3). */
   postfix: (() => void) | null = null;
   dovecot: (() => void) | null = null;
+  /** The running BIRD routing daemon (OSPF), if started. */
+  bird: Bird | null = null;
   /** The running access point (hostapd) and the arguments it was started with. */
   hostapd: (HostapdConfig & { args: string[] }) | null = null;
 
@@ -130,6 +133,33 @@ export class Device {
   stopHostapd(): boolean {
     if (!this.hostapd) return false;
     this.hostapd = null;
+    this.fabric.changed();
+    return true;
+  }
+
+  /** Starts BIRD from its config file (`bird [-c FILE]`). Returns an error, or null. */
+  startBird(args: readonly string[]): string | null {
+    if (!this.ip || !this.fs) return 'bird: command not found';
+    if (this.bird) return 'bird: I found another BIRD running.';
+    const i = args.indexOf('-c');
+    const path = i >= 0 ? args[i + 1] : BIRD_CONF;
+    const text = path === undefined ? undefined : this.fs.read(path);
+    if (text === undefined) {
+      return `bird: Unable to open configuration file ${path ?? ''}: No such file or directory`;
+    }
+    const config = parseBirdConf(text);
+    if (typeof config === 'string') return `bird: ${config}`;
+    this.bird = Bird.start(this.fabric, this.ip, config, [...args]);
+    this.ip.routing = this.bird;
+    this.fabric.changed();
+    return null;
+  }
+
+  stopBird(): boolean {
+    if (!this.bird || !this.ip) return false;
+    this.bird.stop();
+    this.bird = null;
+    this.ip.routing = null;
     this.fabric.changed();
     return true;
   }
