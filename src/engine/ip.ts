@@ -19,6 +19,7 @@ import type {
   UnreachableCode,
 } from './packet.ts';
 import { OSPF_ALL_ROUTERS, OSPF_MAC } from './bird.ts';
+import { Ip6Stack } from './ip6.ts';
 import { Netfilter, type Tracked } from './netfilter.ts';
 import { hasCarrier, type Port } from './port.ts';
 import { TcpLayer, type TcpHost } from './tcp.ts';
@@ -128,6 +129,7 @@ export class IpStack implements TcpHost {
     public forwarding = false,
   ) {
     this.ports = [...ports];
+    this.v6 = new Ip6Stack(fabric, this.ports, forwarding);
     this.nf = new Netfilter(
       fabric.scheduler,
       (port) => this.addrsOn(port)[0]?.ip ?? null,
@@ -137,6 +139,8 @@ export class IpStack implements TcpHost {
 
   /** nftables rules and connection tracking (`nft`, `conntrack`). */
   readonly nf: Netfilter;
+  /** IPv6 on the same interfaces. */
+  readonly v6: Ip6Stack;
 
   /** Routed interfaces: physical ports, then VLAN interfaces as they are added. */
   readonly ports: Port[];
@@ -153,6 +157,7 @@ export class IpStack implements TcpHost {
     for (let i = this.staticRoutes.length - 1; i >= 0; i--) {
       if (this.staticRoutes[i]?.dev === port) this.staticRoutes.splice(i, 1);
     }
+    this.v6.removePort(port);
     this.ports.splice(this.ports.indexOf(port), 1);
   }
 
@@ -340,6 +345,10 @@ export class IpStack implements TcpHost {
   // ----------------------------------------------------------------- receive
 
   receive(port: Port, frame: EthernetFrame): void {
+    if (frame.payload.kind === 'ipv6') {
+      this.v6.receive(port, frame);
+      return;
+    }
     const multicast = frame.dst === OSPF_MAC && this.routing !== null;
     if (frame.dst !== port.mac && frame.dst !== BROADCAST_MAC && !multicast) return;
     const p = frame.payload;
@@ -392,6 +401,7 @@ export class IpStack implements TcpHost {
     // Linux flushes neighbor entries of an interface that loses carrier.
     this.flushNeighbors(port);
     this.routing?.carrierChanged(port);
+    this.v6.carrierChanged(port);
   }
 
   /** Sends a packet to a multicast group out of one interface (TTL 1, like OSPF). */

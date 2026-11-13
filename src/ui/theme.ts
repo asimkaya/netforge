@@ -5,6 +5,7 @@ export const PROTOCOL_COLORS: Record<Protocol, string> = {
   arp: '#f59e0b',
   stp: '#e879f9',
   icmp: '#22c55e',
+  icmp6: '#86efac',
   ospf: '#4ade80',
   udp: '#94a3b8',
   dhcp: '#a78bfa',

@@ -15,6 +15,7 @@ import type { Network } from './network.ts';
 import { hasCarrier, type Port } from './port.ts';
 import { cat, echo, ls, mkdir, parseLine, pwd, rm, touch } from './shell-files.ts';
 import { conntrack, nft } from './shell-firewall.ts';
+import { inet6Lines, ip6AddrChange, ip6Neigh, ip6Route, ping6, radvd } from './shell-ip6.ts';
 import { bird, birdc } from './shell-routing.ts';
 import { pathCost } from './stp.ts';
 import {
@@ -71,6 +72,9 @@ const HELP = [
   '  ip route get ADDR                  show which route a packet would take',
   '  sysctl -w net.ipv4.ip_forward=1    let the device forward packets (router)',
   '  ping [-c COUNT] [-t TTL] ADDR      send ICMP echo requests (Ctrl+C stops)',
+  '  ping 2001:db8::1, ping fe80::1%eth0   ping over IPv6 (ping6 works too)',
+  '  ip -6 addr|route|neigh             IPv6 addresses, routes and neighbors',
+  '  radvd                              announce IPv6 prefixes (routers, /etc/radvd.conf)',
   '  traceroute [-m MAX_TTL] ADDR       show the routers on the way to ADDR',
   '  bridge fdb [show]                  show learned MAC addresses (switches)',
   '  bridge vlan [show]                 show the VLANs of each port (switches)',
@@ -279,17 +283,26 @@ function ipLink(
   io.out(`Command "${verb}" is unknown, try "ip link help".`);
 }
 
-function ipAddr(_net: Network, device: Device, args: string[], io: ShellIO): undefined {
+function ipAddr(
+  _net: Network,
+  device: Device,
+  args: string[],
+  io: ShellIO,
+  family: 4 | 6 | null = null,
+): undefined {
   const [verb, ...rest] = args;
   if (verb === undefined || matches(verb, 'show') || matches(verb, 'list')) {
     const all = device.interfaces();
     for (const port of listed(device, devArg(rest), io)) {
       linkLines(device, port, all.indexOf(port)).forEach(io.out);
       if (!device.ip?.ports.includes(port)) continue;
-      for (const a of device.ip.addrsOn(port)) {
-        const brd = a.prefix < 31 ? ` brd ${formatIp(broadcastOf(a))}` : '';
-        io.out(`    inet ${formatCidr(a)}${brd} scope global ${port.name}`);
+      if (family !== 6) {
+        for (const a of device.ip.addrsOn(port)) {
+          const brd = a.prefix < 31 ? ` brd ${formatIp(broadcastOf(a))}` : '';
+          io.out(`    inet ${formatCidr(a)}${brd} scope global ${port.name}`);
+        }
       }
+      if (family !== 4) inet6Lines(device.ip.v6, port).forEach(io.out);
     }
     return;
   }
@@ -318,10 +331,15 @@ function ipAddr(_net: Network, device: Device, args: string[], io: ShellIO): und
     return;
   }
   if (isFlush) {
-    stack.flushAddresses(port);
+    if (family !== 6) stack.flushAddresses(port);
+    if (family !== 4) stack.v6.flushAddresses(port);
     return;
   }
   const text = rest.find((_, i) => i !== devIndex && i !== devIndex + 1);
+  if (family === 6 || text?.includes(':')) {
+    ip6AddrChange(stack.v6, port, isAdd, text ?? '', io);
+    return;
+  }
   const cidr = text === undefined ? null : parseCidr(text);
   if (!cidr) {
     io.out(`Error: any valid prefix is expected rather than "${text ?? ''}".`);
@@ -455,21 +473,46 @@ function ipRoute(_net: Network, device: Device, args: string[], io: ShellIO): un
 }
 
 const ip: Command = (net, device, allArgs, io) => {
-  // `ip -d ...` shows details (bridge settings for `ip -d link show br0`).
-  const details = allArgs[0] === '-d' || allArgs[0] === '-details';
-  const args = details ? allArgs.slice(1) : allArgs;
+  // Options before the object: `-d` (details), `-4` or `-6` (address family).
+  let details = false;
+  let family: 4 | 6 | null = null;
+  let at = 0;
+  for (; at < allArgs.length && allArgs[at]?.startsWith('-'); at++) {
+    const flag = allArgs[at];
+    if (flag === '-d' || flag === '-details') details = true;
+    else if (flag === '-4') family = 4;
+    else if (flag === '-6') family = 6;
+    else {
+      io.out(`Option "${flag ?? ''}" is unknown, try "ip -help".`);
+      return;
+    }
+  }
+  const args = allArgs.slice(at);
   const [object, ...rest] = args;
   if (object === undefined || object === 'help') {
     io.out('Usage: ip OBJECT { COMMAND | help }');
     io.out('where  OBJECT := { address | link | neigh | route }');
     return;
   }
-  if (matches(object, 'address')) return ipAddr(net, device, rest, io);
+  if (matches(object, 'address')) return ipAddr(net, device, rest, io, family);
   if (matches(object, 'link')) return ipLink(net, device, rest, io, details);
   if (matches(object, 'neighbour') || matches(object, 'neighbor')) {
-    return ipNeigh(net, device, rest, io);
+    if (family === 6) {
+      ip6Neigh(device, io);
+      return;
+    }
+    ipNeigh(net, device, rest, io);
+    const show = rest[0] === undefined || matches(rest[0], 'show');
+    if (family === null && show) ip6Neigh(device, io);
+    return;
   }
-  if (matches(object, 'route')) return ipRoute(net, device, rest, io);
+  if (matches(object, 'route')) {
+    if (family === 6 || rest.some((a) => a.includes(':'))) {
+      ip6Route(device, rest, io);
+      return;
+    }
+    return ipRoute(net, device, rest, io);
+  }
   io.out(`Object "${object}" is unknown, try "ip help".`);
 };
 
@@ -570,7 +613,7 @@ const hostname: Command = (net, device, args, io) => {
 
 const UNREACHABLE = { net: 'Net', host: 'Host', port: 'Port' } as const;
 
-const sysctl: Command = (_net, device, args, io) => {
+const sysctl: Command = (net, device, args, io) => {
   const words = args.filter((a) => a !== '-w');
   if (words.length === 0) {
     io.out('sysctl: no variables specified');
@@ -578,6 +621,19 @@ const sysctl: Command = (_net, device, args, io) => {
   }
   for (const word of words) {
     const [key, value] = word.split('=');
+    const ip = device.ip;
+    if (key === 'net.ipv6.conf.all.forwarding' && ip) {
+      if (value !== undefined) {
+        if (value !== '0' && value !== '1') {
+          io.out(`sysctl: setting key "${key}": Invalid argument`);
+          continue;
+        }
+        ip.v6.forwarding = value === '1';
+        net.changed();
+      }
+      io.out(`${key} = ${ip.v6.forwarding ? 1 : 0}`);
+      continue;
+    }
     if (key !== 'net.ipv4.ip_forward' || !device.ip) {
       io.out(
         `sysctl: cannot stat /proc/sys/${(key ?? '').replaceAll('.', '/')}: No such file or directory`,
@@ -760,9 +816,12 @@ const ping: Command = (net, device, args, io) => {
   let count = 4;
   let ttl = DEFAULT_TTL;
   let target: string | undefined;
+  let v6 = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (arg === '-c' || arg === '-t') {
+    if (arg === '-6' || arg === '-4') {
+      v6 = arg === '-6';
+    } else if (arg === '-c' || arg === '-t') {
       const value = Number(args[++i]);
       const max = arg === '-c' ? Infinity : 255;
       if (!Number.isInteger(value) || value < 1 || value > max) {
@@ -782,6 +841,7 @@ const ping: Command = (net, device, args, io) => {
     io.out('ping: usage error: Destination address required');
     return;
   }
+  if (v6 || target.includes(':')) return ping6(net, device, target, { count, hopLimit: ttl }, io);
   const name = target;
   const failure = (kind: 'unknown' | 'temporary') => [
     `ping: ${name}: ${kind === 'unknown' ? 'Name or service not known' : 'Temporary failure in name resolution'}`,
@@ -874,6 +934,8 @@ const ping: Command = (net, device, args, io) => {
 
 const COMMANDS: Record<string, Command> = {
   ip,
+  radvd,
+  ping6: (net, device, args, io) => ping(net, device, ['-6', ...args], io),
   bird,
   birdc,
   nft,

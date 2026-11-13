@@ -23,7 +23,7 @@ test('export then import restores the same lab', async ({ page }) => {
   await page.getByRole('button', { name: 'Export' }).click();
   const path = await (await download).path();
   const text = await readFile(path, 'utf8');
-  expect(JSON.parse(text)).toMatchObject({ format: 'netforge-lab', version: 7 });
+  expect(JSON.parse(text)).toMatchObject({ format: 'netforge-lab', version: 8 });
 
   page.once('dialog', (d) => void d.accept());
   await page.getByRole('button', { name: 'New lab' }).click();

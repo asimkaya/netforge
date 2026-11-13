@@ -1,5 +1,6 @@
 import type { Mac } from './addr.ts';
 import { BIRD_CONF, Bird, parseBirdConf } from './bird.ts';
+import { RADVD_CONF, parseRadvd } from './ip6.ts';
 import { Bridge } from './bridge.ts';
 import { Dnsmasq } from './dnsmasq.ts';
 import { FileSystem } from './fs.ts';
@@ -153,6 +154,36 @@ export class Device {
     this.ip.routing = this.bird;
     this.fabric.changed();
     return null;
+  }
+
+  /** Starts radvd (`radvd [-C FILE]`): router advertisements for SLAAC. */
+  startRadvd(args: readonly string[]): string | null {
+    if (!this.ip || !this.fs) return 'radvd: command not found';
+    const v6 = this.ip.v6;
+    if (v6.radvd) return 'radvd: another radvd is already running';
+    const i = args.indexOf('-C');
+    const path = i >= 0 ? args[i + 1] : RADVD_CONF;
+    const text = path === undefined ? undefined : this.fs.read(path);
+    if (text === undefined) return `radvd: can't open ${path ?? ''}: No such file or directory`;
+    const config = parseRadvd(text);
+    if (typeof config === 'string') return config;
+    const missing = config.interfaces.find((c) => !this.ip?.ports.some((p) => p.name === c.name));
+    if (missing) return `radvd: interface ${missing.name} does not exist`;
+    if (!v6.forwarding) return 'radvd: IPv6 forwarding setting is: 0, should be 1 or 2';
+    v6.radvd = { ...config, args: [...args] };
+    for (const port of this.ip.ports) v6.advertise(port);
+    this.fabric.changed();
+    return null;
+  }
+
+  /** Stops radvd; like the real one, it first announces that it is no longer a router. */
+  stopRadvd(): boolean {
+    const v6 = this.ip?.v6;
+    if (!v6?.radvd) return false;
+    for (const port of this.ip?.ports ?? []) v6.advertise(port, 0);
+    v6.radvd = null;
+    this.fabric.changed();
+    return true;
   }
 
   stopBird(): boolean {

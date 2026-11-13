@@ -61,13 +61,16 @@ describe('tcpdump', () => {
     expect(lines).toEqual([
       'tcpdump: verbose output suppressed, use -v[v]... for full protocol decode',
       'listening on eth0, link-type EN10MB (Ethernet), snapshot length 262144 bytes',
+      // Linux hosts ask for IPv6 routers as soon as their link comes up.
+      '00:00:00.000250 IP6 fe80::ff:fe00:1 > ff02::2: ICMP6, router solicitation, length 16',
+      '00:00:00.000250 IP6 fe80::ff:fe00:2 > ff02::2: ICMP6, router solicitation, length 16',
       '00:00:00.000250 ARP, Request who-has 10.0.0.2 tell 10.0.0.1',
       '00:00:00.000500 ARP, Reply 10.0.0.2 is-at 02:00:00:00:00:02',
       '00:00:00.000750 IP 10.0.0.1 > 10.0.0.2: ICMP echo request, id 1, seq 1, ttl 64',
       '00:00:00.001000 IP 10.0.0.2 > 10.0.0.1: ICMP echo reply, id 1, seq 1, ttl 64',
       '',
-      '4 packets captured',
-      '4 packets received by filter',
+      '6 packets captured',
+      '6 packets received by filter',
       '0 packets dropped by kernel',
     ]);
   });

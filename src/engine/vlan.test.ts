@@ -102,7 +102,9 @@ describe('VLANs', () => {
     sh(net, pc2, 'ip route add default via 192.168.20.1');
     net.trace = [];
     expect(pings(net, pc1, '192.168.20.2')).toBe(true);
-    const trunk = net.trace.filter((e) => e.from.device === r1.id || e.to.device === r1.id);
+    const trunk = net.trace.filter(
+      (e) => (e.from.device === r1.id || e.to.device === r1.id) && e.frame.payload.kind !== 'ipv6',
+    );
     expect(trunk.length).toBeGreaterThan(0);
     expect(trunk.every((e) => e.frame.vlan === 10 || e.frame.vlan === 20)).toBe(true);
     const access = net.trace.filter((e) => e.from.device === pc1.id || e.to.device === pc1.id);

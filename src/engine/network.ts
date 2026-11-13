@@ -1,6 +1,8 @@
 import { formatCidr, formatIp, macFromIndex, parseCidr, parseIp } from './addr.ts';
 import { defaultVlans, type Bridge } from './bridge.ts';
 import { Device, type Fabric } from './device.ts';
+import { formatCidr6, formatIp6, parseCidr6, parseIp6 } from './addr6.ts';
+import type { Ip6Stack } from './ip6.ts';
 import { formatRuleset, runNft } from './nft.ts';
 import { DEFAULT_PRIORITY } from './stp.ts';
 import type { EthernetFrame } from './packet.ts';
@@ -37,9 +39,16 @@ export interface NetworkSnapshot {
       dovecot?: string[];
       hostapd?: string[];
       bird?: string[];
+      radvd?: string[];
     };
     /** Files on the device (absolute path to text). */
     files?: Record<string, string>;
+    /** IPv6 settings: static addresses per interface, static routes, forwarding. */
+    ip6?: {
+      forwarding: boolean;
+      addrs: Record<string, string[]>;
+      routes: { dst: string; via?: string; dev: string }[];
+    };
     /** The nftables ruleset, as `nft list ruleset` prints it. */
     firewall?: string;
     /** VLAN interfaces (`eth0.10`), in creation order. */
@@ -64,6 +73,48 @@ export interface NetworkSnapshot {
 }
 
 type BridgeSnapshot = NonNullable<NetworkSnapshot['devices'][number]['bridge']>;
+type Ip6Snapshot = NonNullable<NetworkSnapshot['devices'][number]['ip6']>;
+
+/** Static IPv6 settings; link-local and autoconfigured addresses come back by themselves. */
+function ip6JSON(v6: Ip6Stack): Ip6Snapshot {
+  const addrs: Record<string, string[]> = {};
+  for (const [name, list] of v6.addrs) {
+    const statics = list.filter((a) => a.origin === 'static').map((a) => formatCidr6(a.cidr));
+    if (statics.length > 0) addrs[name] = statics;
+  }
+  return {
+    forwarding: v6.forwarding,
+    addrs,
+    routes: v6.staticRoutes.map((r) => ({
+      dst: formatCidr6(r.dst),
+      ...(r.via === null ? {} : { via: formatIp6(r.via) }),
+      dev: r.dev.name,
+    })),
+  };
+}
+
+function loadIp6(device: Device, saved: Ip6Snapshot): void {
+  const v6 = device.ip?.v6;
+  if (!v6) return;
+  v6.forwarding = saved.forwarding;
+  for (const [name, list] of Object.entries(saved.addrs)) {
+    const port = device.port(name);
+    for (const text of list) {
+      const cidr = parseCidr6(text);
+      if (!port || !cidr || v6.addAddress(port, cidr)) {
+        throw new Error(`Invalid IPv6 address ${text} on ${device.id}`);
+      }
+    }
+  }
+  for (const r of saved.routes) {
+    const dst = parseCidr6(r.dst);
+    const via = r.via === undefined ? null : parseIp6(r.via);
+    const dev = device.port(r.dev);
+    if (!dst || (r.via !== undefined && via === null) || !dev || v6.addRoute(dst, via, dev)) {
+      throw new Error(`Invalid IPv6 route ${r.dst} on ${device.id}`);
+    }
+  }
+}
 
 function isDefaultBridge(bridge: Bridge): boolean {
   const def = defaultVlans();
@@ -300,9 +351,10 @@ export class Network implements Fabric {
               },
             }
           : {}),
-        ...(d.dnsmasq || d.httpd || d.postfix || d.dovecot || d.hostapd || d.bird
+        ...(d.dnsmasq || d.httpd || d.postfix || d.dovecot || d.hostapd || d.bird || d.ip?.v6.radvd
           ? {
               services: {
+                ...(d.ip?.v6.radvd ? { radvd: [...d.ip.v6.radvd.args] } : {}),
                 ...(d.bird ? { bird: [...d.bird.args] } : {}),
                 ...(d.hostapd ? { hostapd: [...d.hostapd.args] } : {}),
                 ...(d.dnsmasq ? { dnsmasq: [...d.dnsmasq.args] } : {}),
@@ -326,6 +378,7 @@ export class Network implements Fabric {
           : {}),
         ...(d.bridge && !isDefaultBridge(d.bridge) ? { bridge: bridgeJSON(d.bridge) } : {}),
         ...(d.ip?.nf.active ? { firewall: formatRuleset(d.ip.nf.tables).join('\n') } : {}),
+        ...(d.ip ? { ip6: ip6JSON(d.ip.v6) } : {}),
       })),
       links: [...this.links.values()].map((l) => ({
         id: l.id,
@@ -404,6 +457,7 @@ export class Network implements Fabric {
           if (error) throw new Error(`${d.id}: ${error}`);
         }
       }
+      if (d.ip6 && device.ip) loadIp6(device, d.ip6);
       if (d.firewall !== undefined) {
         if (!device.ip) throw new Error(`${d.id} cannot have a firewall`);
         const error = runNft(device.ip.nf, d.firewall, () => {});
@@ -420,6 +474,10 @@ export class Network implements Fabric {
       }
       if (d.services?.bird) {
         const error = device.startBird(d.services.bird);
+        if (error) throw new Error(`${d.id}: ${error}`);
+      }
+      if (d.services?.radvd) {
+        const error = device.startRadvd(d.services.radvd);
         if (error) throw new Error(`${d.id}: ${error}`);
       }
       if (d.services?.httpd) {

@@ -1,4 +1,5 @@
 import { formatIp, type Ip, type Mac } from './addr.ts';
+import { formatCidr6, formatIp6, type Cidr6, type Ip6 } from './addr6.ts';
 
 export interface ArpPacket {
   kind: 'arp';
@@ -122,6 +123,29 @@ function describeTcp(t: TcpSegment): string {
   return `Flags ${tcpFlags(t.flags)}, ${seq}${ack}, length ${length}${app}`;
 }
 
+/** ICMPv6, including Neighbor Discovery (NDP) and router advertisements (SLAAC). */
+export type Icmp6Packet =
+  | { kind: 'icmp6'; type: 'echo-request' | 'echo-reply'; id: number; seq: number }
+  | { kind: 'icmp6'; type: 'neighbor-solicitation'; target: Ip6 }
+  | { kind: 'icmp6'; type: 'neighbor-advertisement'; target: Ip6; solicited: boolean }
+  | { kind: 'icmp6'; type: 'router-solicitation' }
+  | { kind: 'icmp6'; type: 'router-advertisement'; prefixes: Cidr6[]; lifetime: number }
+  | { kind: 'icmp6'; type: 'time-exceeded'; original: Ipv6Packet }
+  | {
+      kind: 'icmp6';
+      type: 'dest-unreachable';
+      code: 'route' | 'address' | 'port';
+      original: Ipv6Packet;
+    };
+
+export interface Ipv6Packet {
+  kind: 'ipv6';
+  src: Ip6;
+  dst: Ip6;
+  hopLimit: number;
+  payload: Icmp6Packet;
+}
+
 /** Destination MAC of Spanning Tree BPDUs (the 802.1D bridge group address). */
 export const STP_MAC = '01:80:c2:00:00:00';
 
@@ -141,7 +165,7 @@ export interface EthernetFrame {
   dst: Mac;
   /** 802.1Q tag: the VLAN id on trunk links; absent on untagged frames. */
   vlan?: number;
-  payload: ArpPacket | Ipv4Packet | BpduPacket;
+  payload: ArpPacket | Ipv4Packet | Ipv6Packet | BpduPacket;
 }
 
 function describeIcmp(p: Ipv4Packet, icmp: IcmpPacket): string {
@@ -190,8 +214,32 @@ export function describeFrame(frame: EthernetFrame): string {
   return frame.vlan === undefined ? text : `vlan ${frame.vlan}, ${text}`;
 }
 
+function describeIcmp6(p: Ipv6Packet): string {
+  const m = p.payload;
+  switch (m.type) {
+    case 'echo-request':
+    case 'echo-reply':
+      return `ICMP6, echo ${m.type === 'echo-request' ? 'request' : 'reply'}, id ${m.id}, seq ${m.seq}, length 64`;
+    case 'neighbor-solicitation':
+      return `ICMP6, neighbor solicitation, who has ${formatIp6(m.target)}, length 32`;
+    case 'neighbor-advertisement':
+      return `ICMP6, neighbor advertisement, tgt is ${formatIp6(m.target)}, length 32`;
+    case 'router-solicitation':
+      return 'ICMP6, router solicitation, length 16';
+    case 'router-advertisement':
+      return `ICMP6, router advertisement, length ${16 + 32 * m.prefixes.length}${m.prefixes.length ? `, prefix ${m.prefixes.map(formatCidr6).join(' ')}` : ''}`;
+    case 'time-exceeded':
+      return 'ICMP6, time exceeded in-transit';
+    case 'dest-unreachable':
+      return `ICMP6, destination unreachable, unreachable ${m.code} ${formatIp6(m.original.dst)}`;
+  }
+}
+
 function describePayload(frame: EthernetFrame): string {
   const p = frame.payload;
+  if (p.kind === 'ipv6') {
+    return `IP6 ${formatIp6(p.src)} > ${formatIp6(p.dst)}: ${describeIcmp6(p)}`;
+  }
   if (p.kind === 'bpdu') {
     const flags = p.tc ? 'Topology change' : 'none';
     return `STP 802.1d, Config, Flags [${flags}], bridge-id ${p.bridgeId}.${p.portId.toString(16)}, length 35`;
@@ -219,6 +267,7 @@ export type Protocol =
   | 'arp'
   | 'stp'
   | 'icmp'
+  | 'icmp6'
   | 'ospf'
   | 'udp'
   | 'dhcp'
@@ -234,6 +283,7 @@ export function protocolOf(frame: EthernetFrame): Protocol {
   const p = frame.payload;
   if (p.kind === 'arp') return 'arp';
   if (p.kind === 'bpdu') return 'stp';
+  if (p.kind === 'ipv6') return 'icmp6';
   if (p.payload.kind === 'icmp') return 'icmp';
   if (p.payload.kind === 'ospf') return 'ospf';
   if (p.payload.kind === 'tcp') {

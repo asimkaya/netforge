@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { formatIp } from '../engine/addr.ts';
+import { formatCidr6, formatIp6 } from '../engine/addr6.ts';
 import type { Network, TraceEntry } from '../engine/network.ts';
 import {
   describeFrame,
@@ -28,9 +29,44 @@ function layers(frame: EthernetFrame): { name: string; fields: Field[] }[] {
       ['Destination', frame.dst],
       ['Source', frame.src],
       ...(frame.vlan === undefined ? [] : [['802.1Q VLAN', String(frame.vlan)] satisfies Field]),
-      ['Type', { arp: 'ARP (0x0806)', ipv4: 'IPv4 (0x0800)', bpdu: 'LLC, Spanning Tree' }[p.kind]],
+      [
+        'Type',
+        {
+          arp: 'ARP (0x0806)',
+          ipv4: 'IPv4 (0x0800)',
+          ipv6: 'IPv6 (0x86dd)',
+          bpdu: 'LLC, Spanning Tree',
+        }[p.kind],
+      ],
     ] satisfies Field[],
   };
+  if (p.kind === 'ipv6') {
+    const m = p.payload;
+    const fields: Field[] = [['Type', m.type.replaceAll('-', ' ')]];
+    if (m.type === 'echo-request' || m.type === 'echo-reply') {
+      fields.push(['Identifier', String(m.id)], ['Sequence', String(m.seq)]);
+    } else if (m.type === 'neighbor-solicitation' || m.type === 'neighbor-advertisement') {
+      fields.push(['Target address', formatIp6(m.target)]);
+    } else if (m.type === 'router-advertisement') {
+      fields.push(['Router lifetime', `${m.lifetime} s`]);
+      for (const prefix of m.prefixes) fields.push(['Prefix', formatCidr6(prefix)]);
+    } else if (m.type === 'time-exceeded' || m.type === 'dest-unreachable') {
+      fields.push(['About packet to', formatIp6(m.original.dst)]);
+    }
+    return [
+      ethernet,
+      {
+        name: 'Internet Protocol version 6',
+        fields: [
+          ['Source', formatIp6(p.src)],
+          ['Destination', formatIp6(p.dst)],
+          ['Hop limit', String(p.hopLimit)],
+          ['Next header', 'ICMPv6 (58)'],
+        ],
+      },
+      { name: 'Internet Control Message Protocol v6', fields },
+    ];
+  }
   if (p.kind === 'bpdu') {
     return [
       ethernet,

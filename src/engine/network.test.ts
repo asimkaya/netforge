@@ -65,7 +65,9 @@ describe('Network', () => {
     net.connect(pc1, pc2);
     const events = ping(net, pc1, '10.0.0.2');
     expect(events).toEqual([{ kind: 'reply', from: ip('10.0.0.2'), seq: 1, ttl: 64 }]);
-    expect(net.trace.map((t) => t.frame.payload.kind)).toEqual(['arp', 'arp', 'ipv4', 'ipv4']);
+    // IPv6 router solicitations from the link coming up are left out.
+    const v4 = net.trace.filter((t) => t.frame.payload.kind !== 'ipv6');
+    expect(v4.map((t) => t.frame.payload.kind)).toEqual(['arp', 'arp', 'ipv4', 'ipv4']);
     expect(ipOf(pc1).neighbors.get(ip('10.0.0.2'))?.state).toBe('REACHABLE');
     expect(ipOf(pc2).neighbors.get(ip('10.0.0.1'))?.mac).toBe(pc1.ports[0]?.mac);
     expect(ipOf(pc1).echoRepliesFrom.has(ip('10.0.0.2'))).toBe(true);
@@ -84,12 +86,17 @@ describe('Network', () => {
     });
     expect(ping(net, pc1, '192.168.1.3')).toHaveLength(1);
     const learned = fdbOf(sw).map((e) => [e.mac, e.port.name]);
+    // pc2 never pinged, but its IPv6 router solicitation (sent when its cable went in)
+    // taught the switch where it is.
     expect(learned).toEqual([
       [pc1.ports[0]?.mac, 'eth0'],
+      [pc2.ports[0]?.mac, 'eth1'],
       [pc3.ports[0]?.mac, 'eth2'],
     ]);
     // The ARP request was flooded to pc2, but the unicast echo was not.
-    const toPc2 = net.trace.filter((t) => t.to.device === pc2.id);
+    const toPc2 = net.trace.filter(
+      (t) => t.to.device === pc2.id && t.frame.payload.kind !== 'ipv6',
+    );
     expect(toPc2.map((t) => t.frame.payload.kind)).toEqual(['arp']);
   });
 

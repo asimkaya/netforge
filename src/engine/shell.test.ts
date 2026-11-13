@@ -31,6 +31,7 @@ describe('shell', () => {
       '1: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 state UP',
       `    link/ether ${pc1.ports[0]?.mac} brd ff:ff:ff:ff:ff:ff`,
       '    inet 192.168.1.10/24 brd 192.168.1.255 scope global eth0',
+      `    inet6 fe80::ff:fe00:${pc1.ports[0]?.mac.slice(-2).replace(/^0/, '')}/64 scope link`,
     ]);
     expect(sh(net, pc1, 'ip route').lines).toEqual([
       '192.168.1.0/24 dev eth0 proto kernel scope link src 192.168.1.10',

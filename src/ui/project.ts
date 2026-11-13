@@ -5,7 +5,7 @@ import type { Point } from './lab.ts';
 
 export const PROJECT_FORMAT = 'netforge-lab';
 /** Bump on any incompatible change and add a migration for the previous version. */
-export const PROJECT_VERSION = 7;
+export const PROJECT_VERSION = 8;
 
 export interface TaskProgress {
   /** Id of the task being played, if any. */
@@ -111,7 +111,7 @@ function readIpSettings(value: unknown, what: string) {
 function readServices(value: unknown, what: string) {
   const services = obj(value, `${what} services`);
   const list = (
-    key: 'dnsmasq' | 'httpd' | 'postfix' | 'dovecot' | 'hostapd' | 'bird',
+    key: 'dnsmasq' | 'httpd' | 'postfix' | 'dovecot' | 'hostapd' | 'bird' | 'radvd',
     pattern: RegExp,
   ) =>
     services[key] === undefined
@@ -128,6 +128,7 @@ function readServices(value: unknown, what: string) {
     ...list('dovecot', /^$/),
     ...list('hostapd', /^[\w./-]{1,240}$/),
     ...list('bird', /^[\w./-]{1,240}$/),
+    ...list('radvd', /^[\w./-]{1,240}$/),
   };
 }
 
@@ -174,6 +175,32 @@ function readBridge(value: unknown, what: string) {
   };
 }
 
+const CIDR6 = /^[0-9a-f:]{2,39}(\/[0-9]{1,3})?$/;
+const IP6 = /^[0-9a-f:]{2,39}$/;
+
+function readIp6(value: unknown, what: string) {
+  const v = obj(value, `${what} IPv6 settings`);
+  if (typeof v.forwarding !== 'boolean') fail(`${what} IPv6 forwarding setting is invalid.`);
+  const addrs: Record<string, string[]> = {};
+  for (const [name, list] of Object.entries(obj(v.addrs, `${what} IPv6 addresses`))) {
+    addrs[str(name, `${what} interface name`, IFNAME)] = arr(list, `${what} IPv6 addresses`).map(
+      (a) => str(a, `${what} IPv6 address`, CIDR6),
+    );
+  }
+  return {
+    forwarding: v.forwarding,
+    addrs,
+    routes: arr(v.routes, `${what} IPv6 routes`).map((raw) => {
+      const r = obj(raw, `${what} IPv6 route`);
+      return {
+        dst: str(r.dst, `${what} IPv6 route destination`, CIDR6),
+        ...(r.via === undefined ? {} : { via: str(r.via, `${what} IPv6 route gateway`, IP6) }),
+        dev: str(r.dev, `${what} IPv6 route device`, IFNAME),
+      };
+    }),
+  };
+}
+
 /** Device files: sizes are checked again when the engine writes them. */
 function readFiles(value: unknown, what: string): Record<string, string> {
   const files: Record<string, string> = {};
@@ -214,6 +241,7 @@ function readSnapshot(value: unknown): NetworkSnapshot {
         ? {}
         : { vlanPorts: readVlanPorts(d.vlanPorts, `device #${i + 1}`) }),
       ...(d.bridge === undefined ? {} : { bridge: readBridge(d.bridge, `device #${i + 1}`) }),
+      ...(d.ip6 === undefined ? {} : { ip6: readIp6(d.ip6, `device #${i + 1}`) }),
       // The engine parses the ruleset; this only bounds its size.
       ...(d.firewall === undefined
         ? {}
@@ -281,6 +309,8 @@ const MIGRATIONS: Record<number, (file: Json) => Json> = {
   5: (file) => file,
   // v7 adds Spanning Tree settings (`stp`, `priority`) to the switch settings.
   6: (file) => file,
+  // v8 adds IPv6 settings (`ip6`) and the radvd service.
+  7: (file) => file,
   // v2: devices name a spec instead of a kind; switches gain two SFP uplinks (eth8, eth9);
   // per-kind name counters become per-prefix counters.
   1: (file) => {
