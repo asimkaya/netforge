@@ -14,6 +14,7 @@ import { DEFAULT_TTL } from './ip.ts';
 import type { Network } from './network.ts';
 import { hasCarrier, type Port } from './port.ts';
 import { cat, echo, ls, mkdir, parseLine, pwd, rm, touch } from './shell-files.ts';
+import { conntrack, nft } from './shell-firewall.ts';
 import {
   curl,
   dhclientCommand,
@@ -86,6 +87,8 @@ const HELP = [
   '  nmcli dev wifi list                list Wi-Fi networks in range',
   '  nmcli dev wifi connect SSID password PASS   join a Wi-Fi network',
   '  hostapd -B /etc/hostapd/hostapd.conf        start an access point (APs)',
+  '  nft list ruleset | nft add ...     firewall and NAT (see nft with no arguments)',
+  '  conntrack -L                       list tracked connections (firewall, NAT)',
   '  ss -t                              list TCP sockets',
   '  hostname [NAME]                    show or set the device name',
   '  ls, cat, echo TEXT > FILE, rm, touch, mkdir, pwd   work with files',
@@ -776,7 +779,10 @@ const ping: Command = (net, device, args, io) => {
       const seq = ++sent;
       sentAt.set(seq, scheduler.now);
       const error = stack.sendIcmp(dst, { kind: 'icmp', type: 'echo-request', id, seq }, ttl);
-      if (error) {
+      if (error === 'Operation not permitted') {
+        // Dropped by the firewall's output chain: Linux ping reports it and keeps going.
+        io.out(`ping: sendmsg: ${error}`);
+      } else if (error) {
         done = true;
         stack.closeIcmp(id);
         io.out(`ping: connect: ${error}`);
@@ -795,6 +801,8 @@ const ping: Command = (net, device, args, io) => {
 
 const COMMANDS: Record<string, Command> = {
   ip,
+  nft,
+  conntrack,
   cat,
   curl,
   echo,

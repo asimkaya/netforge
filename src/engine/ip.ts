@@ -18,6 +18,7 @@ import type {
   UdpDatagram,
   UnreachableCode,
 } from './packet.ts';
+import { Netfilter, type Tracked } from './netfilter.ts';
 import { hasCarrier, type Port } from './port.ts';
 import { TcpLayer, type TcpHost } from './tcp.ts';
 
@@ -116,7 +117,15 @@ export class IpStack implements TcpHost {
     public forwarding = false,
   ) {
     this.ports = [...ports];
+    this.nf = new Netfilter(
+      fabric.scheduler,
+      (port) => this.addrsOn(port)[0]?.ip ?? null,
+      () => fabric.changed(),
+    );
   }
+
+  /** nftables rules and connection tracking (`nft`, `conntrack`). */
+  readonly nf: Netfilter;
 
   /** Routed interfaces: physical ports, then VLAN interfaces as they are added. */
   readonly ports: Port[];
@@ -319,12 +328,33 @@ export class IpStack implements TcpHost {
       this.#handleArp(port, p);
       return;
     }
-    const local =
-      this.ownsIp(p.dst) ||
-      p.dst === LIMITED_BROADCAST ||
-      this.addrsOn(port).some((a) => broadcastOf(a) === p.dst);
-    if (local) this.#deliver(p, port);
-    else if (this.forwarding && frame.dst === port.mac) this.#forward(p);
+    const isLocal = (q: Ipv4Packet) =>
+      this.ownsIp(q.dst) ||
+      q.dst === LIMITED_BROADCAST ||
+      this.addrsOn(port).some((a) => broadcastOf(a) === q.dst);
+    if (!this.nf.active) {
+      if (isLocal(p)) this.#deliver(p, port);
+      else if (this.forwarding && frame.dst === port.mac) this.#forward(p, port, null);
+      return;
+    }
+    // Netfilter: prerouting (DNAT), then input for us or forward + postrouting for others.
+    const { t, verdict } = this.nf.enter(p, { hook: 'prerouting', in: port, out: null });
+    if (verdict !== 'accept') return;
+    if (isLocal(t.packet)) {
+      const v = this.nf.leave(t, { hook: 'input', in: port, out: null });
+      if (v === 'accept') this.#deliver(t.packet, port);
+      else if (v === 'reject') this.#reject(t.packet);
+    } else if (this.forwarding && frame.dst === port.mac) this.#forward(t.packet, port, t);
+  }
+
+  /** `reject`: ICMP port unreachable to the sender, the nftables default for IPv4. */
+  #reject(packet: Ipv4Packet): void {
+    this.#icmpError(packet, {
+      kind: 'icmp',
+      type: 'dest-unreachable',
+      code: 'port',
+      original: packet,
+    });
   }
 
   /** Forgets neighbors learned on `port` (all ports when omitted), like `ip neigh flush`. */
@@ -362,11 +392,24 @@ export class IpStack implements TcpHost {
     }
     const route = this.routeTo(dst);
     if (!route) return 'Network is unreachable';
-    this.#output(route, { kind: 'ipv4', src: src ?? route.src, dst, ttl, payload });
+    const packet: Ipv4Packet = { kind: 'ipv4', src: src ?? route.src, dst, ttl, payload };
+    if (!this.nf.active) {
+      this.#output(route, packet);
+      return null;
+    }
+    const { t, verdict } = this.nf.enter(packet, { hook: 'output', in: null, out: route.port });
+    if (verdict !== 'accept') return 'Operation not permitted';
+    // DNAT in the output chain can change where the packet goes.
+    const out = t.packet.dst === dst ? route : this.routeTo(t.packet.dst);
+    if (!out) return 'Network is unreachable';
+    if (this.nf.leave(t, { hook: 'postrouting', in: null, out: out.port }) !== 'accept') {
+      return 'Operation not permitted';
+    }
+    this.#output(out, t.packet);
     return null;
   }
 
-  #forward(packet: Ipv4Packet): void {
+  #forward(packet: Ipv4Packet, from: Port, t: Tracked | null): void {
     // Like Linux, look the route up first: no route means "net unreachable" whatever the TTL.
     const route = this.routeTo(packet.dst);
     if (!route) {
@@ -377,7 +420,19 @@ export class IpStack implements TcpHost {
       this.#icmpError(packet, { kind: 'icmp', type: 'time-exceeded', original: packet });
       return;
     }
-    this.#output(route, { ...packet, ttl: packet.ttl - 1 });
+    const next = { ...packet, ttl: packet.ttl - 1 };
+    if (!t) {
+      this.#output(route, next);
+      return;
+    }
+    t.packet = next;
+    const where = { hook: 'forward' as const, in: from, out: route.port };
+    const verdict = this.nf.filter(t, where);
+    if (verdict === 'reject') this.#reject(packet);
+    if (verdict !== 'accept') return;
+    if (this.nf.leave(t, { ...where, hook: 'postrouting' }) === 'accept') {
+      this.#output(route, t.packet);
+    }
   }
 
   #output(route: Route, packet: Ipv4Packet): void {
@@ -514,7 +569,10 @@ export class IpStack implements TcpHost {
     switch (p.type) {
       case 'echo-request':
         // Like Linux (icmp_echo_ignore_broadcasts), broadcast pings get no answer.
-        if (this.ownsIp(packet.dst)) this.#send(packet.src, { ...p, type: 'echo-reply' });
+        // The reply comes from the address that was pinged, like Linux.
+        if (this.ownsIp(packet.dst)) {
+          this.#send(packet.src, { ...p, type: 'echo-reply' }, DEFAULT_TTL, packet.dst);
+        }
         return;
       case 'echo-reply':
         if (!this.echoRepliesFrom.has(packet.src)) {

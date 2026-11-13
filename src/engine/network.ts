@@ -1,6 +1,7 @@
 import { formatCidr, formatIp, macFromIndex, parseCidr, parseIp } from './addr.ts';
 import { defaultVlans, type Bridge } from './bridge.ts';
 import { Device, type Fabric } from './device.ts';
+import { formatRuleset, runNft } from './nft.ts';
 import type { EthernetFrame } from './packet.ts';
 import { MEDIUM_OF, cableError, hasCarrier, peerOf, type Link, type Port } from './port.ts';
 import { Scheduler } from './scheduler.ts';
@@ -37,6 +38,8 @@ export interface NetworkSnapshot {
     };
     /** Files on the device (absolute path to text). */
     files?: Record<string, string>;
+    /** The nftables ruleset, as `nft list ruleset` prints it. */
+    firewall?: string;
     /** VLAN interfaces (`eth0.10`), in creation order. */
     vlanPorts?: { name: string; parent: string; vid: number; up: boolean; addrs: string[] }[];
     /** Switch VLAN settings, when they differ from the defaults. */
@@ -299,6 +302,7 @@ export class Network implements Fabric {
             }
           : {}),
         ...(d.bridge && !isDefaultBridge(d.bridge) ? { bridge: bridgeJSON(d.bridge) } : {}),
+        ...(d.ip?.nf.active ? { firewall: formatRuleset(d.ip.nf.tables).join('\n') } : {}),
       })),
       links: [...this.links.values()].map((l) => ({
         id: l.id,
@@ -376,6 +380,11 @@ export class Network implements Fabric {
           const error = device.fs.write(path, text);
           if (error) throw new Error(`${d.id}: ${error}`);
         }
+      }
+      if (d.firewall !== undefined) {
+        if (!device.ip) throw new Error(`${d.id} cannot have a firewall`);
+        const error = runNft(device.ip.nf, d.firewall, () => {});
+        if (error) throw new Error(`${d.id} firewall: ${error}`);
       }
       for (const kind of ['postfix', 'dovecot'] as const) {
         if (!d.services?.[kind]) continue;

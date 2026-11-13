@@ -204,6 +204,10 @@ function readSnapshot(value: unknown): NetworkSnapshot {
         ? {}
         : { vlanPorts: readVlanPorts(d.vlanPorts, `device #${i + 1}`) }),
       ...(d.bridge === undefined ? {} : { bridge: readBridge(d.bridge, `device #${i + 1}`) }),
+      // The engine parses the ruleset; this only bounds its size.
+      ...(d.firewall === undefined
+        ? {}
+        : { firewall: str(d.firewall, `device #${i + 1} firewall`, /^[^]{0,100000}$/) }),
     };
   });
   const links = arr(n.links, 'network.links').map((value, i) => {
@@ -262,7 +266,8 @@ const MIGRATIONS: Record<number, (file: Json) => Json> = {
   3: (file) => file,
   // v5 adds laptops, phones, access points and the hostapd service.
   4: (file) => file,
-  // v6 adds optional VLAN interfaces (`vlanPorts`) and switch VLAN settings (`bridge`).
+  // v6 adds optional VLAN interfaces (`vlanPorts`), switch VLAN settings (`bridge`) and the
+  // nftables ruleset (`firewall`).
   5: (file) => file,
   // v2: devices name a spec instead of a kind; switches gain two SFP uplinks (eth8, eth9);
   // per-kind name counters become per-prefix counters.
