@@ -42,7 +42,8 @@ docs/         architecture, roadmap, features, ADRs
 
 ## Gotchas
 
-- TypeScript is pinned to 6.0.x because typescript-eslint does not support 7.x yet.
+- `tsc` is TypeScript 7 (`@typescript/native` alias); the `typescript` package is the 6.0
+  API for typescript-eslint. Do not "fix" this by installing plain `typescript`. See ADR 0006.
 - React Flow's dark background is overridden through `--xy-background-color` in
   `src/ui/index.css`; theme tokens are the `--nf-*` custom properties there.
 - `docs/RAPOR.md` is a private, git-ignored planning note. Do not commit it.
