@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { Network } from '../engine/network.ts';
 import { run, type Process } from '../engine/shell.ts';
+import { emptyProgress, type Project, type TaskProgress } from './project.ts';
 
 export interface Point {
   x: number;
@@ -30,22 +31,24 @@ export interface LabState {
   commands: CommandRecord[];
   /** Short message shown as a toast. */
   notice: string | null;
+  tasks: TaskProgress;
 }
 
 /**
  * The single UI-side store: the live Network plus UI-only state.
  * The Network is mutable; `tick` changes whenever anything observable does.
  */
-let state: LabState = freshState(new Network(), {});
+let state: LabState = freshState({ net: new Network(), layout: {}, tasks: emptyProgress() });
 let tick = 0;
 const listeners = new Set<() => void>();
 const sessions = new Map<string, TerminalSession>();
 let unsubscribeNet = state.net.subscribe(emit);
 
-function freshState(net: Network, layout: Record<string, Point>): LabState {
+function freshState({ net, layout, tasks }: Project): LabState {
   return {
     net,
     layout,
+    tasks,
     selected: null,
     terminal: null,
     mode: 'realtime',
@@ -88,16 +91,12 @@ export function useLab(): LabState {
 }
 
 /** Replaces the whole lab (new task, import, restore from storage). */
-export function loadLab(
-  net: Network,
-  layout: Record<string, Point>,
-  commands: CommandRecord[] = [],
-): void {
+export function loadLab(project: Project): void {
   for (const session of sessions.values()) session.process?.interrupt();
   sessions.clear();
   unsubscribeNet();
-  state = { ...freshState(net, layout), mode: state.mode, commands };
-  unsubscribeNet = net.subscribe(emit);
+  state = { ...freshState(project), mode: state.mode };
+  unsubscribeNet = project.net.subscribe(emit);
   emit();
 }
 
@@ -130,6 +129,10 @@ export function select(id: string | null): void {
 
 export function openTerminal(id: string | null): void {
   update({ terminal: id, ...(id ? { selected: id } : {}) });
+}
+
+export function setTasks(tasks: TaskProgress): void {
+  update({ tasks });
 }
 
 export function setMode(mode: Mode): void {

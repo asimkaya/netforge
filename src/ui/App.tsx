@@ -2,6 +2,7 @@ import { ReactFlowProvider } from '@xyflow/react';
 import { Canvas } from './Canvas.tsx';
 import { useRealtimeClock } from './clock.ts';
 import { Inspector } from './Inspector.tsx';
+import { LabMenu } from './LabMenu.tsx';
 import { useLab } from './lab.ts';
 import { Palette } from './Palette.tsx';
 import { Terminal } from './Terminal.tsx';
@@ -16,6 +17,9 @@ export function App() {
         <header className="flex h-12 shrink-0 items-center gap-2 border-b border-(--nf-border) bg-(--nf-surface) px-4">
           <img src="/favicon.svg" alt="" className="h-6 w-6" />
           <h1 className="text-base font-semibold tracking-tight">NetForge</h1>
+          <div className="ml-auto">
+            <LabMenu />
+          </div>
         </header>
         <div className="flex min-h-0 flex-1">
           <Palette />
