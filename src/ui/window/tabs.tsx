@@ -6,6 +6,7 @@ import { Capture } from '../apps/Capture.tsx';
 import { IpConfig, PortForm } from '../apps/IpConfig.tsx';
 import { Mail } from '../apps/Mail.tsx';
 import { TextEditor } from '../apps/TextEditor.tsx';
+import { Ipv6Box, RadvdSection } from '../apps/Ipv6Config.tsx';
 import { Wifi } from '../apps/Wifi.tsx';
 import {
   MailServerSection,
@@ -190,6 +191,7 @@ export function ConfigTab({ device }: { device: Device }) {
           {device.ip.ports.map((port) => (
             <PortForm key={port.name} device={device} port={port} />
           ))}
+          <Ipv6Box device={device} />
         </Section>
       )}
       <WirelessSection device={device} />
@@ -198,6 +200,7 @@ export function ConfigTab({ device }: { device: Device }) {
       <VlanInterfacesSection device={device} />
       {(device.ip?.ports.length ?? 0) > 0 && <RoutingSection device={device} />}
       <OspfSection device={device} />
+      <RadvdSection device={device} />
       <FirewallSection device={device} />
       <ServicesSection device={device} />
       <WebServerSection device={device} />

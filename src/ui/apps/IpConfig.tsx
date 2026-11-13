@@ -3,6 +3,7 @@ import { formatCidr, formatIp, maskOf, parseIp, type Ip } from '../../engine/add
 import { dhclient, dhcpRelease } from '../../engine/dhcp.ts';
 import type { Device } from '../../engine/device.ts';
 import { hasCarrier, type Port } from '../../engine/port.ts';
+import { Ipv6Box } from './Ipv6Config.tsx';
 
 export const FIELD = 'rounded border border-(--nf-border) bg-(--nf-bg) px-2 py-1 font-mono text-xs';
 export const PRIMARY =
@@ -286,6 +287,7 @@ export function IpConfig({ device }: { device: Device }) {
         <PortForm key={port.name} device={device} port={port} />
       ))}
       <GatewayDns device={device} />
+      <Ipv6Box device={device} />
       <section className="space-y-1 text-xs">
         <h3 className="text-[10px] font-semibold tracking-wider text-(--nf-muted) uppercase">
           Known neighbors (ARP table, <code>ip neigh</code>)
