@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react';
 import { formatCidr } from '../engine/addr.ts';
 import type { Device } from '../engine/device.ts';
 import { PORT_TYPE_LABEL, hasCarrier, peerOf, type Port } from '../engine/port.ts';
-import { getLab, openTerminal } from './lab.ts';
+import { getLab } from './lab.ts';
 
 export type DeviceNodeType = Node<
   { deviceId: string; version: number; activity: Record<string, number> },
@@ -178,7 +178,6 @@ export function DeviceNode({ id, data, selected }: NodeProps<DeviceNodeType>) {
       className={`relative rounded-xl border bg-(--nf-surface) shadow-sm transition-colors ${
         selected ? 'border-(--nf-accent)' : 'border-(--nf-border)'
       }`}
-      onDoubleClick={() => openTerminal(device.id)}
       data-testid={`device-${device.name}`}
     >
       {/*

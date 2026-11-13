@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { add, connect, run } from './helpers.ts';
+import { add, connect, run, win } from './helpers.ts';
 
 test('simulation mode steps through a ping frame by frame', async ({ page }) => {
   await page.goto('/');
@@ -14,7 +14,7 @@ test('simulation mode steps through a ping frame by frame', async ({ page }) => 
   const events = page.getByRole('region', { name: 'Simulation events' });
   const rows = events.locator('tbody tr');
   await expect(rows).toHaveCount(0);
-  await expect(page.getByRole('log')).not.toContainText('64 bytes from');
+  await expect(win(page, 'pc1').getByRole('log')).not.toContainText('64 bytes from');
 
   const step = events.getByRole('button', { name: 'Step' });
   await step.click();
@@ -29,6 +29,8 @@ test('simulation mode steps through a ping frame by frame', async ({ page }) => 
   await expect(events).toContainText('0 (Echo reply)');
 
   // The ping only progressed because we stepped it; the reply ends it, like on Linux.
-  await expect(page.getByRole('log')).toContainText('1 packets transmitted, 1 received');
+  await expect(win(page, 'pc1').getByRole('log')).toContainText(
+    '1 packets transmitted, 1 received',
+  );
   await expect(step).toBeDisabled();
 });

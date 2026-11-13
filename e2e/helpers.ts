@@ -19,13 +19,44 @@ export async function connect(page: Page, from: string, to: string) {
   await page.mouse.up();
 }
 
-/** Opens a device's terminal and runs a command. */
+/** The window of a device (it may not be open yet). */
+export function win(page: Page, device: string) {
+  return page.getByRole('dialog', { name: device, exact: true });
+}
+
+/**
+ * Opens a device's window (or brings it to the front) like a click on the device. The event
+ * is dispatched to the node so a window covering the device on screen doesn't get in the way.
+ */
+export async function open(page: Page, device: string) {
+  const w = win(page, device);
+  await page.getByTestId(`device-${device}`).dispatchEvent('click');
+  await expect(w).toBeVisible();
+  return w;
+}
+
+/** Opens the device's shell: Desktop → Terminal on PCs, the CLI tab on switches. */
+export async function terminal(page: Page, device: string) {
+  const w = await open(page, device);
+  const desktop = w.getByRole('tab', { name: 'Desktop' });
+  if (await desktop.count()) {
+    await desktop.click();
+    const app = w.getByRole('button', { name: 'Terminal' });
+    if (await app.count()) await app.click();
+  } else {
+    await w.getByRole('tab', { name: 'CLI' }).click();
+  }
+  await expect(w.getByRole('textbox', { name: 'Command' })).toBeVisible();
+  return w;
+}
+
+/** Runs a command in a device's terminal and returns its window. */
 export async function run(page: Page, device: string, command: string) {
-  await page.getByTestId(`device-${device}`).dblclick({ position: { x: 20, y: 12 } });
-  const input = page.getByRole('textbox', { name: 'Command' });
-  await expect(input).toBeVisible();
+  const w = await terminal(page, device);
+  const input = w.getByRole('textbox', { name: 'Command' });
   await input.fill(command);
   await input.press('Enter');
+  return w;
 }
 
 export async function add(page: Page, label: 'PC' | 'Switch', times = 1) {

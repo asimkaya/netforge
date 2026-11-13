@@ -107,14 +107,15 @@ export const TASKS: Task[] = [
       {
         title: 'Give the first PC an IP address',
         detail:
-          'Double-click a PC to open its terminal, then type `ip addr add 192.168.1.10/24 dev eth0` and press Enter.',
+          'Click a PC to open it, go to Desktop → Terminal and type `ip addr add 192.168.1.10/24 dev eth0`. Prefer forms? Desktop → IP Configuration does the same.',
         hint: '`eth0` is the name of the network port. `/24` says the first three numbers are the network part.',
         check: ({ net }) =>
           cabledHostPairs(net).some(([a, b]) => addrsOf(a).length > 0 || addrsOf(b).length > 0),
       },
       {
         title: 'Give the second PC an address in the same network',
-        detail: 'Open the other PC’s terminal and type `ip addr add 192.168.1.20/24 dev eth0`.',
+        detail:
+          'Open the other PC and give it `192.168.1.20/24`, in the Terminal (`ip addr add 192.168.1.20/24 dev eth0`) or in IP Configuration.',
         hint: 'With /24, both addresses must start with the same three numbers (192.168.1) and end differently.',
         check: ({ net }) => cabledHostPairs(net).some(([a, b]) => shareSubnet(a, b)),
       },
@@ -160,7 +161,7 @@ export const TASKS: Task[] = [
       },
       {
         title: 'Look at what the switch learned',
-        detail: 'Open the switch’s terminal and run `bridge fdb show`.',
+        detail: 'Click the switch, open its CLI tab and run `bridge fdb show`.',
         hint: 'Each line is a MAC address and the port it was seen on. That is how the switch knows where to send frames.',
         check: ({ net, commands }) =>
           commands.some(

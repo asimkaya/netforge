@@ -1,13 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
+import { run } from './helpers.ts';
 import { readFile } from 'node:fs/promises';
 
 async function addAndAddress(page: Page) {
   await page.goto('/');
   await page.getByRole('button', { name: /Add PC/ }).click();
-  await page.getByTestId('device-pc1').dblclick();
-  const input = page.getByRole('textbox', { name: 'Command' });
-  await input.fill('ip addr add 10.9.8.7/24 dev eth0');
-  await input.press('Enter');
+  await run(page, 'pc1', 'ip addr add 10.9.8.7/24 dev eth0');
   await expect(page.getByTestId('device-pc1')).toContainText('10.9.8.7/24');
 }
 

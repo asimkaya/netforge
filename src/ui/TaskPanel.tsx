@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { Network } from '../engine/network.ts';
 import { TASKS, findTask } from '../tasks/tasks.ts';
 import { getLab, loadLab, setTasks, useLab } from './lab.ts';
@@ -46,7 +46,7 @@ function TaskList() {
         <h2 className="text-base font-semibold">Welcome to NetForge 👋</h2>
         <p className="text-(--nf-muted)">
           Build networks, wire them up and watch packets move. Start with a guided task, or just
-          drag devices onto the canvas and explore.
+          drag devices onto the canvas and click one to open it.
         </p>
       </div>
       <ul className="space-y-2">
@@ -163,14 +163,8 @@ function ActiveTask() {
   );
 }
 
-/** Right sidebar: current task on top; device details or the task list below. */
-export function Sidebar({ children }: { children: ReactNode }) {
-  const { tasks, selected } = useLab();
-  const active = findTask(tasks.active);
-  return (
-    <>
-      {active && <ActiveTask />}
-      {selected || active ? children : <TaskList />}
-    </>
-  );
+/** Right sidebar: the current task, or the welcome text and task list. */
+export function Sidebar() {
+  const { tasks } = useLab();
+  return findTask(tasks.active) ? <ActiveTask /> : <TaskList />;
 }

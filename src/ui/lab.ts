@@ -18,6 +18,23 @@ export interface TerminalSession {
   process: Process | null;
 }
 
+export type WindowTab = 'physical' | 'config' | 'desktop' | 'cli';
+export type AppId = 'terminal' | 'ipconfig';
+
+/** A device window floating over the canvas. */
+export interface DeviceWindow {
+  device: string;
+  /** Top-left corner inside the canvas, in px. */
+  x: number;
+  y: number;
+  /** Stacking order: the highest is in front. */
+  z: number;
+  tab: WindowTab;
+  /** App open on the Desktop tab, or null for the app grid. */
+  app: AppId | null;
+  minimized: boolean;
+}
+
 export interface CommandRecord {
   device: string;
   line: string;
@@ -27,7 +44,7 @@ export interface LabState {
   net: Network;
   layout: Record<string, Point>;
   selected: string | null;
-  terminal: string | null;
+  windows: DeviceWindow[];
   mode: Mode;
   /** Commands the user ran, oldest first (guided tasks read this). */
   commands: CommandRecord[];
@@ -52,7 +69,7 @@ function freshState({ net, layout, tasks }: Project): LabState {
     layout,
     tasks,
     selected: null,
-    terminal: null,
+    windows: [],
     mode: 'realtime',
     commands: [],
     notice: null,
@@ -130,7 +147,7 @@ export function removeDevice(id: string): void {
   update({
     layout,
     selected: state.selected === id ? null : state.selected,
-    terminal: state.terminal === id ? null : state.terminal,
+    windows: state.windows.filter((w) => w.device !== id),
   });
 }
 
@@ -138,8 +155,68 @@ export function select(id: string | null): void {
   if (state.selected !== id) update({ selected: id });
 }
 
-export function openTerminal(id: string | null): void {
-  update({ terminal: id, ...(id ? { selected: id } : {}) });
+let topZ = 1;
+
+function patchWindow(id: string, patch: Partial<DeviceWindow>): void {
+  update({ windows: state.windows.map((w) => (w.device === id ? { ...w, ...patch } : w)) });
+}
+
+/** Opens (or brings back) a device's window, optionally on a given tab and app. */
+export function openWindow(
+  id: string,
+  view: Partial<Pick<DeviceWindow, 'tab' | 'app'>> = {},
+  /** Where a new window goes (canvas px); without it, new windows cascade from the corner. */
+  at?: Point,
+): void {
+  const device = state.net.devices.get(id);
+  if (!device) return;
+  const z = ++topZ;
+  const existing = state.windows.find((w) => w.device === id);
+  if (existing) {
+    patchWindow(id, { ...view, z, minimized: false });
+  } else {
+    // Cascade new windows so they don't hide each other completely.
+    const n = state.windows.length % 6;
+    const win: DeviceWindow = {
+      device: id,
+      x: at?.x ?? 24 + n * 40,
+      y: at?.y ?? 24 + n * 40,
+      z,
+      tab: device.ip ? 'desktop' : 'physical',
+      app: null,
+      minimized: false,
+      ...view,
+    };
+    update({ windows: [...state.windows, win] });
+  }
+  select(id);
+}
+
+/** Opens the device's terminal: the Desktop app on hosts, the CLI tab elsewhere. */
+export function openTerminal(id: string): void {
+  const device = state.net.devices.get(id);
+  openWindow(id, device?.ip ? { tab: 'desktop', app: 'terminal' } : { tab: 'cli' });
+}
+
+export function closeWindow(id: string): void {
+  update({ windows: state.windows.filter((w) => w.device !== id) });
+}
+
+export function focusWindow(id: string): void {
+  const win = state.windows.find((w) => w.device === id);
+  if (win && win.z !== topZ) patchWindow(id, { z: ++topZ });
+}
+
+export function moveWindow(id: string, x: number, y: number): void {
+  patchWindow(id, { x, y });
+}
+
+export function setWindowView(id: string, view: Partial<Pick<DeviceWindow, 'tab' | 'app'>>): void {
+  patchWindow(id, view);
+}
+
+export function minimizeWindow(id: string, minimized = true): void {
+  patchWindow(id, minimized ? { minimized } : { minimized, z: ++topZ });
 }
 
 export function setTasks(tasks: TaskProgress): void {

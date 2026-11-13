@@ -21,15 +21,18 @@ import {
   getLab,
   moveDevice,
   notify,
+  openWindow,
   removeDevice,
   select,
   useLab,
 } from './lab.ts';
-import { PortMenu, type PortMenuState } from './PortMenu.tsx';
+import { DeviceMenu, PortMenu, type DeviceMenuState, type PortMenuState } from './PortMenu.tsx';
 
 const nodeTypes = { device: DeviceNode };
 const edgeTypes = { cable: CableEdge };
 export const DRAG_MIME = 'application/x-netforge-device';
+/** Default device window size (matches Windows.tsx) and its distance from the device. */
+const WINDOW = { w: 600, h: 440, gap: 24 };
 /** Only the latest frames can still be blinking, so older trace entries are skipped. */
 const ACTIVITY_WINDOW = 200;
 
@@ -41,6 +44,7 @@ export function Canvas() {
   const { net, layout, selected, mode } = useLab();
   const [selectedCable, setSelectedCable] = useState<string | null>(null);
   const [menu, setMenu] = useState<PortMenuState | null>(null);
+  const [deviceMenu, setDeviceMenu] = useState<DeviceMenuState | null>(null);
   const wrapper = useRef<HTMLDivElement>(null);
   const flow = useReactFlow();
   // Nodes are rebuilt from the store on every render, so keep React Flow's measurements.
@@ -133,26 +137,48 @@ export function Canvas() {
       return;
     }
     const point = 'changedTouches' in event ? event.changedTouches[0] : event;
+    if (point) setMenu({ from, target, ...at(point) });
+  };
+
+  const at = (event: { clientX: number; clientY: number }) => {
     const box = wrapper.current?.getBoundingClientRect();
-    if (!point || !box) return;
-    setMenu({
-      from,
-      target,
-      x: point.clientX - box.left,
-      y: point.clientY - box.top,
-    });
+    return { x: event.clientX - (box?.left ?? 0), y: event.clientY - (box?.top ?? 0) };
+  };
+
+  /** Where a new window goes: next to the clicked device, on the side with more room. */
+  const beside = (node: Element | null) => {
+    const box = wrapper.current?.getBoundingClientRect();
+    const rect = node?.getBoundingClientRect();
+    if (!box || !rect) return undefined;
+    const left = rect.left - box.left;
+    const right = rect.right - box.left;
+    const x =
+      left + rect.width / 2 < box.width / 2 ? right + WINDOW.gap : left - WINDOW.w - WINDOW.gap;
+    const clamp = (v: number, max: number) => Math.max(8, Math.min(v, max));
+    return {
+      x: clamp(x, box.width - WINDOW.w - 8),
+      y: clamp(rect.top - box.top - 40, box.height - WINDOW.h - 8),
+    };
   };
 
   const onDrop = (event: DragEvent) => {
     const spec = event.dataTransfer.getData(DRAG_MIME);
     if (!isSpecId(spec)) return;
     event.preventDefault();
-    const at = flow.screenToFlowPosition({ x: event.clientX, y: event.clientY });
-    addDevice(spec, { x: at.x - 70, y: at.y - 40 });
+    const drop = flow.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+    addDevice(spec, { x: drop.x - 70, y: drop.y - 40 });
   };
 
   return (
-    <div ref={wrapper} className="relative h-full">
+    <div
+      ref={wrapper}
+      className="relative h-full"
+      onKeyDown={(e) => {
+        // Enter on a focused device opens its window, like a click.
+        const id = (e.target as HTMLElement).closest('.react-flow__node')?.getAttribute('data-id');
+        if (e.key === 'Enter' && id) openWindow(id);
+      }}
+    >
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -161,6 +187,14 @@ export function Canvas() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnectEnd={onConnectEnd}
+        onNodeClick={(event, node) =>
+          openWindow(node.id, {}, beside((event.target as Element).closest('.react-flow__node')))
+        }
+        onNodeContextMenu={(event, node) => {
+          event.preventDefault();
+          const device = net.devices.get(node.id);
+          if (device) setDeviceMenu({ device, ...at(event) });
+        }}
         onPaneClick={() => select(null)}
         onDragOver={(e) => {
           e.preventDefault();
@@ -179,6 +213,7 @@ export function Canvas() {
         <Controls />
       </ReactFlow>
       {menu && <PortMenu menu={menu} onClose={() => setMenu(null)} />}
+      {deviceMenu && <DeviceMenu menu={deviceMenu} onClose={() => setDeviceMenu(null)} />}
     </div>
   );
 }
