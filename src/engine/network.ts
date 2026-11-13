@@ -1,4 +1,5 @@
 import { formatCidr, formatIp, macFromIndex, parseCidr, parseIp } from './addr.ts';
+import { defaultVlans, type Bridge } from './bridge.ts';
 import { Device, type Fabric } from './device.ts';
 import type { EthernetFrame } from './packet.ts';
 import { MEDIUM_OF, cableError, hasCarrier, peerOf, type Link, type Port } from './port.ts';
@@ -36,6 +37,13 @@ export interface NetworkSnapshot {
     };
     /** Files on the device (absolute path to text). */
     files?: Record<string, string>;
+    /** VLAN interfaces (`eth0.10`), in creation order. */
+    vlanPorts?: { name: string; parent: string; vid: number; up: boolean; addrs: string[] }[];
+    /** Switch VLAN settings, when they differ from the defaults. */
+    bridge?: {
+      vlanFiltering: boolean;
+      vlans: Record<string, { vids: number[]; pvid: number | null; untagged: number[] }>;
+    };
     /** IP settings beyond addresses; absent on devices without an IP stack. */
     ip?: {
       forwarding: boolean;
@@ -45,6 +53,48 @@ export interface NetworkSnapshot {
   }[];
   links: { id: string; a: { device: string; port: string }; b: { device: string; port: string } }[];
   counters: { device: number; link: number; mac: number; names: Record<string, number> };
+}
+
+type BridgeSnapshot = NonNullable<NetworkSnapshot['devices'][number]['bridge']>;
+
+function isDefaultBridge(bridge: Bridge): boolean {
+  const def = defaultVlans();
+  const same = (a: Set<number>, b: Set<number>) =>
+    a.size === b.size && [...a].every((x) => b.has(x));
+  return (
+    !bridge.vlanFiltering &&
+    [...bridge.vlans.values()].every(
+      (v) => v.pvid === def.pvid && same(v.vids, def.vids) && same(v.untagged, def.untagged),
+    )
+  );
+}
+
+function bridgeJSON(bridge: Bridge): BridgeSnapshot {
+  const sorted = (set: Set<number>) => [...set].sort((a, b) => a - b);
+  return {
+    vlanFiltering: bridge.vlanFiltering,
+    vlans: Object.fromEntries(
+      [...bridge.vlans].map(([port, v]) => [
+        port.name,
+        { vids: sorted(v.vids), pvid: v.pvid, untagged: sorted(v.untagged) },
+      ]),
+    ),
+  };
+}
+
+function loadBridge(bridge: Bridge, saved: BridgeSnapshot, id: string): void {
+  bridge.vlanFiltering = saved.vlanFiltering;
+  for (const [name, v] of Object.entries(saved.vlans)) {
+    const port = bridge.ports.find((p) => p.name === name);
+    const valid = (vid: number) => Number.isInteger(vid) && vid >= 1 && vid <= 4094;
+    if (!port || !v.vids.every(valid) || !v.untagged.every((x) => v.vids.includes(x))) {
+      throw new Error(`Invalid VLAN settings for ${name} on ${id}`);
+    }
+    if (v.pvid !== null && !v.vids.includes(v.pvid)) {
+      throw new Error(`Invalid PVID for ${name} on ${id}`);
+    }
+    bridge.vlans.set(port, { vids: new Set(v.vids), pvid: v.pvid, untagged: new Set(v.untagged) });
+  }
 }
 
 export class Network implements Fabric {
@@ -169,6 +219,11 @@ export class Network implements Fabric {
   }
 
   transmit(from: Port, frame: EthernetFrame): void {
+    if (from.parent) {
+      // A VLAN interface sends through its parent port with an 802.1Q tag.
+      if (from.adminUp) this.transmit(from.parent, { ...frame, vlan: from.vid ?? 0 });
+      return;
+    }
     const link = from.link;
     if (!link || !hasCarrier(from)) return;
     this.scheduler.schedule(LINK_DELAY_MS, () => {
@@ -232,6 +287,18 @@ export class Network implements Fabric {
             }
           : {}),
         ...(d.fs ? { files: d.fs.toJSON() } : {}),
+        ...(d.vlanPorts.length > 0
+          ? {
+              vlanPorts: d.vlanPorts.map((p) => ({
+                name: p.name,
+                parent: p.parent?.name ?? '',
+                vid: p.vid ?? 0,
+                up: p.adminUp,
+                addrs: d.ip?.addrsOn(p).map(formatCidr) ?? [],
+              })),
+            }
+          : {}),
+        ...(d.bridge && !isDefaultBridge(d.bridge) ? { bridge: bridgeJSON(d.bridge) } : {}),
       })),
       links: [...this.links.values()].map((l) => ({
         id: l.id,
@@ -271,6 +338,19 @@ export class Network implements Fabric {
           device.ip.addAddress(port, cidr);
         }
       });
+      if (d.bridge && device.bridge) loadBridge(device.bridge, d.bridge, d.id);
+      for (const v of d.vlanPorts ?? []) {
+        const parent = device.port(v.parent);
+        const error = parent ? device.addVlanPort(parent, v.name, v.vid) : 'no parent';
+        const port = device.port(v.name);
+        if (error || !port || !device.ip) throw new Error(`Invalid VLAN interface ${v.name}`);
+        port.adminUp = v.up;
+        for (const text of v.addrs) {
+          const cidr = parseCidr(text);
+          if (!cidr) throw new Error(`Invalid address ${text} on ${d.id}`);
+          device.ip.addAddress(port, cidr);
+        }
+      }
       if (d.ip && device.ip) {
         device.ip.forwarding = d.ip.forwarding;
         device.ip.dns = d.ip.dns.map((text) => {

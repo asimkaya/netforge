@@ -58,6 +58,9 @@ const HELP = [
   '  ip addr flush dev IF               remove all addresses from IF',
   '  ip link [show [dev IF]]            show interfaces',
   '  ip link set [dev] IF up|down       enable or disable an interface',
+  '  ip link add link IF name IF.VID type vlan id VID   add a VLAN interface',
+  '  ip link del IF.VID                 delete a VLAN interface',
+  '  ip link set br0 type bridge vlan_filtering 1   turn on VLANs (switches)',
   '  ip neigh [show] | flush all|dev IF show or clear the ARP table',
   '  ip route [show]                    show the routing table',
   '  ip route add DST [via GW] [dev IF] add a route; DST is ADDR/LEN or default',
@@ -67,6 +70,8 @@ const HELP = [
   '  ping [-c COUNT] [-t TTL] ADDR      send ICMP echo requests (Ctrl+C stops)',
   '  traceroute [-m MAX_TTL] ADDR       show the routers on the way to ADDR',
   '  bridge fdb [show]                  show learned MAC addresses (switches)',
+  '  bridge vlan [show]                 show the VLANs of each port (switches)',
+  '  bridge vlan add|del dev IF vid VID [pvid] [untagged]   set port VLANs',
   '  dhclient [-r] IF                   get (or release) an address with DHCP',
   '  dnsmasq --dhcp-range=START,END ... start a DHCP/DNS server (see dnsmasq --help)',
   '  killall dnsmasq                    stop the DHCP/DNS server',
@@ -115,23 +120,96 @@ function linkLines(device: Device, port: Port, index: number): string[] {
   const noCarrier = port.adminUp && !carrier ? 'NO-CARRIER,' : '';
   const state = carrier ? 'UP' : 'DOWN';
   const master = device.bridge?.owns(port) ? ' master br0' : '';
+  const name = port.parent ? `${port.name}@${port.parent.name}` : port.name;
+  const vlan = port.parent ? [`    vlan protocol 802.1Q id ${port.vid ?? 0}`] : [];
   return [
-    `${index + 1}: ${port.name}: <${noCarrier}${flags.join(',')}> mtu 1500${master} state ${state}`,
+    `${index + 1}: ${name}: <${noCarrier}${flags.join(',')}> mtu 1500${master} state ${state}`,
     `    link/ether ${port.mac} brd ff:ff:ff:ff:ff:ff`,
+    ...vlan,
   ];
+}
+
+/** Every interface of a device for `ip link`/`ip addr`, or just the one named. */
+function listed(device: Device, name: string | undefined, io: ShellIO): Port[] {
+  if (name === undefined) return device.interfaces();
+  const port = findPort(device, name, io);
+  return port ? [port] : [];
+}
+
+function bridgeLines(device: Device, index: number): string[] {
+  return [
+    `${index + 1}: br0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 state UP`,
+    `    link/ether ${device.ports[0]?.mac ?? ''} brd ff:ff:ff:ff:ff:ff`,
+  ];
+}
+
+/** Reads `key VALUE` pairs from command arguments. */
+function option(args: string[], key: string): string | undefined {
+  const i = args.indexOf(key);
+  return i >= 0 ? args[i + 1] : undefined;
+}
+
+/** A VLAN id 1-4094, or null. */
+function vlanId(text: string): number | null {
+  const vid = /^\d+$/.test(text) ? Number(text) : 0;
+  return vid >= 1 && vid <= 4094 ? vid : null;
+}
+
+/** `ip link set br0 type bridge vlan_filtering 0|1`. */
+function setBridge(device: Device, args: string[], io: ShellIO): void {
+  const value = option(args, 'vlan_filtering');
+  if (!device.bridge) {
+    io.out('Cannot find device "br0"');
+    return;
+  }
+  if (args[0] !== 'bridge' || (value !== '0' && value !== '1')) {
+    io.out('Usage: ip link set br0 type bridge vlan_filtering 0|1');
+    return;
+  }
+  device.bridge.setVlanFiltering(value === '1');
+}
+
+/** `ip link add link IF name NAME type vlan id VID`. */
+function addLink(device: Device, args: string[], io: ShellIO): void {
+  const parentName = option(args, 'link');
+  const name = option(args, 'name');
+  const idText = option(args, 'id');
+  if (option(args, 'type') !== 'vlan' || !parentName || !name || idText === undefined) {
+    io.out('Usage: ip link add link IF name NAME type vlan id VID');
+    return;
+  }
+  const vid = vlanId(idText);
+  if (vid === null) {
+    io.out(`Error: argument "${idText}" is wrong: id is invalid`);
+    return;
+  }
+  const parent = findPort(device, parentName, io);
+  if (!parent) return;
+  const error = device.addVlanPort(parent, name, vid);
+  if (error) io.out(error);
 }
 
 function ipLink(net: Network, device: Device, args: string[], io: ShellIO): undefined {
   const [verb, ...rest] = args;
   if (verb === undefined || matches(verb, 'show') || matches(verb, 'list')) {
     const name = devArg(rest);
-    const ports = name === undefined ? device.ports : [findPort(device, name, io)];
-    ports.forEach((p) => p && linkLines(device, p, device.ports.indexOf(p)).forEach(io.out));
+    const all = device.interfaces();
+    if (name === 'br0' && device.bridge) {
+      bridgeLines(device, all.length).forEach(io.out);
+      return;
+    }
+    listed(device, name, io).forEach((p) => linkLines(device, p, all.indexOf(p)).forEach(io.out));
+    if (name === undefined && device.bridge) bridgeLines(device, all.length).forEach(io.out);
     return;
   }
   if (matches(verb, 'set')) {
-    const name = rest[0] === 'dev' ? rest[1] : rest[0];
-    const state = rest[rest[0] === 'dev' ? 2 : 1];
+    const at = rest[0] === 'dev' ? 1 : 0;
+    const name = rest[at];
+    const state = rest[at + 1];
+    if (name === 'br0' && state === 'type') {
+      setBridge(device, rest.slice(at + 2), io);
+      return;
+    }
     const port = findPort(device, name, io);
     if (!port) return;
     if (state !== 'up' && state !== 'down') {
@@ -141,17 +219,26 @@ function ipLink(net: Network, device: Device, args: string[], io: ShellIO): unde
     net.setPortUp(port, state === 'up');
     return;
   }
+  if (matches(verb, 'add')) {
+    addLink(device, rest, io);
+    return;
+  }
+  if (matches(verb, 'delete')) {
+    const port = findPort(device, devArg(rest), io);
+    if (!port) return;
+    if (port.parent) device.removeVlanPort(port);
+    else io.out('RTNETLINK answers: Operation not supported');
+    return;
+  }
   io.out(`Command "${verb}" is unknown, try "ip link help".`);
 }
 
 function ipAddr(_net: Network, device: Device, args: string[], io: ShellIO): undefined {
   const [verb, ...rest] = args;
   if (verb === undefined || matches(verb, 'show') || matches(verb, 'list')) {
-    const name = devArg(rest);
-    const ports = name === undefined ? device.ports : [findPort(device, name, io)];
-    for (const port of ports) {
-      if (!port) continue;
-      linkLines(device, port, device.ports.indexOf(port)).forEach(io.out);
+    const all = device.interfaces();
+    for (const port of listed(device, devArg(rest), io)) {
+      linkLines(device, port, all.indexOf(port)).forEach(io.out);
       if (!device.ip?.ports.includes(port)) continue;
       for (const a of device.ip.addrsOn(port)) {
         const brd = a.prefix < 31 ? ` brd ${formatIp(broadcastOf(a))}` : '';
@@ -333,14 +420,69 @@ const ip: Command = (net, device, args, io) => {
   io.out(`Object "${object}" is unknown, try "ip help".`);
 };
 
-const bridge: Command = (_net, device, args, io) => {
-  const [object, verb] = args;
+function bridgeVlan(device: Device, args: string[], io: ShellIO): void {
   const br = device.bridge;
-  if (!br || object !== 'fdb' || (verb !== undefined && verb !== 'show')) {
-    io.out('Usage: bridge fdb [show]');
+  const [verb, ...rest] = args;
+  if (verb === undefined || matches(verb, 'show') || matches(verb, 'list')) {
+    if (!br) return;
+    io.out('port              vlan-id');
+    for (const port of br.ports) {
+      const v = br.vlans.get(port);
+      const vids = [...(v?.vids ?? [])].sort((a, b) => a - b);
+      vids.forEach((vid, i) => {
+        const flags = [
+          ...(v?.pvid === vid ? ['PVID'] : []),
+          ...(v?.untagged.has(vid) ? ['Egress Untagged'] : []),
+        ];
+        io.out(`${(i === 0 ? port.name : '').padEnd(18)}${[vid, ...flags].join(' ')}`);
+      });
+    }
     return;
   }
-  for (const e of br.fdb()) io.out(`${e.mac} dev ${e.port.name} master br0`);
+  const add = matches(verb, 'add');
+  if (!add && !matches(verb, 'delete')) {
+    io.out(`Command "${verb}" is unknown, try "bridge vlan help".`);
+    return;
+  }
+  const name = option(rest, 'dev');
+  const vidText = option(rest, 'vid');
+  if (name === undefined || vidText === undefined) {
+    io.out('Device and VLAN ID are required arguments.');
+    return;
+  }
+  const vid = vlanId(vidText);
+  if (vid === null) {
+    io.out(`Invalid VLAN ID "${vidText}"`);
+    return;
+  }
+  const port = findPort(device, name, io);
+  if (!port) return;
+  if (!br?.owns(port)) {
+    io.out('RTNETLINK answers: Operation not supported');
+    return;
+  }
+  if (add) {
+    br.addVlan(port, vid, { pvid: rest.includes('pvid'), untagged: rest.includes('untagged') });
+  } else if (!br.delVlan(port, vid)) {
+    io.out('RTNETLINK answers: No such file or directory');
+  }
+}
+
+const bridge: Command = (_net, device, args, io) => {
+  const [object, ...rest] = args;
+  if (object !== undefined && matches(object, 'vlan')) {
+    bridgeVlan(device, rest, io);
+    return;
+  }
+  const br = device.bridge;
+  if (!br || object !== 'fdb' || (rest[0] !== undefined && rest[0] !== 'show')) {
+    io.out('Usage: bridge fdb [show] | bridge vlan [show|add|del]');
+    return;
+  }
+  for (const e of br.fdb()) {
+    const vlan = br.vlanFiltering ? ` vlan ${e.vlan}` : '';
+    io.out(`${e.mac} dev ${e.port.name}${vlan} master br0`);
+  }
 };
 
 const hostname: Command = (net, device, args, io) => {

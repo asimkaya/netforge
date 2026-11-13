@@ -111,10 +111,30 @@ export class IpStack implements TcpHost {
 
   constructor(
     readonly fabric: Fabric,
-    readonly ports: readonly Port[],
+    ports: readonly Port[],
     /** `net.ipv4.ip_forward`: routers forward packets that are not for them. */
     public forwarding = false,
-  ) {}
+  ) {
+    this.ports = [...ports];
+  }
+
+  /** Routed interfaces: physical ports, then VLAN interfaces as they are added. */
+  readonly ports: Port[];
+
+  addPort(port: Port): void {
+    this.ports.push(port);
+  }
+
+  /** Forgets an interface with its addresses, neighbors and routes (`ip link del`). */
+  removePort(port: Port): void {
+    this.flushNeighbors(port);
+    this.addrs.delete(port.name);
+    this.dhcpLeases.delete(port.name);
+    for (let i = this.staticRoutes.length - 1; i >= 0; i--) {
+      if (this.staticRoutes[i]?.dev === port) this.staticRoutes.splice(i, 1);
+    }
+    this.ports.splice(this.ports.indexOf(port), 1);
+  }
 
   // ---------------------------------------------------------------- addresses
 

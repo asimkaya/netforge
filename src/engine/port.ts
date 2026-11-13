@@ -25,6 +25,9 @@ export interface Port {
   link: Link | null;
   /** Administrative state (`ip link set <port> up|down`). */
   adminUp: boolean;
+  /** VLAN interfaces (`eth0.10`) sit on a parent port and tag what they send with `vid`. */
+  readonly parent?: Port;
+  readonly vid?: number;
 }
 
 export interface Link {
@@ -42,6 +45,7 @@ export function peerOf(port: Port): Port | null {
 
 /** Carrier is up when both ends are cabled and administratively up. */
 export function hasCarrier(port: Port): boolean {
+  if (port.parent) return port.adminUp && hasCarrier(port.parent);
   const peer = peerOf(port);
   return port.adminUp && peer !== null && peer.adminUp;
 }

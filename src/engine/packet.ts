@@ -108,6 +108,8 @@ function describeTcp(t: TcpSegment): string {
 export interface EthernetFrame {
   src: Mac;
   dst: Mac;
+  /** 802.1Q tag: the VLAN id on trunk links; absent on untagged frames. */
+  vlan?: number;
   payload: ArpPacket | Ipv4Packet;
 }
 
@@ -144,8 +146,20 @@ function describeUdp(u: UdpDatagram): string {
   return 'UDP, length 32';
 }
 
-/** One-line, tcpdump-like summary of a frame. */
+/** The frame without its 802.1Q tag. */
+export function untagged(frame: EthernetFrame): EthernetFrame {
+  const copy = { ...frame };
+  delete copy.vlan;
+  return copy;
+}
+
+/** One-line, tcpdump-like summary of a frame; tagged frames start with their VLAN. */
 export function describeFrame(frame: EthernetFrame): string {
+  const text = describePayload(frame);
+  return frame.vlan === undefined ? text : `vlan ${frame.vlan}, ${text}`;
+}
+
+function describePayload(frame: EthernetFrame): string {
   const p = frame.payload;
   if (p.kind === 'arp') {
     return p.op === 'request'

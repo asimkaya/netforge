@@ -6,7 +6,7 @@ import { Httpd } from './http.ts';
 import { startPop3, startSmtp } from './mail.ts';
 import { startHostapd, type HostapdConfig } from './wifi.ts';
 import { IpStack } from './ip.ts';
-import type { EthernetFrame } from './packet.ts';
+import { untagged, type EthernetFrame } from './packet.ts';
 import type { Port } from './port.ts';
 import type { Scheduler } from './scheduler.ts';
 import type { DeviceSpec } from './specs.ts';
@@ -21,6 +21,8 @@ export interface Fabric {
 /** A device built from a spec: ports plus the stack modules the spec asks for. */
 export class Device {
   readonly ports: readonly Port[];
+  /** VLAN interfaces added with `ip link add link eth0 name eth0.10 type vlan id 10`. */
+  readonly vlanPorts: Port[] = [];
   readonly bridge: Bridge | null;
   readonly ip: IpStack | null;
   /** Files, on devices with an IP stack (hosts, servers, routers). */
@@ -142,17 +144,70 @@ export class Device {
   }
 
   port(name: string): Port | undefined {
-    return this.ports.find((p) => p.name === name);
+    return this.interfaces().find((p) => p.name === name);
+  }
+
+  /** Physical ports, then VLAN interfaces, in `ip link` order. */
+  interfaces(): Port[] {
+    return [...this.ports, ...this.vlanPorts];
+  }
+
+  /** Adds a VLAN interface on a routed port. It starts down, like on Linux. */
+  addVlanPort(parent: Port, name: string, vid: number): string | null {
+    if (!this.ip?.ports.includes(parent) || parent.parent) {
+      return 'RTNETLINK answers: Operation not supported';
+    }
+    if (!/^[A-Za-z][\w.-]{0,14}$/.test(name)) {
+      return `Error: argument "${name}" is wrong: "name" not a valid ifname`;
+    }
+    if (this.port(name)) return 'RTNETLINK answers: File exists';
+    if (this.vlanPorts.some((p) => p.parent === parent && p.vid === vid)) {
+      return 'RTNETLINK answers: File exists';
+    }
+    const port: Port = {
+      name,
+      type: parent.type,
+      mac: parent.mac,
+      device: this,
+      link: null,
+      adminUp: false,
+      parent,
+      vid,
+    };
+    this.vlanPorts.push(port);
+    this.ip.addPort(port);
+    this.fabric.changed();
+    return null;
+  }
+
+  /** Deletes a VLAN interface with its addresses and routes. */
+  removeVlanPort(port: Port): void {
+    const i = this.vlanPorts.indexOf(port);
+    if (i < 0) return;
+    this.vlanPorts.splice(i, 1);
+    this.ip?.removePort(port);
+    this.fabric.changed();
   }
 
   receive(port: Port, frame: EthernetFrame): void {
-    if (this.bridge?.owns(port)) this.bridge.receive(port, frame);
-    else this.ip?.receive(port, frame);
+    if (this.bridge?.owns(port)) {
+      this.bridge.receive(port, frame);
+      return;
+    }
+    if (frame.vlan === undefined) {
+      this.ip?.receive(port, frame);
+      return;
+    }
+    // A tagged frame goes to the VLAN interface for its tag; Linux drops it if there is none.
+    const sub = this.vlanPorts.find((p) => p.parent === port && p.vid === frame.vlan);
+    if (!sub?.adminUp) return;
+    this.ip?.receive(sub, untagged(frame));
   }
 
   /** Called when a port gains or loses carrier. */
   carrierChanged(port: Port): void {
     this.bridge?.carrierChanged(port);
     this.ip?.carrierChanged(port);
+    for (const sub of this.vlanPorts) if (sub.parent === port) this.ip?.carrierChanged(sub);
   }
 }

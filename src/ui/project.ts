@@ -5,7 +5,7 @@ import type { Point } from './lab.ts';
 
 export const PROJECT_FORMAT = 'netforge-lab';
 /** Bump on any incompatible change and add a migration for the previous version. */
-export const PROJECT_VERSION = 5;
+export const PROJECT_VERSION = 6;
 
 export interface TaskProgress {
   /** Id of the task being played, if any. */
@@ -78,6 +78,8 @@ function count(value: unknown, what: string): number {
 const ID = /^[a-z][0-9]{1,9}$/;
 const NAME = /^[A-Za-z0-9][A-Za-z0-9-]{0,62}$/;
 const PORT = /^(eth|wlan)[0-9]{1,2}$/;
+/** Any interface name, including VLAN interfaces like eth0.10 (Linux allows 15 characters). */
+const IFNAME = /^[A-Za-z][\w.-]{0,14}$/;
 const MAC = /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/;
 const CIDR = /^[0-9./]{1,18}$/;
 
@@ -99,7 +101,7 @@ function readIpSettings(value: unknown, what: string) {
       return {
         dst: str(r.dst, `${what} route destination`, CIDR),
         ...(r.via === undefined ? {} : { via: str(r.via, `${what} route gateway`, IP) }),
-        dev: str(r.dev, `${what} route device`, PORT),
+        dev: str(r.dev, `${what} route device`, IFNAME),
       };
     }),
   };
@@ -123,6 +125,43 @@ function readServices(value: unknown, what: string) {
     ...list('dovecot', /^$/),
     ...list('hostapd', /^[\w./-]{1,240}$/),
   };
+}
+
+function vid(value: unknown, what: string): number {
+  return Number.isInteger(value) && (value as number) >= 1 && (value as number) <= 4094
+    ? (value as number)
+    : fail(`${what} is invalid.`);
+}
+
+function readVlanPorts(value: unknown, what: string) {
+  return arr(value, `${what} VLAN interfaces`).map((raw) => {
+    const v = obj(raw, `${what} VLAN interface`);
+    if (typeof v.up !== 'boolean') fail(`${what} VLAN interface state is invalid.`);
+    return {
+      name: str(v.name, `${what} VLAN interface name`, IFNAME),
+      parent: str(v.parent, `${what} VLAN interface parent`, PORT),
+      vid: vid(v.vid, `${what} VLAN id`),
+      up: v.up,
+      addrs: arr(v.addrs, `${what} VLAN addresses`).map((a) => str(a, 'address', CIDR)),
+    };
+  });
+}
+
+function readBridge(value: unknown, what: string) {
+  const b = obj(value, `${what} switch settings`);
+  if (typeof b.vlanFiltering !== 'boolean') fail(`${what} VLAN filtering setting is invalid.`);
+  const vlans: Record<string, { vids: number[]; pvid: number | null; untagged: number[] }> = {};
+  for (const [name, raw] of Object.entries(obj(b.vlans, `${what} port VLANs`))) {
+    const v = obj(raw, `${what} VLANs of ${name}`);
+    const list = (key: string) =>
+      arr(v[key], `${what} VLANs of ${name}`).map((x) => vid(x, `${what} VLAN id`));
+    vlans[str(name, `${what} port name`, PORT)] = {
+      vids: list('vids'),
+      pvid: v.pvid === null ? null : vid(v.pvid, `${what} PVID`),
+      untagged: list('untagged'),
+    };
+  }
+  return { vlanFiltering: b.vlanFiltering, vlans };
 }
 
 /** Device files: sizes are checked again when the engine writes them. */
@@ -161,6 +200,10 @@ function readSnapshot(value: unknown): NetworkSnapshot {
         ? {}
         : { services: readServices(d.services, `device #${i + 1}`) }),
       ...(d.files === undefined ? {} : { files: readFiles(d.files, `device #${i + 1}`) }),
+      ...(d.vlanPorts === undefined
+        ? {}
+        : { vlanPorts: readVlanPorts(d.vlanPorts, `device #${i + 1}`) }),
+      ...(d.bridge === undefined ? {} : { bridge: readBridge(d.bridge, `device #${i + 1}`) }),
     };
   });
   const links = arr(n.links, 'network.links').map((value, i) => {
@@ -219,6 +262,8 @@ const MIGRATIONS: Record<number, (file: Json) => Json> = {
   3: (file) => file,
   // v5 adds laptops, phones, access points and the hostapd service.
   4: (file) => file,
+  // v6 adds optional VLAN interfaces (`vlanPorts`) and switch VLAN settings (`bridge`).
+  5: (file) => file,
   // v2: devices name a spec instead of a kind; switches gain two SFP uplinks (eth8, eth9);
   // per-kind name counters become per-prefix counters.
   1: (file) => {
