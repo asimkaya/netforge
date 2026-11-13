@@ -41,11 +41,14 @@ comes next.
   Worker behind the same narrow API.
 - Key files: `scheduler.ts` (virtual clock), `network.ts` (devices, cables, trace,
   snapshots), `specs.ts` (device catalog), `device.ts` (a device built from a spec),
-  `port.ts` (typed ports and cables), `bridge.ts` (L2 switching), `ip.ts` (IPv4, ARP,
-  routing, forwarding, ICMP errors, UDP sockets), `dnsmasq.ts` (DHCP and DNS server),
+  `port.ts` (typed ports and cables), `bridge.ts` (L2 switching, VLAN filtering), `stp.ts`
+  (Spanning Tree), `ip.ts` (IPv4, ARP, routing, forwarding, ICMP errors, UDP sockets),
+  `addr6.ts` and `ip6.ts` (IPv6, NDP, SLAAC), `netfilter.ts` (nftables hooks, conntrack,
+  NAT) and `nft.ts` (its language), `bird.ts` (OSPF), `dnsmasq.ts` (DHCP and DNS server),
   `dhcp.ts` (dhclient), `dns.ts` (resolver), `tcp.ts` (TCP), `http.ts` (httpd, client),
-  `mail.ts` (SMTP, POP3), `wifi.ts` (hostapd, association, range), `fs.ts` (device files), `shell.ts`, `shell-files.ts` and
-  `shell-services.ts` (Linux-style commands). Specs may list `setup` commands that a new
+  `mail.ts` (SMTP, POP3), `wifi.ts` (hostapd, association, range), `fs.ts` (device
+  files), and the Linux-style commands in `shell.ts` with `shell-files.ts`,
+  `shell-services.ts`, `shell-firewall.ts`, `shell-routing.ts` and `shell-ip6.ts`. Specs may list `setup` commands that a new
   device runs once (the internet cloud configures itself this way).
 - Services and apps talk through the IP stack's sockets (`openUdp`, `openIcmp`), never by
   reaching into other devices. Errors come back to the socket that sent the packet. See [ADR 0006](adr/0006-device-specs-ports-and-apps.md).
@@ -59,8 +62,9 @@ comes next.
 - `lab.ts` is the single UI store: the live `Network` plus layout, selection, open
   device windows, mode, terminal sessions and task progress. Components read it with
   `useLab()`.
-- Device windows live in `window/` (frame, tabs, routing and service sections) and their
-  apps in `apps/` (Terminal, IP Configuration).
+- Device windows live in `window/` (frame, tabs, and Config sections for routing, services,
+  VLANs, STP, OSPF and the firewall) and their apps in `apps/` (Terminal, IP Configuration,
+  Web Browser, Text Editor, Mail, Packet Capture, Wi-Fi).
 - `history.ts` keeps undo snapshots of the lab file format; `share.ts` packs a lab into a
   `#lab=` link; `placement.ts` finds a free spot for new devices. Apps call the same engine methods as the shell, so the GUI and the
   CLI never disagree.
@@ -76,7 +80,7 @@ comes next.
 
 ### Persistence
 
-- `src/ui/project.ts` defines the lab file (`format: netforge-lab`, `version: 1`) and
+- `src/ui/project.ts` defines the lab file (`format: netforge-lab`, `version: 8`) and
   validates untrusted files field by field before the engine sees them.
 - `src/ui/storage.ts` autosaves to IndexedDB and exports/imports files.
 - Bump `PROJECT_VERSION` on incompatible changes and migrate older files. Never break old

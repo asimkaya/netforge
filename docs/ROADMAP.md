@@ -11,8 +11,8 @@ Each phase ends with a usable, deployed product.
 | **2: Routing basics**                 | Router (Linux-based), `ip route`, default gateway, `traceroute`, UDP, DHCP, DNS (`dig`), undo/redo, share-by-link                                                                                                                       | ✅ Done |
 | **3: Services and apps**              | Lightweight TCP and socket API, virtual filesystem, Server device, HTTP + Web Browser, Text Editor, Mail (SMTP/POP3), Internet cloud, Packet Capture app                                                                                | ✅ Done |
 | **4: Wireless**                       | Access point, home router, laptop, phone; SSID, WPA2, range on the canvas                                                                                                                                                               | ✅ Done |
-| **5: Managed switching and security** | VLANs, trunks, inter-VLAN routing, STP, link aggregation; NAT and firewall (`nft` + GUI); dynamic routing (OSPF, FRR-style); IPv6                                                                                                       | ⏳ Next |
-| **6: Beyond**                         | WireGuard VPN, SSH, Bluetooth/IoT, real Linux node via v86 (WASM), pcap export, task editor, multiplayer over WebRTC                                                                                                                    |         |
+| **5: Managed switching and security** | VLANs, trunks, inter-VLAN routing, STP; NAT and firewall (`nft` + GUI); dynamic routing (OSPF with BIRD, ADR 0007); IPv6 (NDP, SLAAC)                                                                                                   | ✅ Done |
+| **6: Beyond**                         | Link aggregation (bonding), WireGuard VPN, SSH, pcap export, task editor, Bluetooth/IoT, real Linux node via v86 (WASM), multiplayer over WebRTC                                                                                        | ⏳ Next |
 
 ## Guided task curriculum (draft)
 
