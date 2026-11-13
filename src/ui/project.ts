@@ -77,7 +77,7 @@ function count(value: unknown, what: string): number {
 
 const ID = /^[a-z][0-9]{1,9}$/;
 const NAME = /^[A-Za-z0-9][A-Za-z0-9-]{0,62}$/;
-const PORT = /^eth[0-9]{1,2}$/;
+const PORT = /^(eth|wlan)[0-9]{1,2}$/;
 const MAC = /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/;
 const CIDR = /^[0-9./]{1,18}$/;
 
