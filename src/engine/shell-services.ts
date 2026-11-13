@@ -1,6 +1,7 @@
 import { formatIp, parseIp, type Ip } from './addr.ts';
 import { dhclient, dhcpRelease } from './dhcp.ts';
 import { isHostname, resolve } from './dns.ts';
+import { httpGet } from './http.ts';
 import { TCP_ERROR_TEXT } from './tcp.ts';
 import type { Command } from './shell.ts';
 
@@ -21,14 +22,16 @@ export const dnsmasq: Command = (_net, device, args, io) => {
   else result.forEach((line) => io.out(line));
 };
 
-/** `killall NAME`: only dnsmasq runs in the background in NetForge. */
+/** `killall NAME`: dnsmasq and httpd are the background services in NetForge. */
 export const killall: Command = (_net, device, args, io) => {
   const [name] = args;
   if (name === undefined) {
     io.out('Usage: killall NAME');
     return;
   }
-  if (name !== 'dnsmasq' || !device.stopDnsmasq()) io.out(`${name}: no process found`);
+  const stopped =
+    name === 'dnsmasq' ? device.stopDnsmasq() : name === 'httpd' ? device.stopHttpd() : false;
+  if (!stopped) io.out(`${name}: no process found`);
 };
 
 /** `dhclient [-r] [-v] IF`: gets (or releases) an address with DHCP. */
@@ -293,4 +296,57 @@ export const ss: Command = (_net, device, _args, io) => {
     const local = `${formatIp(c.localIp)}:${c.localPort}`;
     io.out(`${state.padEnd(11)}${local.padEnd(24)}${formatIp(c.remoteIp)}:${c.remotePort}`);
   }
+};
+
+/** `httpd [-p PORT] [-h HOME] [-f]`: starts the web server in the background. */
+export const httpd: Command = (_net, device, args, io) => {
+  const error = device.startHttpd(args);
+  if (error) io.out(error);
+};
+
+/** `curl [-i] [-I] [-s] URL`: fetches a page over HTTP and prints it. */
+export const curl: Command = (_net, device, args, io) => {
+  if (!device.ip) {
+    io.out('curl: command not found');
+    return;
+  }
+  const include = args.includes('-i');
+  const head = args.includes('-I');
+  const url = args.find((a) => !a.startsWith('-'));
+  if (url === undefined) {
+    io.out("curl: try 'curl --help' for more information");
+    return;
+  }
+  if (/^[a-z]+:\/\//i.test(url) && !url.toLowerCase().startsWith('http://')) {
+    io.out(`curl: (1) Protocol "${url.split(':')[0] ?? ''}" not supported`);
+    return;
+  }
+  let sync = true;
+  let finished = false;
+  const cancel = httpGet(
+    device,
+    url,
+    (result) => {
+      finished = true;
+      if (!result.ok) io.out(`curl: (${result.code}) ${result.error}`);
+      else {
+        const text = include || head ? result.response.raw : result.response.body;
+        text
+          .replace(/\r/g, '')
+          .replace(/\n$/, '')
+          .split('\n')
+          .forEach((line) => io.out(line));
+      }
+      if (!sync) io.exit();
+    },
+    head ? 'HEAD' : 'GET',
+  );
+  sync = false;
+  if (finished) return;
+  return {
+    interrupt: () => {
+      cancel();
+      io.exit();
+    },
+  };
 };

@@ -108,9 +108,24 @@ function PcFace({ device, activity }: { device: Device; activity: Record<string,
         <text x="10" y="30" fill="#94a3b8" fontSize="8" fontFamily="monospace">
           {addr ? formatCidr(addr) : 'no address'}
         </text>
-        <rect x="10" y="36" width="5" height="7" fill="#38bdf8" className="nf-cursor" />
-        <path d="M40 53h16l3 8H37z" fill="#334155" />
-        <rect x="30" y="61" width="36" height="4" rx="2" fill="#334155" />
+        {device.spec.id === 'server' ? (
+          // A server: rack units with status lights instead of a monitor stand.
+          <>
+            {[36, 42].map((y) => (
+              <g key={y}>
+                <rect x="10" y={y} width="76" height="4" rx="1" fill="#1e293b" />
+                <circle cx="82" cy={y + 2} r="1.3" fill={device.httpd ? '#22c55e' : '#475569'} />
+              </g>
+            ))}
+            <rect x="8" y="53" width="80" height="12" rx="2" fill="#334155" />
+          </>
+        ) : (
+          <>
+            <rect x="10" y="36" width="5" height="7" fill="#38bdf8" className="nf-cursor" />
+            <path d="M40 53h16l3 8H37z" fill="#334155" />
+            <rect x="30" y="61" width="36" height="4" rx="2" fill="#334155" />
+          </>
+        )}
       </svg>
       <span className="max-w-full truncate text-xs font-semibold">{device.name}</span>
       {port && (
@@ -174,7 +189,7 @@ export function DeviceNode({ id, data, selected }: NodeProps<DeviceNodeType>) {
   const isDropTarget = connection.inProgress && connection.fromNode.id !== id;
   const device = getLab().net.devices.get(data.deviceId);
   if (!device) return null;
-  const Face = device.spec.id === 'pc' ? PcFace : SwitchFace;
+  const Face = device.spec.id === 'pc' || device.spec.id === 'server' ? PcFace : SwitchFace;
   return (
     <div
       className={`relative rounded-xl border bg-(--nf-surface) shadow-sm transition-colors ${

@@ -26,7 +26,9 @@ export interface NetworkSnapshot {
     name: string;
     ports: { name: string; mac: string; up: boolean; addrs?: string[] }[];
     /** Running services and their command-line arguments. */
-    services?: { dnsmasq?: string[] };
+    services?: { dnsmasq?: string[]; httpd?: string[] };
+    /** Files on the device (absolute path to text). */
+    files?: Record<string, string>;
     /** IP settings beyond addresses; absent on devices without an IP stack. */
     ip?: {
       forwarding: boolean;
@@ -185,7 +187,15 @@ export class Network implements Fabric {
               },
             }
           : {}),
-        ...(d.dnsmasq ? { services: { dnsmasq: [...d.dnsmasq.args] } } : {}),
+        ...(d.dnsmasq || d.httpd
+          ? {
+              services: {
+                ...(d.dnsmasq ? { dnsmasq: [...d.dnsmasq.args] } : {}),
+                ...(d.httpd ? { httpd: [...d.httpd.args] } : {}),
+              },
+            }
+          : {}),
+        ...(d.fs ? { files: d.fs.toJSON() } : {}),
       })),
       links: [...this.links.values()].map((l) => ({
         id: l.id,
@@ -242,6 +252,18 @@ export class Network implements Fabric {
           const error = device.ip.addRoute(dst, via, dev);
           if (error) throw new Error(`Route ${r.dst} on ${d.id}: ${error}`);
         }
+      }
+      if (d.files && device.fs) {
+        // The saved files replace the spec's starting files.
+        for (const path of [...device.fs.files.keys()]) device.fs.remove(path);
+        for (const [path, text] of Object.entries(d.files)) {
+          const error = device.fs.write(path, text);
+          if (error) throw new Error(`${d.id}: ${error}`);
+        }
+      }
+      if (d.services?.httpd) {
+        const error = device.startHttpd(d.services.httpd);
+        if (error) throw new Error(`${d.id}: ${error}`);
       }
       if (d.services?.dnsmasq) {
         const started = device.startDnsmasq(d.services.dnsmasq);

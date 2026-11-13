@@ -52,8 +52,23 @@ export function RouterArt({ className }: { className?: string | undefined }) {
   );
 }
 
+export function ServerArt({ className }: { className?: string | undefined }) {
+  return (
+    <svg viewBox="0 0 48 40" className={className} aria-hidden>
+      <rect x="12" y="2" width="24" height="36" rx="3" fill="#1e293b" />
+      {[8, 16, 24].map((y) => (
+        <g key={y}>
+          <rect x="15" y={y} width="18" height="5" rx="1" fill="#0b1f36" />
+          <circle cx="30" cy={y + 2.5} r="1" fill="#22c55e" />
+        </g>
+      ))}
+    </svg>
+  );
+}
+
 export function SpecArt({ spec, className }: { spec: SpecId; className?: string | undefined }) {
   if (spec === 'pc') return <PcArt className={className} />;
   if (spec === 'router') return <RouterArt className={className} />;
+  if (spec === 'server') return <ServerArt className={className} />;
   return <SwitchArt className={className} />;
 }

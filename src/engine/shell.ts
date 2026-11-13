@@ -9,10 +9,22 @@ import {
 } from './addr.ts';
 import type { Device } from './device.ts';
 import { isHostname, resolve } from './dns.ts';
+import { normalizePath } from './fs.ts';
 import { DEFAULT_TTL } from './ip.ts';
 import type { Network } from './network.ts';
 import { hasCarrier, type Port } from './port.ts';
-import { dhclientCommand, dig, dnsmasq, killall, nc, resolvectl, ss } from './shell-services.ts';
+import { cat, echo, ls, mkdir, parseLine, pwd, rm, touch } from './shell-files.ts';
+import {
+  curl,
+  dhclientCommand,
+  dig,
+  dnsmasq,
+  httpd,
+  killall,
+  nc,
+  resolvectl,
+  ss,
+} from './shell-services.ts';
 
 export interface ShellIO {
   /** Writes one line of output. */
@@ -56,9 +68,12 @@ const HELP = [
   '  dig [@SERVER] [+short] NAME        ask a DNS server for the address of NAME',
   '  resolvectl [status]                show the DNS servers this device asks',
   '  resolvectl dns IF SERVER...        set the DNS servers',
+  '  httpd [-p PORT] [-h DIR]           start a web server (killall httpd stops it)',
+  '  curl [-i|-I] URL                   fetch a web page over HTTP',
   '  nc -z HOST PORT                    check whether a TCP port is open',
   '  ss -t                              list TCP sockets',
   '  hostname [NAME]                    show or set the device name',
+  '  ls, cat, echo TEXT > FILE, rm, touch, mkdir, pwd   work with files',
   '  clear                              clear the screen',
 ];
 
@@ -628,6 +643,15 @@ const ping: Command = (net, device, args, io) => {
 
 const COMMANDS: Record<string, Command> = {
   ip,
+  cat,
+  curl,
+  echo,
+  httpd,
+  ls,
+  mkdir,
+  pwd,
+  rm,
+  touch,
   dhclient: dhclientCommand,
   dig,
   dnsmasq,
@@ -651,12 +675,40 @@ const COMMANDS: Record<string, Command> = {
  * `clear` is handled by the terminal UI.
  */
 export function run(net: Network, device: Device, line: string, io: ShellIO): Process | undefined {
-  const [name, ...args] = line.trim().split(/\s+/);
+  const parsed = parseLine(line);
+  if (typeof parsed === 'string') {
+    io.out(parsed);
+    return undefined;
+  }
+  const [name, ...args] = parsed.words;
   if (!name) return undefined;
   const command = Object.hasOwn(COMMANDS, name) ? COMMANDS[name] : undefined;
   if (!command) {
     io.out(`${name}: command not found`);
     return undefined;
   }
-  return command(net, device, args, io);
+  const { redirect } = parsed;
+  if (!redirect) return command(net, device, args, io);
+
+  // `> FILE`: collect the output and write it when the command finishes.
+  const path = normalizePath(redirect.path);
+  if (!device.fs || path === null) {
+    io.out(`bash: ${redirect.path}: No such file or directory`);
+    return undefined;
+  }
+  const fs = device.fs;
+  const lines: string[] = [];
+  const save = () => {
+    const error = fs.write(path, lines.map((l) => `${l}\n`).join(''), redirect.append);
+    if (error) io.out(`bash: ${error}`);
+  };
+  const proc = command(net, device, args, {
+    out: (l) => lines.push(l),
+    exit: () => {
+      save();
+      io.exit();
+    },
+  });
+  if (!proc) save();
+  return proc;
 }

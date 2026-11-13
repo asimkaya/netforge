@@ -1,6 +1,6 @@
 import type { PortType } from './port.ts';
 
-export type SpecId = 'pc' | 'switch' | 'router';
+export type SpecId = 'pc' | 'server' | 'switch' | 'router';
 
 /**
  * What a device is made of. Adding a device type means adding a spec here (and its
@@ -19,11 +19,24 @@ export interface DeviceSpec {
   ip: boolean;
   /** Initial `net.ipv4.ip_forward`: forwards packets between its interfaces. */
   forwarding: boolean;
+  /** Files a new device starts with. */
+  files?: Record<string, string>;
 }
 
 function ports(type: PortType, from: number, count: number) {
   return Array.from({ length: count }, (_, i) => ({ name: `eth${from + i}`, type }));
 }
+
+const SAMPLE_PAGE = `<!doctype html>
+<html>
+  <head><title>It works!</title></head>
+  <body>
+    <h1>It works!</h1>
+    <p>This page is served by NetForge's httpd from /var/www/html/index.html.</p>
+    <p>Edit it with the Text Editor, or: echo "&lt;h1&gt;Hello&lt;/h1&gt;" &gt; /var/www/html/index.html</p>
+  </body>
+</html>
+`;
 
 export const SPECS: Record<SpecId, DeviceSpec> = {
   pc: {
@@ -35,6 +48,19 @@ export const SPECS: Record<SpecId, DeviceSpec> = {
     bridge: false,
     ip: true,
     forwarding: false,
+  },
+  server: {
+    id: 'server',
+    label: 'Server',
+    description: 'A server with one Ethernet port and a sample website in /var/www/html',
+    namePrefix: 'srv',
+    ports: ports('ethernet', 0, 1),
+    bridge: false,
+    ip: true,
+    forwarding: false,
+    files: {
+      '/var/www/html/index.html': SAMPLE_PAGE,
+    },
   },
   switch: {
     id: 'switch',

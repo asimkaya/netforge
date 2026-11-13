@@ -5,7 +5,7 @@ import type { Point } from './lab.ts';
 
 export const PROJECT_FORMAT = 'netforge-lab';
 /** Bump on any incompatible change and add a migration for the previous version. */
-export const PROJECT_VERSION = 3;
+export const PROJECT_VERSION = 4;
 
 export interface TaskProgress {
   /** Id of the task being played, if any. */
@@ -108,12 +108,27 @@ function readIpSettings(value: unknown, what: string) {
 /** Service command lines; the engine's own option parser checks their content. */
 function readServices(value: unknown, what: string) {
   const services = obj(value, `${what} services`);
-  if (services.dnsmasq === undefined) return {};
+  const list = (key: 'dnsmasq' | 'httpd', pattern: RegExp) =>
+    services[key] === undefined
+      ? {}
+      : {
+          [key]: arr(services[key], `${what} ${key} options`).map((a) =>
+            str(a, `${what} ${key} option`, pattern),
+          ),
+        };
   return {
-    dnsmasq: arr(services.dnsmasq, `${what} dnsmasq options`).map((a) =>
-      str(a, `${what} dnsmasq option`, /^--?[a-z-]+(=[!-~]{0,200})?$/),
-    ),
+    ...list('dnsmasq', /^--?[a-z-]+(=[!-~]{0,200})?$/),
+    ...list('httpd', /^[\w./-]{1,240}$/),
   };
+}
+
+/** Device files: sizes are checked again when the engine writes them. */
+function readFiles(value: unknown, what: string): Record<string, string> {
+  const files: Record<string, string> = {};
+  for (const [path, text] of Object.entries(obj(value, `${what} files`))) {
+    files[str(path, `${what} file name`, /^\/[\w./-]{1,240}$/)] = str(text, `${what} file ${path}`);
+  }
+  return files;
 }
 
 /** Checks the shape of untrusted JSON before the engine sees it. */
@@ -142,6 +157,7 @@ function readSnapshot(value: unknown): NetworkSnapshot {
       ...(d.services === undefined
         ? {}
         : { services: readServices(d.services, `device #${i + 1}`) }),
+      ...(d.files === undefined ? {} : { files: readFiles(d.files, `device #${i + 1}`) }),
     };
   });
   const links = arr(n.links, 'network.links').map((value, i) => {
@@ -196,6 +212,8 @@ const MIGRATIONS: Record<number, (file: Json) => Json> = {
   // v3 only adds optional per-device `ip` settings (routes, DNS, forwarding) and `services`
   // (dnsmasq); the bump keeps older app versions from silently dropping them.
   2: (file) => file,
+  // v4 adds optional per-device `files` and the httpd service.
+  3: (file) => file,
   // v2: devices name a spec instead of a kind; switches gain two SFP uplinks (eth8, eth9);
   // per-kind name counters become per-prefix counters.
   1: (file) => {

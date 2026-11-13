@@ -1,6 +1,8 @@
 import type { Mac } from './addr.ts';
 import { Bridge } from './bridge.ts';
 import { Dnsmasq } from './dnsmasq.ts';
+import { FileSystem } from './fs.ts';
+import { Httpd } from './http.ts';
 import { IpStack } from './ip.ts';
 import type { EthernetFrame } from './packet.ts';
 import type { Port } from './port.ts';
@@ -19,8 +21,12 @@ export class Device {
   readonly ports: readonly Port[];
   readonly bridge: Bridge | null;
   readonly ip: IpStack | null;
+  /** Files, on devices with an IP stack (hosts, servers, routers). */
+  readonly fs: FileSystem | null;
   /** The running dnsmasq (DHCP and DNS server), if started. */
   dnsmasq: Dnsmasq | null = null;
+  /** The running web server, if started. */
+  httpd: Httpd | null = null;
 
   constructor(
     readonly fabric: Fabric,
@@ -43,6 +49,7 @@ export class Device {
     this.bridge = spec.bridge ? new Bridge(fabric, this.ports) : null;
     const routed = this.ports.filter((p) => !this.bridge?.owns(p));
     this.ip = spec.ip ? new IpStack(fabric, routed, spec.forwarding) : null;
+    this.fs = spec.ip ? new FileSystem(spec.files ?? {}, () => fabric.changed()) : null;
   }
 
   /** Starts dnsmasq with command-line arguments. Returns its log lines or an error message. */
@@ -55,6 +62,25 @@ export class Device {
     if (typeof server === 'string') return server;
     this.dnsmasq = server;
     return server.banner();
+  }
+
+  /** Starts busybox-style httpd. Returns an error message, or null. */
+  startHttpd(args: readonly string[]): string | null {
+    if (!this.ip || !this.fs) return 'httpd: command not found';
+    if (this.httpd) return 'httpd: bind: Address already in use';
+    const server = Httpd.start(this.ip, this.fs, args);
+    if (typeof server === 'string') return server;
+    this.httpd = server;
+    this.fabric.changed();
+    return null;
+  }
+
+  stopHttpd(): boolean {
+    if (!this.httpd) return false;
+    this.httpd.stop();
+    this.httpd = null;
+    this.fabric.changed();
+    return true;
   }
 
   /** Stops dnsmasq. Returns false if it wasn't running. */

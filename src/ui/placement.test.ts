@@ -5,11 +5,16 @@ import { freeSpot } from './placement.ts';
 describe('freeSpot', () => {
   it('puts gear above the center and PCs below, never overlapping', () => {
     const placed: { spec: SpecId; at: { x: number; y: number } }[] = [];
-    const order: SpecId[] = ['router', 'switch', 'pc', 'pc', 'pc', 'switch', 'pc', 'router'];
+    const order: SpecId[] = ['router', 'switch', 'pc', 'server', 'pc', 'switch', 'pc', 'router'];
     for (const spec of order) placed.push({ spec, at: freeSpot(spec, { x: 0, y: 0 }, placed) });
     expect(placed[0]?.at.y).toBeLessThan(0);
     expect(placed[2]?.at.y).toBeGreaterThan(0);
-    const size = { pc: [180, 120], switch: [340, 100], router: [220, 100] } as const;
+    const size = {
+      pc: [180, 120],
+      server: [180, 120],
+      switch: [340, 100],
+      router: [220, 100],
+    } as const;
     for (const [i, a] of placed.entries()) {
       for (const b of placed.slice(i + 1)) {
         const [aw, ah] = size[a.spec];

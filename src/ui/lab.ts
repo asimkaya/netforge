@@ -171,7 +171,7 @@ export function select(id: string | null): void {
 
 /** End hosts get a desktop with apps; network gear gets a CLI tab instead. */
 export function hasDesktop(spec: SpecId): boolean {
-  return spec === 'pc';
+  return spec === 'pc' || spec === 'server';
 }
 
 let topZ = 1;
