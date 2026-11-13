@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Network } from '../engine/network.ts';
+import type { CustomTask } from '../tasks/custom.ts';
 import { TASKS, findTask } from '../tasks/tasks.ts';
+import { TaskEditor } from './TaskEditor.tsx';
 import { getLab, loadLab, setTasks, useLab } from './lab.ts';
 
 /** Renders `code` spans inside task text. */
@@ -38,7 +40,76 @@ function startTask(id: string): void {
   });
 }
 
-function TaskList() {
+/** Plays one of the lab's own tasks on the network as it is (no clearing). */
+function startCustom(id: string): void {
+  const { tasks } = getLab();
+  setTasks({ ...tasks, active: id, steps: { ...tasks.steps, [id]: 0 } });
+}
+
+function removeCustom(task: CustomTask): void {
+  if (!window.confirm(`Delete the task "${task.title}"?`)) return;
+  const { tasks } = getLab();
+  setTasks({
+    ...tasks,
+    active: tasks.active === task.id ? null : tasks.active,
+    custom: (tasks.custom ?? []).filter((t) => t.id !== task.id),
+  });
+}
+
+function CustomTasks({ onEdit }: { onEdit: (task: CustomTask | 'new') => void }) {
+  const { tasks } = useLab();
+  const custom = tasks.custom ?? [];
+  return (
+    <section aria-label="Tasks in this lab" className="space-y-2">
+      <h3 className="text-xs font-semibold tracking-wider text-(--nf-muted) uppercase">
+        Tasks in this lab
+      </h3>
+      {custom.length === 0 && (
+        <p className="text-xs text-(--nf-muted)">
+          Teachers: build a network, then write a task for it. It travels with the lab file and the
+          share link.
+        </p>
+      )}
+      <ul className="space-y-2">
+        {custom.map((t) => (
+          <li key={t.id} className="rounded-lg border border-(--nf-border) p-3">
+            <h4 className="font-semibold">
+              {(tasks.steps[t.id] ?? 0) >= t.steps.length && (
+                <span aria-label="completed">✅ </span>
+              )}
+              {t.title}
+            </h4>
+            {t.summary && <p className="mt-1 text-xs text-(--nf-muted)">{t.summary}</p>}
+            <div className="mt-2 flex gap-2 text-xs">
+              <button
+                type="button"
+                onClick={() => startCustom(t.id)}
+                className="rounded bg-(--nf-accent) px-3 py-1 font-semibold text-slate-950 hover:opacity-90"
+              >
+                Start {t.title}
+              </button>
+              <button type="button" onClick={() => onEdit(t)} className="underline">
+                Edit
+              </button>
+              <button type="button" onClick={() => removeCustom(t)} className="underline">
+                Delete
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <button
+        type="button"
+        onClick={() => onEdit('new')}
+        className="rounded border border-(--nf-border) px-3 py-1 text-xs hover:border-(--nf-accent)"
+      >
+        Create a task
+      </button>
+    </section>
+  );
+}
+
+function TaskList({ onEdit }: { onEdit: (task: CustomTask | 'new') => void }) {
   const { tasks } = useLab();
   return (
     <div className="space-y-4 p-4 text-sm">
@@ -72,6 +143,7 @@ function TaskList() {
           );
         })}
       </ul>
+      <CustomTasks onEdit={onEdit} />
     </div>
   );
 }
@@ -79,7 +151,7 @@ function TaskList() {
 function ActiveTask() {
   const { tasks } = useLab();
   const [hintFor, setHintFor] = useState<number | null>(null);
-  const task = findTask(tasks.active);
+  const task = findTask(tasks.active, tasks.custom);
   if (!task) return null;
   const completed = tasks.steps[task.id] ?? 0;
   const finished = completed >= task.steps.length;
@@ -163,8 +235,26 @@ function ActiveTask() {
   );
 }
 
-/** Right sidebar: the current task, or the welcome text and task list. */
+/** Right sidebar: the current task, the task editor, or the welcome text and task list. */
 export function Sidebar() {
   const { tasks } = useLab();
-  return findTask(tasks.active) ? <ActiveTask /> : <TaskList />;
+  const [editing, setEditing] = useState<CustomTask | 'new' | null>(null);
+  if (editing) {
+    return (
+      <TaskEditor
+        initial={editing === 'new' ? null : editing}
+        onCancel={() => setEditing(null)}
+        onSave={(task) => {
+          const custom = getLab().tasks.custom ?? [];
+          const others = custom.filter((t) => t.id !== task.id);
+          const at = custom.findIndex((t) => t.id === task.id);
+          const next =
+            at < 0 ? [...custom, task] : custom.map((t) => (t.id === task.id ? task : t));
+          setTasks({ ...getLab().tasks, custom: at < 0 ? [...others, task] : next });
+          setEditing(null);
+        }}
+      />
+    );
+  }
+  return findTask(tasks.active, tasks.custom) ? <ActiveTask /> : <TaskList onEdit={setEditing} />;
 }
