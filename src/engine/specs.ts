@@ -102,7 +102,7 @@ export const SPECS: Record<SpecId, DeviceSpec> = {
   switch: {
     id: 'switch',
     label: 'Switch',
-    description: 'Unmanaged switch: 8 Ethernet ports and 2 fiber (SFP) uplinks',
+    description: 'Switch with 8 Ethernet ports and 2 fiber (SFP) uplinks; supports VLANs',
     namePrefix: 'sw',
     ports: [...ports('ethernet', 0, 8), ...ports('sfp', 8, 2)],
     bridge: true,

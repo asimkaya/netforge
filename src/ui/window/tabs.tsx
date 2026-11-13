@@ -16,6 +16,7 @@ import {
   WirelessSection,
 } from './network-sections.tsx';
 import { Terminal } from '../apps/Terminal.tsx';
+import { SwitchVlanSection, VlanInterfacesSection } from './vlan-sections.tsx';
 import { cable, hasDesktop, removeDevice, setWindowView, useLab, type AppId } from '../lab.ts';
 
 const HOSTNAME = /^[A-Za-z0-9][A-Za-z0-9-]{0,62}$/;
@@ -164,7 +165,7 @@ export function ConfigTab({ device }: { device: Device }) {
       <NameField key={device.id} device={device} />
       <Section title="Interfaces">
         <ul className="space-y-1">
-          {device.ports.map((port) => (
+          {device.interfaces().map((port) => (
             <li key={port.name} className="flex items-center justify-between gap-2 text-xs">
               <label className="flex items-center gap-2">
                 <input
@@ -190,6 +191,8 @@ export function ConfigTab({ device }: { device: Device }) {
         </Section>
       )}
       <WirelessSection device={device} />
+      <SwitchVlanSection device={device} />
+      <VlanInterfacesSection device={device} />
       {(device.ip?.ports.length ?? 0) > 0 && <RoutingSection device={device} />}
       <ServicesSection device={device} />
       <WebServerSection device={device} />
