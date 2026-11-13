@@ -38,3 +38,31 @@ body {
 .react-flow {
   --xy-background-color: var(--nf-bg);
 }
+
+/* Port LED flash when a frame passes. */
+@keyframes nf-led-blink {
+  0%,
+  60% {
+    background: #f8fafc;
+    box-shadow: 0 0 6px #22c55e;
+  }
+}
+.nf-led-blink {
+  animation: nf-led-blink 160ms ease-out;
+}
+
+@keyframes nf-cursor {
+  50% {
+    opacity: 0;
+  }
+}
+.nf-cursor {
+  animation: nf-cursor 1s steps(1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nf-led-blink,
+  .nf-cursor {
+    animation: none;
+  }
+}

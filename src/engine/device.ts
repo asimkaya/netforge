@@ -1,33 +1,10 @@
 import type { Mac } from './addr.ts';
+import { Bridge } from './bridge.ts';
+import { IpStack } from './ip.ts';
 import type { EthernetFrame } from './packet.ts';
+import type { Port } from './port.ts';
 import type { Scheduler } from './scheduler.ts';
-
-export interface Port {
-  readonly name: string;
-  readonly mac: Mac;
-  readonly device: Device;
-  link: Link | null;
-  /** Administrative state (`ip link set <port> up|down`). */
-  adminUp: boolean;
-}
-
-export interface Link {
-  readonly id: string;
-  readonly a: Port;
-  readonly b: Port;
-}
-
-export function peerOf(port: Port): Port | null {
-  const link = port.link;
-  if (!link) return null;
-  return link.a === port ? link.b : link.a;
-}
-
-/** Carrier is up when both ends are cabled and administratively up. */
-export function hasCarrier(port: Port): boolean {
-  const peer = peerOf(port);
-  return port.adminUp && peer !== null && peer.adminUp;
-}
+import type { DeviceSpec } from './specs.ts';
 
 /** What a device needs from the network it lives in. */
 export interface Fabric {
@@ -36,32 +13,47 @@ export interface Fabric {
   changed(): void;
 }
 
-export type DeviceKind = 'host' | 'switch';
-
-export abstract class Device {
-  abstract readonly kind: DeviceKind;
-  readonly ports: Port[] = [];
+/** A device built from a spec: ports plus the stack modules the spec asks for. */
+export class Device {
+  readonly ports: readonly Port[];
+  readonly bridge: Bridge | null;
+  readonly ip: IpStack | null;
 
   constructor(
     readonly fabric: Fabric,
     readonly id: string,
     public name: string,
-  ) {}
+    readonly spec: DeviceSpec,
+    macs: readonly Mac[],
+  ) {
+    if (macs.length !== spec.ports.length) {
+      throw new Error(`${spec.label} needs ${spec.ports.length} MAC addresses, got ${macs.length}`);
+    }
+    this.ports = spec.ports.map((p, i) => ({
+      name: p.name,
+      type: p.type,
+      mac: macs[i] ?? '',
+      device: this,
+      link: null,
+      adminUp: true,
+    }));
+    this.bridge = spec.bridge ? new Bridge(fabric, this.ports) : null;
+    const routed = this.ports.filter((p) => !this.bridge?.owns(p));
+    this.ip = spec.ip ? new IpStack(fabric, routed) : null;
+  }
 
   port(name: string): Port | undefined {
     return this.ports.find((p) => p.name === name);
   }
 
-  protected addPort(name: string, mac: Mac): Port {
-    const port: Port = { name, mac, device: this, link: null, adminUp: true };
-    this.ports.push(port);
-    return port;
+  receive(port: Port, frame: EthernetFrame): void {
+    if (this.bridge?.owns(port)) this.bridge.receive(port, frame);
+    else this.ip?.receive(port, frame);
   }
-
-  abstract receive(port: Port, frame: EthernetFrame): void;
 
   /** Called when a port gains or loses carrier. */
   carrierChanged(port: Port): void {
-    void port;
+    this.bridge?.carrierChanged(port);
+    this.ip?.carrierChanged(port);
   }
 }

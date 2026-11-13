@@ -1,8 +1,8 @@
 import { BROADCAST_MAC, type Mac } from './addr.ts';
-import { Device, hasCarrier, type Fabric, type Port } from './device.ts';
+import type { Fabric } from './device.ts';
 import type { EthernetFrame } from './packet.ts';
+import { hasCarrier, type Port } from './port.ts';
 
-export const SWITCH_PORT_COUNT = 8;
 /** Same default as the Linux bridge `ageing_time` (300 s). */
 export const FDB_AGEING_MS = 300_000;
 
@@ -12,14 +12,17 @@ export interface FdbEntry {
   updated: number;
 }
 
-/** Unmanaged learning switch (a Linux bridge with all ports enslaved). */
-export class Switch extends Device {
-  readonly kind = 'switch';
+/** A learning bridge (L2 switching) over a set of ports, like a Linux `br0`. */
+export class Bridge {
   readonly #fdb = new Map<Mac, FdbEntry>();
 
-  constructor(fabric: Fabric, id: string, name: string, macs: Mac[]) {
-    super(fabric, id, name);
-    macs.forEach((mac, i) => this.addPort(`eth${i}`, mac));
+  constructor(
+    readonly fabric: Fabric,
+    readonly ports: readonly Port[],
+  ) {}
+
+  owns(port: Port): boolean {
+    return this.ports.includes(port);
   }
 
   /** Current forwarding database, without expired entries. */
@@ -46,7 +49,7 @@ export class Switch extends Device {
     }
   }
 
-  override carrierChanged(port: Port): void {
+  carrierChanged(port: Port): void {
     for (const [mac, entry] of this.#fdb) if (entry.port === port) this.#fdb.delete(mac);
   }
 

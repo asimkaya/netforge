@@ -1,9 +1,11 @@
+import { macFromIndex } from '../engine/addr.ts';
 import { Network, type NetworkSnapshot } from '../engine/network.ts';
+import { isSpecId, type SpecId } from '../engine/specs.ts';
 import type { Point } from './lab.ts';
 
 export const PROJECT_FORMAT = 'netforge-lab';
 /** Bump on any incompatible change and add a migration for the previous version. */
-export const PROJECT_VERSION = 1;
+export const PROJECT_VERSION = 2;
 
 export interface TaskProgress {
   /** Id of the task being played, if any. */
@@ -89,11 +91,10 @@ function readSnapshot(value: unknown): NetworkSnapshot {
   const n = obj(value, 'network');
   const devices = arr(n.devices, 'network.devices').map((value, i) => {
     const d = obj(value, `device #${i + 1}`);
-    const kind: 'host' | 'switch' =
-      d.kind === 'host' || d.kind === 'switch' ? d.kind : fail(`device #${i + 1} kind is invalid.`);
+    const spec: SpecId = isSpecId(d.spec) ? d.spec : fail(`device #${i + 1} type is invalid.`);
     return {
       id: str(d.id, `device #${i + 1} id`, ID),
-      kind,
+      spec,
       name: str(d.name, `device #${i + 1} name`, NAME),
       ports: arr(d.ports, `device #${i + 1} ports`).map((value, j) => {
         const p = obj(value, `port #${j + 1} of device #${i + 1}`);
@@ -122,8 +123,12 @@ function readSnapshot(value: unknown): NetworkSnapshot {
     device: count(c.device, 'device counter'),
     link: count(c.link, 'cable counter'),
     mac: count(c.mac, 'MAC counter'),
-    host: count(c.host, 'PC counter'),
-    switch: count(c.switch, 'switch counter'),
+    names: Object.fromEntries(
+      Object.entries(obj(c.names, 'name counters')).map(([prefix, n]) => [
+        str(prefix, 'name counter', /^[a-z]{1,10}$/),
+        count(n, `${prefix} counter`),
+      ]),
+    ),
   };
   return { devices, links, counters };
 }
@@ -149,6 +154,33 @@ function readTasks(value: unknown): TaskProgress {
   return { active, steps };
 }
 
+/**
+ * Upgrades raw file data from version N to N + 1. Runs before validation, so it only
+ * reshapes what it recognizes and leaves anything odd for the validator to reject.
+ */
+const MIGRATIONS: Record<number, (file: Json) => Json> = {
+  // v2: devices name a spec instead of a kind; switches gain two SFP uplinks (eth8, eth9);
+  // per-kind name counters become per-prefix counters.
+  1: (file) => {
+    const network = obj(file.network, 'network');
+    const counters = obj(network.counters, 'network.counters');
+    let mac = count(counters.mac, 'MAC counter');
+    const devices = arr(network.devices, 'network.devices').map((value) => {
+      if (!isObject(value)) return value;
+      const { kind, ...device } = value;
+      if (kind === 'host') return { ...device, spec: 'pc' };
+      if (kind !== 'switch' || !Array.isArray(device.ports)) return value;
+      const uplinks = [8, 9].map((i) => ({ name: `eth${i}`, mac: macFromIndex(++mac), up: true }));
+      return { ...device, spec: 'switch', ports: [...device.ports, ...uplinks] };
+    });
+    const { host, switch: sw, ...rest } = counters;
+    return {
+      ...file,
+      network: { ...network, devices, counters: { ...rest, mac, names: { pc: host, sw } } },
+    };
+  },
+};
+
 /** Parses a lab file. Throws ProjectError with a user-facing message. */
 export function parseProject(text: string): Project {
   let data: unknown;
@@ -157,13 +189,18 @@ export function parseProject(text: string): Project {
   } catch {
     fail('This is not a NetForge lab file (it is not valid JSON).');
   }
-  const file = obj(data, 'The file');
+  let file = obj(data, 'The file');
   if (file.format !== PROJECT_FORMAT) fail('This is not a NetForge lab file.');
-  const version = count(file.version, 'File version');
+  let version = count(file.version, 'File version');
   if (version > PROJECT_VERSION) {
     fail('This lab was saved by a newer version of NetForge. Reload the page to update.');
   }
   if (version < 1) fail('File version is invalid.');
+  for (; version < PROJECT_VERSION; version++) {
+    const migrate = MIGRATIONS[version];
+    if (!migrate) fail(`Cannot upgrade lab files from version ${version}.`);
+    file = { ...migrate(file), version: version + 1 };
+  }
   const snapshot = readSnapshot(file.network);
   let net: Network;
   try {

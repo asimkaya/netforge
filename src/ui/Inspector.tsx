@@ -1,10 +1,9 @@
 import { useState, type ReactNode } from 'react';
 import { formatCidr, formatIp } from '../engine/addr.ts';
-import { hasCarrier, peerOf, type Device } from '../engine/device.ts';
-import { Host } from '../engine/host.ts';
-import { Switch } from '../engine/switch.ts';
-import { DeviceIcon } from './icons.tsx';
-import { openTerminal, removeDevice, useLab } from './lab.ts';
+import type { Device } from '../engine/device.ts';
+import { PORT_TYPE_LABEL, hasCarrier, peerOf, type Port } from '../engine/port.ts';
+import { SpecArt } from './icons.tsx';
+import { cable, openTerminal, removeDevice, useLab } from './lab.ts';
 
 const HOSTNAME = /^[A-Za-z0-9][A-Za-z0-9-]{0,62}$/;
 
@@ -46,6 +45,61 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
+/** Keyboard-friendly way to cable a free port: pick the other end from a list. */
+function ConnectSelect({ port }: { port: Port }) {
+  const { net } = useLab();
+  const options = [...net.devices.values()]
+    .filter((d) => d !== port.device)
+    .flatMap((d) => net.freePortsFor(d, port));
+  if (options.length === 0) return null;
+  return (
+    <select
+      aria-label={`Connect ${port.name} to`}
+      value=""
+      onChange={(e) => {
+        const [device, name] = e.target.value.split('/');
+        const target = device && name ? net.devices.get(device)?.port(name) : undefined;
+        if (target) cable(port, target);
+      }}
+      className="mt-1 w-full rounded border border-(--nf-border) bg-(--nf-bg) px-1 py-0.5 text-xs"
+    >
+      <option value="">Connect to…</option>
+      {options.map((p) => (
+        <option key={`${p.device.id}/${p.name}`} value={`${p.device.id}/${p.name}`}>
+          {p.device.name} {p.name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function PortRow({ device, port }: { device: Device; port: Port }) {
+  const peer = peerOf(port);
+  const up = hasCarrier(port);
+  return (
+    <li className="rounded border border-(--nf-border) p-2 text-xs">
+      <div className="flex items-center gap-2">
+        <span
+          className={`h-2 w-2 rounded-full ${up ? 'bg-emerald-400' : port.link ? 'bg-amber-500' : 'bg-slate-600'}`}
+          aria-label={up ? 'link up' : port.link ? 'no carrier' : 'no cable'}
+        />
+        <span className="font-mono font-semibold">{port.name}</span>
+        <span className="truncate text-(--nf-muted)">
+          {peer ? `→ ${peer.device.name} ${peer.name}` : PORT_TYPE_LABEL[port.type]}
+        </span>
+      </div>
+      <div className="mt-1 font-mono text-(--nf-muted)">{port.mac}</div>
+      {device.ip?.ports.includes(port) &&
+        device.ip.addrsOn(port).map((a) => (
+          <div key={formatCidr(a)} className="font-mono">
+            {formatCidr(a)}
+          </div>
+        ))}
+      {!peer && <ConnectSelect port={port} />}
+    </li>
+  );
+}
+
 /** Right-hand panel describing the selected device. */
 export function Inspector() {
   const { net, selected } = useLab();
@@ -57,12 +111,12 @@ export function Inspector() {
       </p>
     );
   }
-  const cabled = device.ports.filter((p) => p.link || device instanceof Host);
+  const fdb = device.bridge?.fdb() ?? [];
   return (
     <div className="space-y-4 p-4 text-sm">
       <div className="flex items-center gap-2">
-        <DeviceIcon kind={device.kind} className="h-6 w-6 text-(--nf-accent)" />
-        <span className="font-semibold">{device.kind === 'host' ? 'PC' : 'Switch'}</span>
+        <SpecArt spec={device.spec.id} className="h-7 w-8" />
+        <span className="font-semibold">{device.spec.label}</span>
       </div>
       <NameField key={device.id} device={device} />
       <div className="flex gap-2">
@@ -82,42 +136,19 @@ export function Inspector() {
         </button>
       </div>
       <Section title="Ports">
-        {cabled.length === 0 && <p className="text-xs text-(--nf-muted)">No cables connected.</p>}
         <ul className="space-y-2">
-          {cabled.map((port) => {
-            const peer = peerOf(port);
-            const up = hasCarrier(port);
-            return (
-              <li key={port.name} className="rounded border border-(--nf-border) p-2 text-xs">
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`h-2 w-2 rounded-full ${up ? 'bg-emerald-400' : 'bg-red-500'}`}
-                    aria-label={up ? 'link up' : 'link down'}
-                  />
-                  <span className="font-mono font-semibold">{port.name}</span>
-                  <span className="text-(--nf-muted)">
-                    {peer ? `→ ${peer.device.name} ${peer.name}` : 'not connected'}
-                  </span>
-                </div>
-                <div className="mt-1 font-mono text-(--nf-muted)">{port.mac}</div>
-                {device instanceof Host &&
-                  device.addrsOn(port).map((a) => (
-                    <div key={formatCidr(a)} className="font-mono">
-                      {formatCidr(a)}
-                    </div>
-                  ))}
-              </li>
-            );
-          })}
+          {device.ports.map((port) => (
+            <PortRow key={port.name} device={device} port={port} />
+          ))}
         </ul>
       </Section>
-      {device instanceof Host && (
+      {device.ip && (
         <Section title="ARP table (ip neigh)">
-          {device.neighbors.size === 0 ? (
+          {device.ip.neighbors.size === 0 ? (
             <p className="text-xs text-(--nf-muted)">Empty.</p>
           ) : (
             <ul className="font-mono text-xs">
-              {[...device.neighbors.values()].map((n) => (
+              {[...device.ip.neighbors.values()].map((n) => (
                 <li key={n.ip}>
                   {formatIp(n.ip)} {n.mac ?? ''}{' '}
                   <span className="text-(--nf-muted)">{n.state}</span>
@@ -127,13 +158,13 @@ export function Inspector() {
           )}
         </Section>
       )}
-      {device instanceof Switch && (
+      {device.bridge && (
         <Section title="MAC table (bridge fdb)">
-          {device.fdb().length === 0 ? (
+          {fdb.length === 0 ? (
             <p className="text-xs text-(--nf-muted)">Nothing learned yet.</p>
           ) : (
             <ul className="font-mono text-xs">
-              {device.fdb().map((e) => (
+              {fdb.map((e) => (
                 <li key={e.mac}>
                   {e.mac} <span className="text-(--nf-muted)">{e.port.name}</span>
                 </li>

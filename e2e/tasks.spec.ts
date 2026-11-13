@@ -1,24 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
-
-async function connect(page: Page, from: string, to: string) {
-  const handle = await page
-    .getByTestId(`device-${from}`)
-    .locator('.react-flow__handle')
-    .boundingBox();
-  const target = await page.getByTestId(`device-${to}`).boundingBox();
-  if (!handle || !target) throw new Error('devices not visible');
-  await page.mouse.move(handle.x + 6, handle.y + 6);
-  await page.mouse.down();
-  await page.mouse.move(target.x + 50, target.y + 40, { steps: 10 });
-  await page.mouse.up();
-}
-
-async function run(page: Page, device: string, command: string) {
-  await page.getByTestId(`device-${device}`).dblclick();
-  const input = page.getByRole('textbox', { name: 'Command' });
-  await input.fill(command);
-  await input.press('Enter');
-}
+import { expect, test } from '@playwright/test';
+import { add, connect, run } from './helpers.ts';
 
 test('a newcomer completes the first guided task', async ({ page }) => {
   await page.goto('/');
@@ -30,8 +11,7 @@ test('a newcomer completes the first guided task', async ({ page }) => {
   await expect(task).toContainText('0/5');
   await expect(current).toContainText('Add two PCs');
 
-  await page.getByRole('button', { name: /Add PC/ }).click();
-  await page.getByRole('button', { name: /Add PC/ }).click();
+  await add(page, 'PC', 2);
   await expect(current).toContainText('Connect them with a cable');
 
   await connect(page, 'pc1', 'pc2');

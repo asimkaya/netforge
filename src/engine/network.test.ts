@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { formatIp, parseCidr, parseIp, type Ip } from './addr.ts';
-import type { Host, IcmpEvent } from './host.ts';
+import type { Device } from './device.ts';
+import type { IcmpEvent, IpStack } from './ip.ts';
 import { Network } from './network.ts';
 
 function ip(text: string): Ip {
@@ -9,28 +10,39 @@ function ip(text: string): Ip {
   return value;
 }
 
-function addr(host: Host, cidr: string): void {
+function ipOf(device: Device): IpStack {
+  if (!device.ip) throw new Error(`${device.name} has no IP stack`);
+  return device.ip;
+}
+
+function fdbOf(device: Device) {
+  if (!device.bridge) throw new Error(`${device.name} is not a bridge`);
+  return device.bridge.fdb();
+}
+
+function addr(host: Device, cidr: string): void {
   const parsed = parseCidr(cidr);
   const port = host.port('eth0');
   if (!parsed || !port) throw new Error('bad setup');
-  expect(host.addAddress(port, parsed)).toBeNull();
+  expect(ipOf(host).addAddress(port, parsed)).toBeNull();
 }
 
 /** Sends one echo request and runs the simulation for `ms`. */
-function ping(net: Network, from: Host, to: string, ms = 5000): IcmpEvent[] {
+function ping(net: Network, from: Device, to: string, ms = 5000): IcmpEvent[] {
   const events: IcmpEvent[] = [];
-  const id = from.openIcmp((e) => events.push(e));
-  const error = from.sendIcmp(ip(to), { kind: 'icmp', type: 'echo-request', id, seq: 1 });
+  const stack = ipOf(from);
+  const id = stack.openIcmp((e) => events.push(e));
+  const error = stack.sendIcmp(ip(to), { kind: 'icmp', type: 'echo-request', id, seq: 1 });
   if (error) throw new Error(error);
   net.scheduler.runUntil(net.scheduler.now + ms);
-  from.closeIcmp(id);
+  stack.closeIcmp(id);
   return events;
 }
 
 function twoHosts() {
   const net = new Network();
-  const pc1 = net.addHost();
-  const pc2 = net.addHost();
+  const pc1 = net.addDevice('pc');
+  const pc2 = net.addDevice('pc');
   addr(pc1, '10.0.0.1/24');
   addr(pc2, '10.0.0.2/24');
   return { net, pc1, pc2 };
@@ -39,11 +51,11 @@ function twoHosts() {
 describe('Network', () => {
   it('names devices and gives each port a unique MAC', () => {
     const net = new Network();
-    const pc = net.addHost();
-    const sw = net.addSwitch();
+    const pc = net.addDevice('pc');
+    const sw = net.addDevice('switch');
     expect(pc.name).toBe('pc1');
     expect(sw.name).toBe('sw1');
-    expect(sw.ports).toHaveLength(8);
+    expect(sw.ports).toHaveLength(10);
     const macs = [...pc.ports, ...sw.ports].map((p) => p.mac);
     expect(new Set(macs).size).toBe(macs.length);
   });
@@ -54,24 +66,24 @@ describe('Network', () => {
     const events = ping(net, pc1, '10.0.0.2');
     expect(events).toEqual([{ kind: 'reply', from: ip('10.0.0.2'), seq: 1, ttl: 64 }]);
     expect(net.trace.map((t) => t.frame.payload.kind)).toEqual(['arp', 'arp', 'ipv4', 'ipv4']);
-    expect(pc1.neighbors.get(ip('10.0.0.2'))?.state).toBe('REACHABLE');
-    expect(pc2.neighbors.get(ip('10.0.0.1'))?.mac).toBe(pc1.ports[0]?.mac);
-    expect(pc1.echoRepliesFrom.has(ip('10.0.0.2'))).toBe(true);
+    expect(ipOf(pc1).neighbors.get(ip('10.0.0.2'))?.state).toBe('REACHABLE');
+    expect(ipOf(pc2).neighbors.get(ip('10.0.0.1'))?.mac).toBe(pc1.ports[0]?.mac);
+    expect(ipOf(pc1).echoRepliesFrom.has(ip('10.0.0.2'))).toBe(true);
     // The ARP retry timer was cancelled once the reply arrived.
     expect(net.scheduler.pending).toBe(0);
   });
 
   it('pings through a switch, which learns MAC addresses', () => {
     const net = new Network();
-    const sw = net.addSwitch();
-    const [pc1, pc2, pc3] = [net.addHost(), net.addHost(), net.addHost()];
+    const sw = net.addDevice('switch');
+    const [pc1, pc2, pc3] = [net.addDevice('pc'), net.addDevice('pc'), net.addDevice('pc')];
     if (!pc1 || !pc2 || !pc3) throw new Error('setup');
     [pc1, pc2, pc3].forEach((pc, i) => {
       addr(pc, `192.168.1.${i + 1}/24`);
       net.connect(pc, sw);
     });
     expect(ping(net, pc1, '192.168.1.3')).toHaveLength(1);
-    const learned = sw.fdb().map((e) => [e.mac, e.port.name]);
+    const learned = fdbOf(sw).map((e) => [e.mac, e.port.name]);
     expect(learned).toEqual([
       [pc1.ports[0]?.mac, 'eth0'],
       [pc3.ports[0]?.mac, 'eth2'],
@@ -83,33 +95,33 @@ describe('Network', () => {
 
   it('ages out switch entries after 300 s', () => {
     const { net, pc1, pc2 } = twoHosts();
-    const sw = net.addSwitch();
+    const sw = net.addDevice('switch');
     net.connect(pc1, sw);
     net.connect(pc2, sw);
     ping(net, pc1, '10.0.0.2');
-    expect(sw.fdb()).toHaveLength(2);
+    expect(fdbOf(sw)).toHaveLength(2);
     net.scheduler.runUntil(net.scheduler.now + 300_001);
-    expect(sw.fdb()).toHaveLength(0);
+    expect(fdbOf(sw)).toHaveLength(0);
   });
 
   it('reports Destination Host Unreachable after 3 unanswered ARP probes', () => {
     const { net, pc1 } = twoHosts();
-    const sw = net.addSwitch();
+    const sw = net.addDevice('switch');
     net.connect(pc1, sw);
     const events = ping(net, pc1, '10.0.0.99');
     expect(events).toEqual([{ kind: 'unreachable', from: ip('10.0.0.1'), seq: 1 }]);
     expect(net.trace.filter((t) => t.frame.payload.kind === 'arp')).toHaveLength(3);
     expect(net.scheduler.now).toBeGreaterThanOrEqual(3000);
-    expect(pc1.neighbors.get(ip('10.0.0.99'))?.state).toBe('FAILED');
+    expect(ipOf(pc1).neighbors.get(ip('10.0.0.99'))?.state).toBe('FAILED');
   });
 
   it('has no route to other subnets or without a cable', () => {
     const { net, pc1, pc2 } = twoHosts();
     const echo = { kind: 'icmp', type: 'echo-request', id: 1, seq: 1 } as const;
-    expect(pc1.sendIcmp(ip('10.0.0.2'), echo)).toBe('Network is unreachable');
+    expect(ipOf(pc1).sendIcmp(ip('10.0.0.2'), echo)).toBe('Network is unreachable');
     net.connect(pc1, pc2);
-    expect(pc1.sendIcmp(ip('10.0.0.2'), echo)).toBeNull();
-    expect(pc1.sendIcmp(ip('172.16.0.1'), echo)).toBe('Network is unreachable');
+    expect(ipOf(pc1).sendIcmp(ip('10.0.0.2'), echo)).toBeNull();
+    expect(ipOf(pc1).sendIcmp(ip('172.16.0.1'), echo)).toBe('Network is unreachable');
   });
 
   it('answers pings to its own address without touching the wire', () => {
@@ -125,30 +137,60 @@ describe('Network', () => {
     const port = pc2.port('eth0');
     if (!port) throw new Error('setup');
     net.setPortUp(port, false);
-    expect(pc1.neighbors.size).toBe(0);
+    expect(ipOf(pc1).neighbors.size).toBe(0);
     const echo = { kind: 'icmp', type: 'echo-request', id: 1, seq: 1 } as const;
-    expect(pc1.sendIcmp(ip('10.0.0.2'), echo)).toBe('Network is unreachable');
+    expect(ipOf(pc1).sendIcmp(ip('10.0.0.2'), echo)).toBe('Network is unreachable');
     net.setPortUp(port, true);
     expect(ping(net, pc1, '10.0.0.2')).toHaveLength(1);
   });
 
   it('refuses cables that would create a switching loop or have no free port', () => {
     const net = new Network();
-    const [sw1, sw2, sw3] = [net.addSwitch(), net.addSwitch(), net.addSwitch()];
+    const [sw1, sw2, sw3] = [
+      net.addDevice('switch'),
+      net.addDevice('switch'),
+      net.addDevice('switch'),
+    ];
     net.connect(sw1, sw2);
     net.connect(sw2, sw3);
     expect(() => net.connect(sw3, sw1)).toThrow(/switching loop/);
-    expect(() => net.connect(sw1, sw1)).toThrow(/itself/);
-    const pc1 = net.addHost();
-    const pc2 = net.addHost();
-    const pc3 = net.addHost();
+    // A cable between two ports of the same switch is a loop too.
+    expect(() => net.connect(sw1, sw1)).toThrow(/switching loop/);
+    const port = sw1.port('eth5');
+    if (!port) throw new Error('setup');
+    expect(() => net.connect(port, port)).toThrow(/itself/);
+    const pc1 = net.addDevice('pc');
+    const pc2 = net.addDevice('pc');
+    const pc3 = net.addDevice('pc');
     net.connect(pc1, pc2);
     expect(() => net.connect(pc1, pc3)).toThrow(/no free port/);
   });
 
+  it('cables chosen ports and checks that the cable fits', () => {
+    const net = new Network();
+    const [sw1, sw2, pc] = [net.addDevice('switch'), net.addDevice('switch'), net.addDevice('pc')];
+    const port = (d: Device, name: string) => {
+      const p = d.port(name);
+      if (!p) throw new Error(`no ${name}`);
+      return p;
+    };
+    const copper = net.connect(port(pc, 'eth0'), port(sw1, 'eth3'));
+    expect([copper.a.name, copper.b.name, copper.medium]).toEqual(['eth0', 'eth3', 'copper']);
+    const fiber = net.connect(port(sw1, 'eth8'), port(sw2, 'eth9'));
+    expect(fiber.medium).toBe('fiber');
+    expect(() => net.connect(port(sw2, 'eth0'), port(sw1, 'eth9'))).toThrow(
+      /need different cables/,
+    );
+    expect(() => net.connect(port(sw2, 'eth1'), port(sw1, 'eth3'))).toThrow(/already has a cable/);
+    // Picking a port for a device skips ports the other end's cable does not fit.
+    const sw3 = net.addDevice('switch');
+    expect(net.freePortsFor(sw3, port(sw2, 'eth8')).map((p) => p.name)).toEqual(['eth8', 'eth9']);
+    expect(net.connect(sw3, port(sw2, 'eth8')).a.name).toBe('eth8');
+  });
+
   it('frees ports when a cable or device is removed', () => {
     const { net, pc1, pc2 } = twoHosts();
-    const sw = net.addSwitch();
+    const sw = net.addDevice('switch');
     const link = net.connect(pc1, sw);
     net.connect(pc2, sw);
     net.disconnect(link);
@@ -161,7 +203,7 @@ describe('Network', () => {
 
   it('round-trips through a snapshot and keeps working', () => {
     const { net, pc1, pc2 } = twoHosts();
-    const sw = net.addSwitch();
+    const sw = net.addDevice('switch');
     net.connect(pc1, sw);
     net.connect(pc2, sw);
     const port = sw.port('eth5');
@@ -169,10 +211,10 @@ describe('Network', () => {
     const snapshot = JSON.parse(JSON.stringify(net.toJSON()));
     const copy = Network.fromJSON(snapshot);
     expect(copy.toJSON()).toEqual(net.toJSON());
-    const copyPc1 = copy.devices.get(pc1.id) as Host;
+    const copyPc1 = copy.devices.get(pc1.id) as Device;
     expect(ping(copy, copyPc1, '10.0.0.2')).toHaveLength(1);
     // New ids continue after the restored counters.
-    expect(copy.addHost().id).toBe('d4');
+    expect(copy.addDevice('pc').id).toBe('d4');
   });
 
   it('rejects inconsistent snapshots', () => {
@@ -193,8 +235,8 @@ describe('Network', () => {
   it('is deterministic', () => {
     const run = () => {
       const net = new Network();
-      const sw = net.addSwitch();
-      const hosts = [net.addHost(), net.addHost(), net.addHost()];
+      const sw = net.addDevice('switch');
+      const hosts = [net.addDevice('pc'), net.addDevice('pc'), net.addDevice('pc')];
       hosts.forEach((h, i) => {
         addr(h, `10.1.0.${i + 1}/16`);
         net.connect(h, sw);

@@ -1,77 +1,48 @@
-import { BaseEdge, useInternalNode, type Edge, type EdgeProps } from '@xyflow/react';
+import { BaseEdge, type Edge, type EdgeProps } from '@xyflow/react';
 import type { TraceEntry } from '../engine/network.ts';
 import { protocolOf } from '../engine/packet.ts';
+import type { Medium } from '../engine/port.ts';
 import { PROTOCOL_COLORS } from './theme.ts';
 
-export type CableEdgeType = Edge<
-  { up: boolean; packets: TraceEntry[]; labelA: string; labelB: string },
-  'cable'
->;
+export type CableEdgeType = Edge<{ up: boolean; medium: Medium; packets: TraceEntry[] }, 'cable'>;
 
-function center(node: ReturnType<typeof useInternalNode>) {
-  const { x, y } = node?.internals.positionAbsolute ?? { x: 0, y: 0 };
-  return { x: x + (node?.measured.width ?? 0) / 2, y: y + (node?.measured.height ?? 0) / 2 };
-}
+const MEDIUM_COLOR: Record<Medium, string> = { copper: '#64748b', fiber: '#f59e0b' };
 
-/** Straight cable between device centers, with packets animated along it. */
-export function CableEdge({ id, source, target, data, selected }: EdgeProps<CableEdgeType>) {
-  const a = center(useInternalNode(source));
-  const b = center(useInternalNode(target));
-  const path = `M ${a.x} ${a.y} L ${b.x} ${b.y}`;
+/** A straight cable from port to port, with packets animated along it. */
+export function CableEdge(props: EdgeProps<CableEdgeType>) {
+  const { id, source, data, selected } = props;
+  const { sourceX: x1, sourceY: y1, targetX: x2, targetY: y2 } = props;
+  // Straight cables read best on a busy canvas, like a patch diagram.
+  const path = `M ${x1} ${y1} L ${x2} ${y2}`;
+  const reverse = `M ${x2} ${y2} L ${x1} ${y1}`;
   const up = data?.up ?? false;
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const len = Math.hypot(dx, dy) || 1;
-  // Port labels sit 70px from each end, offset to the side of the line.
-  const label = (from: { x: number; y: number }, dir: number) => ({
-    x: from.x + (dx / len) * 70 * dir - (dy / len) * 10,
-    y: from.y + (dy / len) * 70 * dir + (dx / len) * 10,
-  });
-  const la = label(a, 1);
-  const lb = label(b, -1);
+  const color = up ? MEDIUM_COLOR[data?.medium ?? 'copper'] : '#ef4444';
   return (
     <>
       <BaseEdge
         id={id}
         path={path}
         style={{
-          stroke: selected ? 'var(--nf-accent)' : up ? '#64748b' : '#ef4444',
-          strokeWidth: selected ? 3 : 2,
+          stroke: selected ? 'var(--nf-accent)' : color,
+          strokeWidth: selected ? 3.5 : 2.5,
           strokeDasharray: up ? undefined : '6 4',
         }}
       />
-      <text
-        x={la.x}
-        y={la.y}
-        className="fill-(--nf-muted) font-mono text-[10px]"
-        textAnchor="middle"
-      >
-        {data?.labelA}
-      </text>
-      <text
-        x={lb.x}
-        y={lb.y}
-        className="fill-(--nf-muted) font-mono text-[10px]"
-        textAnchor="middle"
-      >
-        {data?.labelB}
-      </text>
-      {data?.packets.map((p) => {
-        const forward = p.from.device === source;
-        const motion = forward ? path : `M ${b.x} ${b.y} L ${a.x} ${a.y}`;
-        return (
-          <g key={p.seq}>
-            <circle
-              r={7}
-              fill={PROTOCOL_COLORS[protocolOf(p.frame)]}
-              stroke="#0b1120"
-              strokeWidth={2}
-            >
-              <animateMotion dur="0.6s" path={motion} fill="freeze" />
-            </circle>
-          </g>
-        );
-      })}
+      {data?.packets.map((p) => (
+        <circle
+          key={p.seq}
+          r={7}
+          fill={PROTOCOL_COLORS[protocolOf(p.frame)]}
+          stroke="#0b1120"
+          strokeWidth={2}
+        >
+          <animateMotion
+            dur="0.6s"
+            path={p.from.device === source ? path : reverse}
+            fill="freeze"
+          />
+        </circle>
+      ))}
     </>
   );
 }

@@ -1,8 +1,7 @@
 import { broadcastOf, formatCidr, formatIp, networkOf, parseCidr, parseIp } from './addr.ts';
-import { hasCarrier, type Device, type Port } from './device.ts';
-import { Host } from './host.ts';
+import type { Device } from './device.ts';
 import type { Network } from './network.ts';
-import { Switch } from './switch.ts';
+import { hasCarrier, type Port } from './port.ts';
 
 export interface ShellIO {
   /** Writes one line of output. */
@@ -61,7 +60,7 @@ function linkLines(device: Device, port: Port, index: number): string[] {
   ];
   const noCarrier = port.adminUp && !carrier ? 'NO-CARRIER,' : '';
   const state = carrier ? 'UP' : 'DOWN';
-  const master = device instanceof Switch ? ' master br0' : '';
+  const master = device.bridge?.owns(port) ? ' master br0' : '';
   return [
     `${index + 1}: ${port.name}: <${noCarrier}${flags.join(',')}> mtu 1500${master} state ${state}`,
     `    link/ether ${port.mac} brd ff:ff:ff:ff:ff:ff`,
@@ -99,8 +98,8 @@ function ipAddr(_net: Network, device: Device, args: string[], io: ShellIO): und
     for (const port of ports) {
       if (!port) continue;
       linkLines(device, port, device.ports.indexOf(port)).forEach(io.out);
-      if (!(device instanceof Host)) continue;
-      for (const a of device.addrsOn(port)) {
+      if (!device.ip?.ports.includes(port)) continue;
+      for (const a of device.ip.addrsOn(port)) {
         const brd = a.prefix < 31 ? ` brd ${formatIp(broadcastOf(a))}` : '';
         io.out(`    inet ${formatCidr(a)}${brd} scope global ${port.name}`);
       }
@@ -114,7 +113,8 @@ function ipAddr(_net: Network, device: Device, args: string[], io: ShellIO): und
     io.out(`Command "${verb}" is unknown, try "ip address help".`);
     return;
   }
-  if (!(device instanceof Host)) {
+  const stack = device.ip;
+  if (!stack) {
     io.out('RTNETLINK answers: Operation not supported');
     return;
   }
@@ -126,8 +126,12 @@ function ipAddr(_net: Network, device: Device, args: string[], io: ShellIO): und
   }
   const port = findPort(device, name, io);
   if (!port) return;
+  if (!stack.ports.includes(port)) {
+    io.out('RTNETLINK answers: Operation not supported');
+    return;
+  }
   if (isFlush) {
-    device.flushAddresses(port);
+    stack.flushAddresses(port);
     return;
   }
   const text = rest.find((_, i) => i !== devIndex && i !== devIndex + 1);
@@ -136,15 +140,16 @@ function ipAddr(_net: Network, device: Device, args: string[], io: ShellIO): und
     io.out(`Error: any valid prefix is expected rather than "${text ?? ''}".`);
     return;
   }
-  const error = isAdd ? device.addAddress(port, cidr) : device.removeAddress(port, cidr);
+  const error = isAdd ? stack.addAddress(port, cidr) : stack.removeAddress(port, cidr);
   if (error) io.out(error);
 }
 
 function ipNeigh(_net: Network, device: Device, args: string[], io: ShellIO): undefined {
-  if (!(device instanceof Host)) return;
+  const stack = device.ip;
+  if (!stack) return;
   const [verb, ...rest] = args;
   if (verb === undefined || matches(verb, 'show') || matches(verb, 'list')) {
-    for (const n of device.neighbors.values()) {
+    for (const n of stack.neighbors.values()) {
       const lladdr = n.mac ? ` lladdr ${n.mac}` : '';
       io.out(`${formatIp(n.ip)} dev ${n.port.name}${lladdr} ${n.state}`);
     }
@@ -158,8 +163,8 @@ function ipNeigh(_net: Network, device: Device, args: string[], io: ShellIO): un
     }
     const port = name === 'all' ? null : findPort(device, name, io);
     if (name !== 'all' && !port) return;
-    if (port) device.flushNeighbors(port);
-    else device.flushNeighbors();
+    if (port) stack.flushNeighbors(port);
+    else stack.flushNeighbors();
     return;
   }
   io.out(`Command "${verb}" is unknown, try "ip neigh help".`);
@@ -171,8 +176,7 @@ function ipRoute(_net: Network, device: Device, args: string[], io: ShellIO): un
     io.out(`Command "${verb}" is unknown, try "ip route help".`);
     return;
   }
-  if (!(device instanceof Host)) return;
-  for (const r of device.routes()) {
+  for (const r of device.ip?.routes() ?? []) {
     const net = formatCidr({ ip: networkOf(r.subnet), prefix: r.subnet.prefix });
     io.out(`${net} dev ${r.port.name} proto kernel scope link src ${formatIp(r.src)}`);
   }
@@ -196,11 +200,12 @@ const ip: Command = (net, device, args, io) => {
 
 const bridge: Command = (_net, device, args, io) => {
   const [object, verb] = args;
-  if (!(device instanceof Switch) || object !== 'fdb' || (verb !== undefined && verb !== 'show')) {
+  const br = device.bridge;
+  if (!br || object !== 'fdb' || (verb !== undefined && verb !== 'show')) {
     io.out('Usage: bridge fdb [show]');
     return;
   }
-  for (const e of device.fdb()) io.out(`${e.mac} dev ${e.port.name} master br0`);
+  for (const e of br.fdb()) io.out(`${e.mac} dev ${e.port.name} master br0`);
 };
 
 const hostname: Command = (net, device, args, io) => {
@@ -211,7 +216,8 @@ const hostname: Command = (net, device, args, io) => {
 };
 
 const ping: Command = (net, device, args, io) => {
-  if (!(device instanceof Host)) {
+  const stack = device.ip;
+  if (!stack) {
     io.out('ping: command not found');
     return;
   }
@@ -242,7 +248,7 @@ const ping: Command = (net, device, args, io) => {
     io.out(`ping: ${target}: Name or service not known`);
     return;
   }
-  if (device.allAddrs().some((a) => a.prefix < 31 && broadcastOf(a) === dst)) {
+  if (stack.allAddrs().some((a) => a.prefix < 31 && broadcastOf(a) === dst)) {
     io.out('Do you want to ping broadcast? Then -b. If not, check your local firewall rules');
     return;
   }
@@ -257,7 +263,7 @@ const ping: Command = (net, device, args, io) => {
   let done = false;
   let timer: number | null = null;
 
-  const id = device.openIcmp((event) => {
+  const id = stack.openIcmp((event) => {
     if (done) return;
     if (event.kind === 'reply') {
       const rtt = scheduler.now - (sentAt.get(event.seq) ?? scheduler.now);
@@ -276,7 +282,7 @@ const ping: Command = (net, device, args, io) => {
   const finish = () => {
     if (done) return;
     done = true;
-    device.closeIcmp(id);
+    stack.closeIcmp(id);
     if (timer !== null) scheduler.cancel(timer);
     const received = rtts.length;
     const loss = sent === 0 ? 0 : Math.round(((sent - received) / sent) * 100);
@@ -302,10 +308,10 @@ const ping: Command = (net, device, args, io) => {
     if (done) return;
     const seq = ++sent;
     sentAt.set(seq, scheduler.now);
-    const error = device.sendIcmp(dst, { kind: 'icmp', type: 'echo-request', id, seq });
+    const error = stack.sendIcmp(dst, { kind: 'icmp', type: 'echo-request', id, seq });
     if (error) {
       done = true;
-      device.closeIcmp(id);
+      stack.closeIcmp(id);
       io.out(`ping: connect: ${error}`);
       io.exit();
       return;

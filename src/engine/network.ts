@@ -1,9 +1,9 @@
 import { formatCidr, macFromIndex, parseCidr } from './addr.ts';
-import { hasCarrier, peerOf, type Device, type Fabric, type Link, type Port } from './device.ts';
-import { Host } from './host.ts';
+import { Device, type Fabric } from './device.ts';
 import type { EthernetFrame } from './packet.ts';
+import { MEDIUM_OF, cableError, hasCarrier, peerOf, type Link, type Port } from './port.ts';
 import { Scheduler } from './scheduler.ts';
-import { SWITCH_PORT_COUNT, Switch } from './switch.ts';
+import { SPECS, type SpecId } from './specs.ts';
 
 /** One-way propagation delay of every cable, in virtual ms. */
 export const LINK_DELAY_MS = 0.25;
@@ -22,12 +22,12 @@ export interface TraceEntry {
 export interface NetworkSnapshot {
   devices: {
     id: string;
-    kind: 'host' | 'switch';
+    spec: SpecId;
     name: string;
     ports: { name: string; mac: string; up: boolean; addrs?: string[] }[];
   }[];
   links: { id: string; a: { device: string; port: string }; b: { device: string; port: string } }[];
-  counters: { device: number; link: number; mac: number; host: number; switch: number };
+  counters: { device: number; link: number; mac: number; names: Record<string, number> };
 }
 
 export class Network implements Fabric {
@@ -37,7 +37,7 @@ export class Network implements Fabric {
   trace: TraceEntry[] = [];
   /** Increments on every observable change; lets the UI re-render cheaply. */
   version = 0;
-  #counters = { device: 0, link: 0, mac: 0, host: 0, switch: 0, trace: 0 };
+  #counters = { device: 0, link: 0, mac: 0, trace: 0, names: {} as Record<string, number> };
   #listeners = new Set<() => void>();
 
   subscribe(listener: () => void): () => void {
@@ -50,26 +50,21 @@ export class Network implements Fabric {
     for (const listener of this.#listeners) listener();
   }
 
-  addHost(name?: string): Host {
-    const host = new Host(
+  addDevice(specId: SpecId, name?: string): Device {
+    const spec = SPECS[specId];
+    const macs = spec.ports.map(() => macFromIndex(++this.#counters.mac));
+    const n = (this.#counters.names[spec.namePrefix] ?? 0) + 1;
+    this.#counters.names[spec.namePrefix] = n;
+    const device = new Device(
       this,
       this.#nextId('d'),
-      name ?? `pc${++this.#counters.host}`,
-      macFromIndex(++this.#counters.mac),
+      name ?? `${spec.namePrefix}${n}`,
+      spec,
+      macs,
     );
-    this.devices.set(host.id, host);
+    this.devices.set(device.id, device);
     this.changed();
-    return host;
-  }
-
-  addSwitch(name?: string): Switch {
-    const macs = Array.from({ length: SWITCH_PORT_COUNT }, () =>
-      macFromIndex(++this.#counters.mac),
-    );
-    const sw = new Switch(this, this.#nextId('d'), name ?? `sw${++this.#counters.switch}`, macs);
-    this.devices.set(sw.id, sw);
-    this.changed();
-    return sw;
+    return device;
   }
 
   rename(device: Device, name: string): void {
@@ -77,20 +72,27 @@ export class Network implements Fabric {
     this.changed();
   }
 
-  /** Cables two devices using the first free port on each. Throws a user-facing Error. */
-  connect(a: Device, b: Device): Link {
-    if (a === b) throw new Error('A device cannot be connected to itself.');
-    const pa = a.ports.find((p) => !p.link);
-    const pb = b.ports.find((p) => !p.link);
-    if (!pa) throw new Error(`${a.name} has no free port.`);
-    if (!pb) throw new Error(`${b.name} has no free port.`);
-    // Hosts have one port, so any cycle runs through switches and would loop frames forever.
-    if (this.#reachable(a, b)) {
+  /**
+   * Cables two ports. Passing a device picks its first free port that fits the other end.
+   * Throws an Error with a user-facing message when the cable is not allowed.
+   */
+  connect(a: Port | Device, b: Port | Device): Link {
+    const [pa, pb] = this.#pickPorts(a, b);
+    const error = cableError(pa, pb);
+    if (error) throw new Error(error);
+    if (this.#l2Domain(pa).has(pb)) {
       throw new Error(
-        `${a.name} and ${b.name} are already connected. A second path would create a switching loop.`,
+        `${pa.device.name} and ${pb.device.name} are already connected through switches. A second path would create a switching loop.`,
       );
     }
     return this.#attach(this.#nextId('l'), pa, pb);
+  }
+
+  /** Free ports of `device` that could take a cable from `from`. */
+  freePortsFor(device: Device, from?: Port): Port[] {
+    return device.ports.filter(
+      (p) => !p.link && p !== from && (!from || MEDIUM_OF[p.type] === MEDIUM_OF[from.type]),
+    );
   }
 
   disconnect(link: Link): void {
@@ -150,17 +152,17 @@ export class Network implements Fabric {
   }
 
   toJSON(): NetworkSnapshot {
-    const { device, link, mac, host, switch: sw } = this.#counters;
+    const { device, link, mac, names } = this.#counters;
     return {
       devices: [...this.devices.values()].map((d) => ({
         id: d.id,
-        kind: d.kind,
+        spec: d.spec.id,
         name: d.name,
         ports: d.ports.map((p) => ({
           name: p.name,
           mac: p.mac,
           up: p.adminUp,
-          ...(d instanceof Host ? { addrs: d.addrsOn(p).map(formatCidr) } : {}),
+          ...(d.ip?.ports.includes(p) ? { addrs: d.ip.addrsOn(p).map(formatCidr) } : {}),
         })),
       })),
       links: [...this.links.values()].map((l) => ({
@@ -168,7 +170,7 @@ export class Network implements Fabric {
         a: { device: l.a.device.id, port: l.a.name },
         b: { device: l.b.device.id, port: l.b.name },
       })),
-      counters: { device, link, mac, host, switch: sw },
+      counters: { device, link, mac, names: { ...names } },
     };
   }
 
@@ -177,24 +179,28 @@ export class Network implements Fabric {
     const net = new Network();
     for (const d of snapshot.devices) {
       if (net.devices.has(d.id)) throw new Error(`Duplicate device id ${d.id}`);
-      const macs = d.ports.map((p) => p.mac);
-      const device =
-        d.kind === 'host'
-          ? new Host(net, d.id, d.name, macs[0] ?? macFromIndex(0))
-          : new Switch(net, d.id, d.name, macs);
-      if (device.ports.length !== d.ports.length) {
+      const spec = SPECS[d.spec];
+      if (!spec) throw new Error(`Unknown device type ${String(d.spec)}`);
+      if (d.ports.length !== spec.ports.length) {
         throw new Error(`Device ${d.id} has the wrong number of ports`);
       }
+      const device = new Device(
+        net,
+        d.id,
+        d.name,
+        spec,
+        d.ports.map((p) => p.mac),
+      );
       d.ports.forEach((p, i) => {
         const port = device.ports[i];
         if (!port || port.name !== p.name) throw new Error(`Unknown port ${p.name} on ${d.id}`);
         port.adminUp = p.up;
-        if (device instanceof Host) {
-          for (const text of p.addrs ?? []) {
-            const cidr = parseCidr(text);
-            if (!cidr) throw new Error(`Invalid address ${text} on ${d.id}`);
-            device.addAddress(port, cidr);
-          }
+        for (const text of p.addrs ?? []) {
+          const cidr = parseCidr(text);
+          if (!cidr) throw new Error(`Invalid address ${text} on ${d.id}`);
+          if (!device.ip?.ports.includes(port))
+            throw new Error(`${d.id} ${p.name} cannot have an address`);
+          device.ip.addAddress(port, cidr);
         }
       });
       net.devices.set(device.id, device);
@@ -202,10 +208,10 @@ export class Network implements Fabric {
     for (const l of snapshot.links) {
       const pa = net.devices.get(l.a.device)?.port(l.a.port);
       const pb = net.devices.get(l.b.device)?.port(l.b.port);
-      if (!pa || !pb || pa.link || pb.link || pa === pb) throw new Error(`Invalid link ${l.id}`);
+      if (!pa || !pb || cableError(pa, pb)) throw new Error(`Invalid link ${l.id}`);
       net.#attach(l.id, pa, pb);
     }
-    net.#counters = { ...snapshot.counters, trace: 0 };
+    net.#counters = { ...snapshot.counters, names: { ...snapshot.counters.names }, trace: 0 };
     net.version = 0;
     return net;
   }
@@ -220,7 +226,7 @@ export class Network implements Fabric {
   }
 
   #attach(id: string, a: Port, b: Port): Link {
-    const link: Link = { id, a, b };
+    const link: Link = { id, a, b, medium: MEDIUM_OF[a.type] };
     a.link = link;
     b.link = link;
     this.links.set(id, link);
@@ -232,19 +238,32 @@ export class Network implements Fabric {
     return link;
   }
 
-  #reachable(from: Device, to: Device): boolean {
-    const seen = new Set<Device>([from]);
-    const queue = [from];
-    for (let d = queue.shift(); d; d = queue.shift()) {
-      if (d === to) return true;
-      for (const port of d.ports) {
-        const next = peerOf(port)?.device;
-        if (next && !seen.has(next)) {
-          seen.add(next);
-          queue.push(next);
-        }
-      }
+  #pickPorts(a: Port | Device, b: Port | Device): [Port, Port] {
+    const pick = (end: Port | Device, other: Port | Device): Port => {
+      if (!(end instanceof Device)) return end;
+      const free = this.freePortsFor(end, other instanceof Device ? undefined : other);
+      const port = free[0];
+      if (!port) throw new Error(`${end.name} has no free port for this cable.`);
+      return port;
+    };
+    const pa = pick(a, b);
+    return [pa, pick(b, pa)];
+  }
+
+  /**
+   * Ports in the same broadcast domain as `start`: across cables and through bridges.
+   * Linking two ports of one domain makes a loop that floods frames forever (no STP yet).
+   */
+  #l2Domain(start: Port): Set<Port> {
+    const seen = new Set<Port>();
+    const queue = [start];
+    for (let p = queue.pop(); p; p = queue.pop()) {
+      if (seen.has(p)) continue;
+      seen.add(p);
+      const peer = peerOf(p);
+      if (peer) queue.push(peer);
+      if (p.device.bridge?.owns(p)) queue.push(...p.device.bridge.ports);
     }
-    return false;
+    return seen;
   }
 }

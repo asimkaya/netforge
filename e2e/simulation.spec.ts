@@ -1,23 +1,10 @@
-import { expect, test, type Page } from '@playwright/test';
-
-async function run(page: Page, device: string, command: string) {
-  await page.getByTestId(`device-${device}`).dblclick();
-  const input = page.getByRole('textbox', { name: 'Command' });
-  await input.fill(command);
-  await input.press('Enter');
-}
+import { expect, test } from '@playwright/test';
+import { add, connect, run } from './helpers.ts';
 
 test('simulation mode steps through a ping frame by frame', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: /Add PC/ }).click();
-  await page.getByRole('button', { name: /Add PC/ }).click();
-  const handle = await page.getByTestId('device-pc1').locator('.react-flow__handle').boundingBox();
-  const target = await page.getByTestId('device-pc2').boundingBox();
-  if (!handle || !target) throw new Error('devices not visible');
-  await page.mouse.move(handle.x + 6, handle.y + 6);
-  await page.mouse.down();
-  await page.mouse.move(target.x + 50, target.y + 40, { steps: 10 });
-  await page.mouse.up();
+  await add(page, 'PC', 2);
+  await connect(page, 'pc1', 'pc2');
 
   await run(page, 'pc1', 'ip addr add 10.0.0.1/24 dev eth0');
   await run(page, 'pc2', 'ip addr add 10.0.0.2/24 dev eth0');

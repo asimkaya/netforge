@@ -1,5 +1,6 @@
 import { BROADCAST_MAC, broadcastOf, inSubnet, type Cidr, type Ip, type Mac } from './addr.ts';
-import { Device, hasCarrier, type Fabric, type Port } from './device.ts';
+import type { Fabric } from './device.ts';
+import { hasCarrier, type Port } from './port.ts';
 import type { ArpPacket, EthernetFrame, IcmpPacket, Ipv4Packet } from './packet.ts';
 
 export const DEFAULT_TTL = 64;
@@ -26,9 +27,8 @@ export type IcmpEvent =
 
 export type IcmpListener = (event: IcmpEvent) => void;
 
-/** An end host (PC/server) with a single Ethernet port. */
-export class Host extends Device {
-  readonly kind = 'host';
+/** IPv4 with ARP and ICMP on a set of ports (the ports that are not bridged). */
+export class IpStack {
   /** Addresses per port name, in the order they were added. */
   readonly addrs = new Map<string, Cidr[]>();
   readonly neighbors = new Map<Ip, Neighbor>();
@@ -37,10 +37,10 @@ export class Host extends Device {
   readonly #icmpListeners = new Map<number, IcmpListener>();
   #nextIcmpId = 1;
 
-  constructor(fabric: Fabric, id: string, name: string, mac: Mac) {
-    super(fabric, id, name);
-    this.addPort('eth0', mac);
-  }
+  constructor(
+    readonly fabric: Fabric,
+    readonly ports: readonly Port[],
+  ) {}
 
   addrsOn(port: Port): Cidr[] {
     return this.addrs.get(port.name) ?? [];
@@ -148,7 +148,7 @@ export class Host extends Device {
     this.fabric.changed();
   }
 
-  override carrierChanged(port: Port): void {
+  carrierChanged(port: Port): void {
     // Linux flushes neighbor entries of an interface that loses carrier.
     this.flushNeighbors(port);
   }

@@ -1,6 +1,8 @@
 import { useSyncExternalStore } from 'react';
 import { Network } from '../engine/network.ts';
+import type { Port } from '../engine/port.ts';
 import { run, type Process } from '../engine/shell.ts';
+import type { SpecId } from '../engine/specs.ts';
 import { emptyProgress, type Project, type TaskProgress } from './project.ts';
 
 export interface Point {
@@ -100,9 +102,18 @@ export function loadLab(project: Project): void {
   emit();
 }
 
-export function addDevice(kind: 'host' | 'switch', at: Point): void {
-  const device = kind === 'host' ? state.net.addHost() : state.net.addSwitch();
+export function addDevice(spec: SpecId, at: Point): void {
+  const device = state.net.addDevice(spec);
   update({ layout: { ...state.layout, [device.id]: at }, selected: device.id });
+}
+
+/** Cables two ports; a refused cable is explained in a toast. */
+export function cable(a: Port, b: Port): void {
+  try {
+    state.net.connect(a, b);
+  } catch (error) {
+    notify(error instanceof Error ? error.message : String(error));
+  }
 }
 
 export function moveDevice(id: string, to: Point): void {

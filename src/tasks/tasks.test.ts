@@ -33,8 +33,8 @@ describe('tasks', () => {
     const progress = () => advance(t, ctx, 0);
 
     expect(progress()).toBe(0);
-    const pc1 = net.addHost();
-    const pc2 = net.addHost();
+    const pc1 = net.addDevice('pc');
+    const pc2 = net.addDevice('pc');
     expect(progress()).toBe(1);
     net.connect(pc1, pc2);
     expect(progress()).toBe(2);
@@ -53,7 +53,7 @@ describe('tasks', () => {
     const t = task('first-ping');
     const net = new Network();
     const { ctx, sh } = play(net);
-    const [pc1, pc2] = [net.addHost(), net.addHost()];
+    const [pc1, pc2] = [net.addDevice('pc'), net.addDevice('pc')];
     net.connect(pc1, pc2);
     sh(pc1, 'ip addr add 10.0.0.1/24 dev eth0');
     sh(pc2, 'ip addr add 10.0.0.2/24 dev eth0');
@@ -65,9 +65,9 @@ describe('tasks', () => {
     const t = task('meet-the-switch');
     const net = new Network();
     const { ctx, sh } = play(net);
-    const sw = net.addSwitch();
+    const sw = net.addDevice('switch');
     expect(advance(t, ctx, 0)).toBe(1);
-    const pcs = [net.addHost(), net.addHost(), net.addHost()];
+    const pcs = [net.addDevice('pc'), net.addDevice('pc'), net.addDevice('pc')];
     pcs.forEach((pc) => net.connect(pc, sw));
     expect(advance(t, ctx, 0)).toBe(2);
     pcs.forEach((pc, i) => sh(pc, `ip addr add 10.0.0.${i + 1}/24 dev eth0`));
@@ -86,8 +86,8 @@ describe('tasks', () => {
     const t = task('first-ping');
     const net = new Network();
     const { ctx } = play(net);
-    const pc = net.addHost();
-    net.addHost();
+    const pc = net.addDevice('pc');
+    net.addDevice('pc');
     expect(advance(t, ctx, 0)).toBe(1);
     net.removeDevice(pc);
     expect(advance(t, ctx, 1)).toBe(1);

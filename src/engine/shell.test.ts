@@ -14,9 +14,9 @@ function sh(net: Network, device: Device, line: string, ms = 20_000) {
 
 function lab() {
   const net = new Network();
-  const sw = net.addSwitch();
-  const pc1 = net.addHost();
-  const pc2 = net.addHost();
+  const sw = net.addDevice('switch');
+  const pc1 = net.addDevice('pc');
+  const pc2 = net.addDevice('pc');
   net.connect(pc1, sw);
   net.connect(pc2, sw);
   expect(sh(net, pc1, 'ip addr add 192.168.1.10/24 dev eth0').lines).toEqual([]);
@@ -39,7 +39,7 @@ describe('shell', () => {
 
   it('reports a missing cable as NO-CARRIER', () => {
     const net = new Network();
-    const pc = net.addHost();
+    const pc = net.addDevice('pc');
     expect(sh(net, pc, 'ip link').lines[0]).toBe(
       '1: eth0: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 state DOWN',
     );
@@ -63,7 +63,7 @@ describe('shell', () => {
       'Error: ipv4: Address not found.',
     ]);
     expect(sh(net, pc1, 'ip addr flush dev eth0').lines).toEqual([]);
-    expect(pc1.allAddrs()).toEqual([]);
+    expect(pc1.ip?.allAddrs()).toEqual([]);
     expect(sh(net, pc1, 'ip foo').lines).toEqual(['Object "foo" is unknown, try "ip help".']);
     expect(sh(net, pc1, 'nmap').lines).toEqual(['nmap: command not found']);
   });
@@ -150,8 +150,8 @@ describe('shell', () => {
   it('flushes the neighbor table', () => {
     const { net, pc1 } = lab();
     sh(net, pc1, 'ping -c 1 192.168.1.20');
-    expect(pc1.neighbors.size).toBe(1);
+    expect(pc1.ip?.neighbors.size).toBe(1);
     sh(net, pc1, 'ip neigh flush all');
-    expect(pc1.neighbors.size).toBe(0);
+    expect(pc1.ip?.neighbors.size).toBe(0);
   });
 });

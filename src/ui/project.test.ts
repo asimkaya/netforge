@@ -5,12 +5,12 @@ import { ProjectError, parseProject, serializeProject, type ProjectFile } from '
 
 function sample() {
   const net = new Network();
-  const pc = net.addHost();
-  const sw = net.addSwitch();
+  const pc = net.addDevice('pc');
+  const sw = net.addDevice('switch');
   net.connect(pc, sw);
   const cidr = parseCidr('10.0.0.1/24');
   const port = pc.port('eth0');
-  if (cidr && port) pc.addAddress(port, cidr);
+  if (cidr && port) pc.ip?.addAddress(port, cidr);
   const text = serializeProject({
     net,
     layout: { [pc.id]: { x: 10, y: 20.5 }, [sw.id]: { x: -5, y: 0 } },
@@ -52,6 +52,54 @@ describe('lab files', () => {
     expect(() => parseProject(text)).toThrow(message);
   });
 
+  it('upgrades version 1 files', () => {
+    const mac = (n: number) => `02:00:00:00:00:0${n}`;
+    const v1 = {
+      format: 'netforge-lab',
+      version: 1,
+      network: {
+        devices: [
+          {
+            id: 'd1',
+            kind: 'host',
+            name: 'pc1',
+            ports: [{ name: 'eth0', mac: mac(1), up: true, addrs: ['10.0.0.1/24'] }],
+          },
+          {
+            id: 'd2',
+            kind: 'switch',
+            name: 'sw1',
+            ports: Array.from({ length: 8 }, (_, i) => ({
+              name: `eth${i}`,
+              mac: mac(i + 2),
+              up: i !== 5,
+            })),
+          },
+        ],
+        links: [{ id: 'l1', a: { device: 'd1', port: 'eth0' }, b: { device: 'd2', port: 'eth3' } }],
+        counters: { device: 2, link: 1, mac: 9, host: 1, switch: 1 },
+      },
+      layout: { d1: { x: 0, y: 0 }, d2: { x: 100, y: 0 } },
+      tasks: { active: null, steps: { 'first-ping': 5 } },
+    };
+    const { net, tasks } = parseProject(JSON.stringify(v1));
+    const sw = net.devices.get('d2');
+    expect(sw?.spec.id).toBe('switch');
+    expect(sw?.ports.map((p) => `${p.name}:${p.type}`).slice(-3)).toEqual([
+      'eth7:ethernet',
+      'eth8:sfp',
+      'eth9:sfp',
+    ]);
+    expect(sw?.ports.at(-1)?.mac).toBe('02:00:00:00:00:0b');
+    expect(sw?.port('eth5')?.adminUp).toBe(false);
+    expect(net.devices.get('d1')?.ip?.allAddrs()).toHaveLength(1);
+    expect(net.links.get('l1')?.b.name).toBe('eth3');
+    expect(tasks.steps['first-ping']).toBe(5);
+    // Counters carry over: new devices and MACs don't collide with old ones.
+    const pc = net.addDevice('pc');
+    expect([pc.id, pc.name, pc.ports[0]?.mac]).toEqual(['d3', 'pc2', '02:00:00:00:00:0c']);
+  });
+
   it('rejects files from a newer version', () => {
     const { text } = sample();
     expect(() => parseProject(mutate(text, (f) => (f.version = 99)))).toThrow(/newer version/);
@@ -59,9 +107,14 @@ describe('lab files', () => {
 
   it.each<[string, (f: ProjectFile) => void, RegExp]>([
     [
-      'a bad device kind',
-      (f) => Object.assign(f.network.devices[0] ?? {}, { kind: 'router' }),
-      /kind/,
+      'an unknown device type',
+      (f) => Object.assign(f.network.devices[0] ?? {}, { spec: 'toaster' }),
+      /type is invalid/,
+    ],
+    [
+      'an address on a switch port',
+      (f) => Object.assign(f.network.devices[1]?.ports[0] ?? {}, { addrs: ['10.0.0.9/24'] }),
+      /cannot have an address/,
     ],
     [
       'an unsafe name',

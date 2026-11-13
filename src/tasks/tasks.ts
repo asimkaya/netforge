@@ -1,8 +1,7 @@
 import { inSubnet, networkOf, type Cidr } from '../engine/addr.ts';
-import { peerOf, type Device } from '../engine/device.ts';
-import { Host } from '../engine/host.ts';
+import type { Device } from '../engine/device.ts';
 import type { Network } from '../engine/network.ts';
-import { Switch } from '../engine/switch.ts';
+import { peerOf } from '../engine/port.ts';
 
 export interface TaskContext {
   net: Network;
@@ -27,12 +26,19 @@ export interface Task {
   done: string;
 }
 
-function hosts(net: Network): Host[] {
-  return [...net.devices.values()].filter((d): d is Host => d instanceof Host);
+const isPc = (d: Device) => d.spec.id === 'pc';
+const isSwitch = (d: Device) => d.spec.id === 'switch';
+
+function hosts(net: Network): Device[] {
+  return [...net.devices.values()].filter(isPc);
 }
 
-function switches(net: Network): Switch[] {
-  return [...net.devices.values()].filter((d): d is Switch => d instanceof Switch);
+function switches(net: Network): Device[] {
+  return [...net.devices.values()].filter(isSwitch);
+}
+
+function addrsOf(d: Device): Cidr[] {
+  return d.ip?.allAddrs() ?? [];
 }
 
 function neighborsOf(device: Device): Device[] {
@@ -47,34 +53,33 @@ function sameSubnet(a: Cidr, b: Cidr): boolean {
   return a.ip !== b.ip && inSubnet(b.ip, a) && inSubnet(a.ip, b);
 }
 
-function shareSubnet(a: Host, b: Host): boolean {
-  return a.allAddrs().some((x) => b.allAddrs().some((y) => sameSubnet(x, y)));
+function shareSubnet(a: Device, b: Device): boolean {
+  return addrsOf(a).some((x) => addrsOf(b).some((y) => sameSubnet(x, y)));
 }
 
 /** True if `from` received an echo reply from an address owned by another host in `among`. */
-function pinged(from: Host, among: Host[]): boolean {
-  return among.some(
-    (other) => other !== from && other.allAddrs().some((a) => from.echoRepliesFrom.has(a.ip)),
-  );
+function pinged(from: Device, among: Device[]): boolean {
+  const replies = from.ip?.echoRepliesFrom;
+  return !!replies && among.some((o) => o !== from && addrsOf(o).some((a) => replies.has(a.ip)));
 }
 
-function cabledHostPairs(net: Network): [Host, Host][] {
+function cabledHostPairs(net: Network): [Device, Device][] {
   return hosts(net).flatMap((a) =>
     neighborsOf(a)
-      .filter((d): d is Host => d instanceof Host && d.id > a.id)
-      .map((b): [Host, Host] => [a, b]),
+      .filter((d) => isPc(d) && d.id > a.id)
+      .map((b): [Device, Device] => [a, b]),
   );
 }
 
-function hostsOn(sw: Switch): Host[] {
-  return neighborsOf(sw).filter((d): d is Host => d instanceof Host);
+function hostsOn(sw: Device): Device[] {
+  return neighborsOf(sw).filter(isPc);
 }
 
 /** Largest group of `group` that all share one subnet. */
-function largestSubnetGroup(group: Host[]): number {
-  const counts = new Map<string, Set<Host>>();
+function largestSubnetGroup(group: Device[]): number {
+  const counts = new Map<string, Set<Device>>();
   for (const h of group) {
-    for (const a of h.allAddrs()) {
+    for (const a of addrsOf(h)) {
       const key = `${networkOf(a)}/${a.prefix}`;
       counts.set(key, (counts.get(key) ?? new Set()).add(h));
     }
@@ -96,7 +101,7 @@ export const TASKS: Task[] = [
       {
         title: 'Connect them with a cable',
         detail:
-          'Drag from the small dot on the right of one PC and drop it on the other PC. A line appears: that is your cable.',
+          'Drag from the network port on the right side of one PC (the small socket) and drop it on the other PC. A line appears: that is your cable, and both port lights turn green.',
         check: ({ net }) => cabledHostPairs(net).length > 0,
       },
       {
@@ -105,7 +110,7 @@ export const TASKS: Task[] = [
           'Double-click a PC to open its terminal, then type `ip addr add 192.168.1.10/24 dev eth0` and press Enter.',
         hint: '`eth0` is the name of the network port. `/24` says the first three numbers are the network part.',
         check: ({ net }) =>
-          cabledHostPairs(net).some(([a, b]) => a.allAddrs().length > 0 || b.allAddrs().length > 0),
+          cabledHostPairs(net).some(([a, b]) => addrsOf(a).length > 0 || addrsOf(b).length > 0),
       },
       {
         title: 'Give the second PC an address in the same network',
@@ -134,7 +139,8 @@ export const TASKS: Task[] = [
       },
       {
         title: 'Connect three PCs to the switch',
-        detail: 'Add three PCs and cable each one to the switch.',
+        detail:
+          'Add three PCs and cable each one to the switch. Drop a cable on a switch port to choose it, or on the switch itself to pick from a list.',
         check: ({ net }) => switches(net).some((sw) => hostsOn(sw).length >= 3),
       },
       {
@@ -160,7 +166,7 @@ export const TASKS: Task[] = [
           commands.some(
             (c) =>
               /^bridge\s+fdb(\s+show)?$/.test(c.line) &&
-              net.devices.get(c.device) instanceof Switch,
+              net.devices.get(c.device)?.spec.id === 'switch',
           ),
       },
     ],
