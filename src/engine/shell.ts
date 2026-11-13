@@ -41,6 +41,7 @@ const HELP = [
   '  ip route get ADDR                  show which route a packet would take',
   '  sysctl -w net.ipv4.ip_forward=1    let the device forward packets (router)',
   '  ping [-c COUNT] [-t TTL] ADDR      send ICMP echo requests (Ctrl+C stops)',
+  '  traceroute [-m MAX_TTL] ADDR       show the routers on the way to ADDR',
   '  bridge fdb [show]                  show learned MAC addresses (switches)',
   '  hostname [NAME]                    show or set the device name',
   '  clear                              clear the screen',
@@ -336,6 +337,123 @@ const sysctl: Command = (_net, device, args, io) => {
   }
 };
 
+/** Linux traceroute's first UDP destination port. */
+const TRACE_PORT = 33434;
+const TRACE_PROBES = 3;
+const TRACE_WAIT_MS = 5000;
+
+const traceroute: Command = (net, device, args, io) => {
+  const stack = device.ip;
+  if (!stack) {
+    io.out('traceroute: command not found');
+    return;
+  }
+  let maxHops = 30;
+  let target: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '-m') {
+      const value = Number(args[++i]);
+      if (!Number.isInteger(value) || value < 1 || value > 255) {
+        io.out(`first hop out of range`);
+        return;
+      }
+      maxHops = value;
+    } else if (arg?.startsWith('-')) {
+      io.out(`Bad option \`${arg}' (argc ${i + 1})`);
+      return;
+    } else {
+      target = arg;
+    }
+  }
+  if (target === undefined) {
+    io.out('Usage: traceroute [-m max_ttl] host');
+    return;
+  }
+  const dst = parseIp(target);
+  if (dst === null) {
+    io.out(`${target}: Name or service not known`);
+    io.out(`Cannot handle "host" cmdline arg \`${target}' on position 1 (argc 1)`);
+    return;
+  }
+
+  const { scheduler } = net;
+  type Probe = { port: number; sentAt: number; from?: Ip; rtt?: number; mark?: string };
+  let probes: Probe[] = [];
+  let ttl = 0;
+  let timer: number | null = null;
+  let done = false;
+
+  const finish = () => {
+    if (done) return;
+    done = true;
+    if (timer !== null) scheduler.cancel(timer);
+    if (typeof socket !== 'string') socket.close();
+    io.exit();
+  };
+
+  const hopDone = () => {
+    if (done) return;
+    if (timer !== null) scheduler.cancel(timer);
+    let line = String(ttl).padStart(2);
+    let last: Ip | undefined;
+    for (const p of probes) {
+      if (p.from === undefined) {
+        line += line.endsWith('*') ? ' *' : '  *';
+        continue;
+      }
+      if (p.from !== last) line += `  ${formatIp(p.from)} (${formatIp(p.from)})`;
+      last = p.from;
+      line += `  ${(p.rtt ?? 0).toFixed(3)} ms${p.mark ?? ''}`;
+    }
+    io.out(line);
+    const stop = probes.some((p) => p.from === dst || p.mark === ' !N' || p.mark === ' !H');
+    if (stop || ttl >= maxHops) finish();
+    else sendHop();
+  };
+
+  const socket = stack.openUdp(
+    () => {},
+    (error, original) => {
+      if (done || original.payload.kind !== 'udp') return;
+      const port = original.payload.dstPort;
+      const probe = probes.find((p) => p.port === port && p.from === undefined);
+      if (!probe) return;
+      probe.from = error.from;
+      probe.rtt = scheduler.now - probe.sentAt;
+      if (error.kind === 'unreachable' && error.code !== 'port') {
+        probe.mark = error.code === 'net' ? ' !N' : ' !H';
+      }
+      if (probes.every((p) => p.from !== undefined)) hopDone();
+    },
+  );
+  if (typeof socket === 'string') {
+    io.out(`traceroute: ${socket}`);
+    return;
+  }
+
+  const sendHop = () => {
+    ttl++;
+    probes = [];
+    for (let i = 0; i < TRACE_PROBES; i++) {
+      const port = TRACE_PORT + (ttl - 1) * TRACE_PROBES + i;
+      probes.push({ port, sentAt: scheduler.now });
+      const error = socket.send(dst, port, { app: 'probe' }, ttl);
+      if (error) {
+        io.out(`connect: ${error}`);
+        finish();
+        return;
+      }
+    }
+    timer = scheduler.schedule(TRACE_WAIT_MS, hopDone);
+  };
+
+  const shown = formatIp(dst);
+  io.out(`traceroute to ${shown} (${shown}), ${maxHops} hops max, 60 byte packets`);
+  sendHop();
+  return { interrupt: finish };
+};
+
 const ping: Command = (net, device, args, io) => {
   const stack = device.ip;
   if (!stack) {
@@ -456,6 +574,7 @@ const ping: Command = (net, device, args, io) => {
 const COMMANDS: Record<string, Command> = {
   ip,
   ping,
+  traceroute,
   sysctl,
   bridge,
   hostname,

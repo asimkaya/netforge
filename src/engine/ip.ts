@@ -319,13 +319,14 @@ export class IpStack {
   }
 
   #forward(packet: Ipv4Packet): void {
-    if (packet.ttl <= 1) {
-      this.#icmpError(packet, { kind: 'icmp', type: 'time-exceeded', original: packet });
-      return;
-    }
+    // Like Linux, look the route up first: no route means "net unreachable" whatever the TTL.
     const route = this.routeTo(packet.dst);
     if (!route) {
       this.#unreachable(packet, 'net');
+      return;
+    }
+    if (packet.ttl <= 1) {
+      this.#icmpError(packet, { kind: 'icmp', type: 'time-exceeded', original: packet });
       return;
     }
     this.#output(route, { ...packet, ttl: packet.ttl - 1 });

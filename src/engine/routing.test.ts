@@ -185,4 +185,25 @@ describe('routing', () => {
     expect(copy.devices.get(r1.id)?.ip?.forwarding).toBe(false);
     expect(copyA.ip?.dns).toEqual([0x0a000101]);
   });
+
+  it('traces the routers on the way with traceroute', () => {
+    const { net, pcA, r1 } = withGateways();
+    expect(sh(net, pcA, 'traceroute 10.0.2.10')).toEqual([
+      'traceroute to 10.0.2.10 (10.0.2.10), 30 hops max, 60 byte packets',
+      ' 1  10.0.1.1 (10.0.1.1)  1.000 ms  1.000 ms  1.000 ms',
+      ' 2  10.0.2.10 (10.0.2.10)  1.500 ms  1.500 ms  1.500 ms',
+    ]);
+    // No route beyond the router: it says so with !N and traceroute stops.
+    expect(sh(net, pcA, 'traceroute 172.16.0.1').at(-1)).toBe(
+      ' 1  10.0.1.1 (10.0.1.1)  0.500 ms !N  0.500 ms !N  0.500 ms !N',
+    );
+    // With forwarding off the router silently drops what isn't for it: only stars.
+    sh(net, r1, 'sysctl -w net.ipv4.ip_forward=0');
+    expect(sh(net, pcA, 'traceroute -m 2 10.0.2.10')).toEqual([
+      'traceroute to 10.0.2.10 (10.0.2.10), 2 hops max, 60 byte packets',
+      ' 1  * * *',
+      ' 2  * * *',
+    ]);
+    expect(net.scheduler.pending).toBe(0);
+  });
 });
