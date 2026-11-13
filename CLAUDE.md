@@ -35,7 +35,8 @@ structure, and [docs/ROADMAP.md](docs/ROADMAP.md) to see which phase we are in.
 
 ```
 src/engine/   simulation engine (pure TS, tested with Vitest)
-src/ui/       React UI (React Flow canvas, Tailwind)
+src/tasks/    guided tasks (pure TS, tested with Vitest)
+src/ui/       React UI (React Flow canvas, Tailwind), lab store, lab files
 e2e/          Playwright tests (run against the production build)
 docs/         architecture, roadmap, features, ADRs
 ```

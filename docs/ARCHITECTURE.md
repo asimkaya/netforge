@@ -9,8 +9,8 @@ in the user's browser.
 │  Canvas · Device panels · Terminal ·        │
 │  Simulation timeline · Tasks                │
 ├─────────────────────────────────────────────┤
-│ App state + commands / undo                 │
-├───────────── messages (Web Worker) ─────────┤
+│ Lab store (src/ui/lab.ts) · Tasks           │
+├─────────────────────────────────────────────┤
 │ Simulation engine (pure TS)   src/engine/   │
 │  Scheduler (virtual clock) · Devices ·      │
 │  Protocol modules · Shell interpreter       │
@@ -19,8 +19,8 @@ in the user's browser.
 └─────────────────────────────────────────────┘
 ```
 
-Only the scheduler and the UI shell exist today. The rest of the diagram is the target
-design; see the [roadmap](ROADMAP.md).
+See [FEATURES.md](FEATURES.md) for what exists today and the [roadmap](ROADMAP.md) for what
+comes next.
 
 ## Layers
 
@@ -37,7 +37,10 @@ design; see the [roadmap](ROADMAP.md).
 - A device = interfaces + protocol modules + configuration. Configuration is the single
   source of truth. The shell and the GUI both edit it.
 - Each protocol is a self-contained module with its own tests.
-- Will run inside a Web Worker so the UI never blocks.
+- Runs on the main thread today. If large labs make the UI stutter, move it into a Web
+  Worker behind the same narrow API.
+- Key files: `scheduler.ts` (virtual clock), `network.ts` (devices, cables, trace,
+  snapshots), `host.ts`, `switch.ts`, `shell.ts` (Linux-style commands).
 
 ### `src/ui/`: user interface
 
@@ -45,12 +48,23 @@ design; see the [roadmap](ROADMAP.md).
 - Reads engine state and sends commands. It never re-implements network logic.
 - Theme colors are CSS custom properties in `src/ui/index.css` (`--nf-*`). Dark is the
   default.
+- `lab.ts` is the single UI store: the live `Network` plus layout, selection, mode,
+  terminal sessions and task progress. Components read it with `useLab()`.
+- Realtime mode advances the scheduler every animation frame (`clock.ts`); simulation
+  mode only advances it when the user steps.
 
-### Persistence (planned)
+### `src/tasks/`: guided tasks
 
-- Projects and task progress are saved to IndexedDB.
-- Export/import as a versioned JSON file. Every file carries a `version` field, and loading
-  an older version runs migrations. Never break old save files.
+- Pure TypeScript. A task is a list of steps; each step's `check` reads the live network
+  and the commands the user ran. Steps complete in order and stay complete.
+
+### Persistence
+
+- `src/ui/project.ts` defines the lab file (`format: netforge-lab`, `version: 1`) and
+  validates untrusted files field by field before the engine sees them.
+- `src/ui/storage.ts` autosaves to IndexedDB and exports/imports files.
+- Bump `PROJECT_VERSION` on incompatible changes and migrate older files. Never break old
+  save files.
 
 ## Testing
 

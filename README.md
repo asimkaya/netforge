@@ -7,8 +7,8 @@ routers on a canvas, connect them, configure them from a Linux-style shell, and 
 packets travel hop by hop. Guided tasks take you from "two machines that can ping each
 other" to VLANs, routing, NAT, firewalls and VPNs.
 
-> **Status:** early development (Phase 0 — project foundation). See the
-> [roadmap](docs/ROADMAP.md).
+> **Status:** Phase 1 (MVP): PCs, switches, ARP, IPv4, ping, simulation mode and
+> guided tasks. See [features](docs/FEATURES.md) and the [roadmap](docs/ROADMAP.md).
 
 ## Principles
 
