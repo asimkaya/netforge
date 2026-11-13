@@ -1,5 +1,6 @@
 import type { Mac } from './addr.ts';
 import { Bridge } from './bridge.ts';
+import { Dnsmasq } from './dnsmasq.ts';
 import { IpStack } from './ip.ts';
 import type { EthernetFrame } from './packet.ts';
 import type { Port } from './port.ts';
@@ -18,6 +19,8 @@ export class Device {
   readonly ports: readonly Port[];
   readonly bridge: Bridge | null;
   readonly ip: IpStack | null;
+  /** The running dnsmasq (DHCP and DNS server), if started. */
+  dnsmasq: Dnsmasq | null = null;
 
   constructor(
     readonly fabric: Fabric,
@@ -40,6 +43,27 @@ export class Device {
     this.bridge = spec.bridge ? new Bridge(fabric, this.ports) : null;
     const routed = this.ports.filter((p) => !this.bridge?.owns(p));
     this.ip = spec.ip ? new IpStack(fabric, routed, spec.forwarding) : null;
+  }
+
+  /** Starts dnsmasq with command-line arguments. Returns its log lines or an error message. */
+  startDnsmasq(args: readonly string[]): string[] | string {
+    if (!this.ip) return 'dnsmasq: command not found';
+    if (this.dnsmasq) {
+      return 'dnsmasq: failed to create listening socket for port 53: Address already in use';
+    }
+    const server = Dnsmasq.start(this.fabric, this.ip, args);
+    if (typeof server === 'string') return server;
+    this.dnsmasq = server;
+    return server.banner();
+  }
+
+  /** Stops dnsmasq. Returns false if it wasn't running. */
+  stopDnsmasq(): boolean {
+    if (!this.dnsmasq) return false;
+    this.dnsmasq.stop();
+    this.dnsmasq = null;
+    this.fabric.changed();
+    return true;
   }
 
   port(name: string): Port | undefined {

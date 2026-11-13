@@ -11,6 +11,7 @@ import type { Device } from './device.ts';
 import { DEFAULT_TTL } from './ip.ts';
 import type { Network } from './network.ts';
 import { hasCarrier, type Port } from './port.ts';
+import { dhclientCommand, dnsmasq, killall } from './shell-services.ts';
 
 export interface ShellIO {
   /** Writes one line of output. */
@@ -25,7 +26,12 @@ export interface Process {
   interrupt(): void;
 }
 
-type Command = (net: Network, device: Device, args: string[], io: ShellIO) => Process | undefined;
+export type Command = (
+  net: Network,
+  device: Device,
+  args: string[],
+  io: ShellIO,
+) => Process | undefined;
 
 const HELP = [
   'Available commands:',
@@ -43,6 +49,9 @@ const HELP = [
   '  ping [-c COUNT] [-t TTL] ADDR      send ICMP echo requests (Ctrl+C stops)',
   '  traceroute [-m MAX_TTL] ADDR       show the routers on the way to ADDR',
   '  bridge fdb [show]                  show learned MAC addresses (switches)',
+  '  dhclient [-r] IF                   get (or release) an address with DHCP',
+  '  dnsmasq --dhcp-range=START,END ... start a DHCP/DNS server (see dnsmasq --help)',
+  '  killall dnsmasq                    stop the DHCP/DNS server',
   '  hostname [NAME]                    show or set the device name',
   '  clear                              clear the screen',
 ];
@@ -573,6 +582,9 @@ const ping: Command = (net, device, args, io) => {
 
 const COMMANDS: Record<string, Command> = {
   ip,
+  dhclient: dhclientCommand,
+  dnsmasq,
+  killall,
   ping,
   traceroute,
   sysctl,

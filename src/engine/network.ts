@@ -25,6 +25,8 @@ export interface NetworkSnapshot {
     spec: SpecId;
     name: string;
     ports: { name: string; mac: string; up: boolean; addrs?: string[] }[];
+    /** Running services and their command-line arguments. */
+    services?: { dnsmasq?: string[] };
     /** IP settings beyond addresses; absent on devices without an IP stack. */
     ip?: {
       forwarding: boolean;
@@ -183,6 +185,7 @@ export class Network implements Fabric {
               },
             }
           : {}),
+        ...(d.dnsmasq ? { services: { dnsmasq: [...d.dnsmasq.args] } } : {}),
       })),
       links: [...this.links.values()].map((l) => ({
         id: l.id,
@@ -239,6 +242,10 @@ export class Network implements Fabric {
           const error = device.ip.addRoute(dst, via, dev);
           if (error) throw new Error(`Route ${r.dst} on ${d.id}: ${error}`);
         }
+      }
+      if (d.services?.dnsmasq) {
+        const started = device.startDnsmasq(d.services.dnsmasq);
+        if (typeof started === 'string') throw new Error(`${d.id}: ${started}`);
       }
       net.devices.set(device.id, device);
     }

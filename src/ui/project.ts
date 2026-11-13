@@ -105,6 +105,17 @@ function readIpSettings(value: unknown, what: string) {
   };
 }
 
+/** Service command lines; the engine's own option parser checks their content. */
+function readServices(value: unknown, what: string) {
+  const services = obj(value, `${what} services`);
+  if (services.dnsmasq === undefined) return {};
+  return {
+    dnsmasq: arr(services.dnsmasq, `${what} dnsmasq options`).map((a) =>
+      str(a, `${what} dnsmasq option`, /^--?[a-z-]+(=[!-~]{0,200})?$/),
+    ),
+  };
+}
+
 /** Checks the shape of untrusted JSON before the engine sees it. */
 function readSnapshot(value: unknown): NetworkSnapshot {
   const n = obj(value, 'network');
@@ -128,6 +139,9 @@ function readSnapshot(value: unknown): NetworkSnapshot {
           : { ...port, addrs: arr(p.addrs, 'port addresses').map((a) => str(a, 'address', CIDR)) };
       }),
       ...(d.ip === undefined ? {} : { ip: readIpSettings(d.ip, `device #${i + 1}`) }),
+      ...(d.services === undefined
+        ? {}
+        : { services: readServices(d.services, `device #${i + 1}`) }),
     };
   });
   const links = arr(n.links, 'network.links').map((value, i) => {
@@ -179,8 +193,8 @@ function readTasks(value: unknown): TaskProgress {
  * reshapes what it recognizes and leaves anything odd for the validator to reject.
  */
 const MIGRATIONS: Record<number, (file: Json) => Json> = {
-  // v3 only adds optional per-device `ip` settings (routes, DNS, forwarding); the bump keeps
-  // older app versions from silently dropping them.
+  // v3 only adds optional per-device `ip` settings (routes, DNS, forwarding) and `services`
+  // (dnsmasq); the bump keeps older app versions from silently dropping them.
   2: (file) => file,
   // v2: devices name a spec instead of a kind; switches gain two SFP uplinks (eth8, eth9);
   // per-kind name counters become per-prefix counters.

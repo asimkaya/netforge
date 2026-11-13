@@ -55,6 +55,14 @@ export interface Route {
   proto: 'kernel' | 'static';
 }
 
+/** Settings a DHCP client got for one interface, so it can renew or release them. */
+export interface DhcpLease {
+  addr: Cidr;
+  server: Ip;
+  router: Ip | undefined;
+  dns: Ip | undefined;
+}
+
 /** What happened to a packet we sent: a reply, or an ICMP error about it. */
 export type IcmpEvent =
   | { kind: 'reply'; from: Ip; seq: number; ttl: number }
@@ -88,6 +96,8 @@ export class IpStack {
   readonly staticRoutes: StaticRoute[] = [];
   /** Name servers, like the `nameserver` lines of /etc/resolv.conf. */
   dns: Ip[] = [];
+  /** Leases obtained with dhclient, per interface name. Not saved with the lab. */
+  readonly dhcpLeases = new Map<string, DhcpLease>();
   /** Sources this host has received an echo reply from (used by guided tasks). */
   readonly echoRepliesFrom = new Set<Ip>();
   readonly #icmpListeners = new Map<number, IcmpListener>();
