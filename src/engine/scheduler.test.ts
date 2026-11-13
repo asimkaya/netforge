@@ -47,6 +47,23 @@ describe('Scheduler', () => {
     expect(out).toEqual([...delays].sort((a, b) => a - b));
   });
 
+  it('skips cancelled events and does not count them as pending', () => {
+    const s = new Scheduler();
+    const log: string[] = [];
+    const a = s.schedule(5, () => log.push('a'));
+    s.schedule(10, () => log.push('b'));
+    const c = s.schedule(15, () => log.push('c'));
+    s.cancel(a);
+    s.cancel(c);
+    s.cancel(999);
+    expect(s.pending).toBe(1);
+    s.runUntil(12);
+    expect(log).toEqual(['b']);
+    expect(s.pending).toBe(0);
+    expect(s.step()).toBe(false);
+    expect(s.now).toBe(12);
+  });
+
   it('rejects negative or non-finite delays', () => {
     const s = new Scheduler();
     expect(() => s.schedule(-1, () => {})).toThrow(RangeError);

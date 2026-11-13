@@ -70,8 +70,9 @@ describe('shell', () => {
 
   it('pings with Linux-style output and statistics', () => {
     const { net, pc1, pc2 } = lab();
-    const { lines, exited } = sh(net, pc1, 'ping -c 2 192.168.1.20');
+    const { lines, exited } = sh(net, pc1, 'ping -c 2 192.168.1.20', 1001);
     expect(exited).toBe(true);
+    expect(net.scheduler.pending).toBe(0);
     expect(lines).toEqual([
       'PING 192.168.1.20 (192.168.1.20) 56(84) bytes of data.',
       '64 bytes from 192.168.1.20: icmp_seq=1 ttl=64 time=2.00 ms',

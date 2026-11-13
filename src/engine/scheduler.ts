@@ -7,26 +7,36 @@ export class Scheduler {
   #now = 0;
   #seq = 0;
   #heap: { at: number; seq: number; run: () => void }[] = [];
+  /** Sequence numbers of cancelled events still sitting in the heap. */
+  #cancelled = new Set<number>();
 
   get now(): number {
     return this.#now;
   }
 
   get pending(): number {
-    return this.#heap.length;
+    return this.#heap.length - this.#cancelled.size;
   }
 
-  /** Schedule `run` to fire `delay` ms after the current virtual time. */
-  schedule(delay: number, run: () => void): void {
+  /** Schedule `run` to fire `delay` ms after the current virtual time. Returns a handle. */
+  schedule(delay: number, run: () => void): number {
     if (!Number.isFinite(delay) || delay < 0) {
       throw new RangeError(`delay must be a finite number >= 0, got ${delay}`);
     }
-    this.#heap.push({ at: this.#now + delay, seq: this.#seq++, run });
+    const seq = this.#seq++;
+    this.#heap.push({ at: this.#now + delay, seq, run });
     this.#siftUp(this.#heap.length - 1);
+    return seq;
+  }
+
+  /** Cancels a scheduled event. Unknown or already-run handles are ignored. */
+  cancel(handle: number): void {
+    if (this.#heap.some((e) => e.seq === handle)) this.#cancelled.add(handle);
   }
 
   /** Run the next event. Returns false when the queue is empty. */
   step(): boolean {
+    this.#dropCancelled();
     const next = this.#pop();
     if (!next) return false;
     this.#now = next.at;
@@ -36,8 +46,19 @@ export class Scheduler {
 
   /** Run every event due at or before `time`, then set the clock to `time`. */
   runUntil(time: number): void {
-    while (this.#heap[0] && this.#heap[0].at <= time) this.step();
+    this.#dropCancelled();
+    while (this.#heap[0] && this.#heap[0].at <= time) {
+      this.step();
+      this.#dropCancelled();
+    }
     this.#now = Math.max(this.#now, time);
+  }
+
+  #dropCancelled(): void {
+    for (let top = this.#heap[0]; top && this.#cancelled.has(top.seq); top = this.#heap[0]) {
+      this.#cancelled.delete(top.seq);
+      this.#pop();
+    }
   }
 
   #less(a: number, b: number): boolean {

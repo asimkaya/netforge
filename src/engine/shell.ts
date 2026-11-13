@@ -140,7 +140,7 @@ function ipAddr(_net: Network, device: Device, args: string[], io: ShellIO): und
   if (error) io.out(error);
 }
 
-function ipNeigh(net: Network, device: Device, args: string[], io: ShellIO): undefined {
+function ipNeigh(_net: Network, device: Device, args: string[], io: ShellIO): undefined {
   if (!(device instanceof Host)) return;
   const [verb, ...rest] = args;
   if (verb === undefined || matches(verb, 'show') || matches(verb, 'list')) {
@@ -158,10 +158,8 @@ function ipNeigh(net: Network, device: Device, args: string[], io: ShellIO): und
     }
     const port = name === 'all' ? null : findPort(device, name, io);
     if (name !== 'all' && !port) return;
-    for (const [ip, n] of device.neighbors) {
-      if (!port || n.port === port) device.neighbors.delete(ip);
-    }
-    net.changed();
+    if (port) device.flushNeighbors(port);
+    else device.flushNeighbors();
     return;
   }
   io.out(`Command "${verb}" is unknown, try "ip neigh help".`);
@@ -257,6 +255,7 @@ const ping: Command = (net, device, args, io) => {
   let sent = 0;
   let errors = 0;
   let done = false;
+  let timer: number | null = null;
 
   const id = device.openIcmp((event) => {
     if (done) return;
@@ -278,6 +277,7 @@ const ping: Command = (net, device, args, io) => {
     if (done) return;
     done = true;
     device.closeIcmp(id);
+    if (timer !== null) scheduler.cancel(timer);
     const received = rtts.length;
     const loss = sent === 0 ? 0 : Math.round(((sent - received) / sent) * 100);
     const errorText = errors > 0 ? `, +${errors} errors` : '';
@@ -311,7 +311,7 @@ const ping: Command = (net, device, args, io) => {
       return;
     }
     // Unanswered requests are given up 10 s after the last one, like Linux's MAXWAIT.
-    scheduler.schedule(sent < count ? 1000 : 10_000, sent < count ? sendNext : finish);
+    timer = scheduler.schedule(sent < count ? 1000 : 10_000, sent < count ? sendNext : finish);
   };
 
   io.out(`PING ${shown} (${shown}) 56(84) bytes of data.`);

@@ -16,6 +16,8 @@ export interface Neighbor {
   state: NeighborState;
   probes: number;
   queue: Ipv4Packet[];
+  /** Pending ARP retry, cancelled once the neighbor answers or is flushed. */
+  retry: number | null;
 }
 
 export type IcmpEvent =
@@ -136,9 +138,19 @@ export class Host extends Device {
     if (forUs) this.#handleIp(p);
   }
 
+  /** Forgets neighbors learned on `port` (all ports when omitted), like `ip neigh flush`. */
+  flushNeighbors(port?: Port): void {
+    for (const [ip, n] of this.neighbors) {
+      if (port && n.port !== port) continue;
+      if (n.retry !== null) this.fabric.scheduler.cancel(n.retry);
+      this.neighbors.delete(ip);
+    }
+    this.fabric.changed();
+  }
+
   override carrierChanged(port: Port): void {
     // Linux flushes neighbor entries of an interface that loses carrier.
-    for (const [ip, n] of this.neighbors) if (n.port === port) this.neighbors.delete(ip);
+    this.flushNeighbors(port);
   }
 
   #output(port: Port, nextHop: Ip, subnet: Cidr, packet: Ipv4Packet): void {
@@ -159,6 +171,7 @@ export class Host extends Device {
         state: 'INCOMPLETE',
         probes: 0,
         queue: [packet],
+        retry: null,
       };
       this.neighbors.set(nextHop, entry);
       this.#probe(entry, packet.src);
@@ -192,7 +205,7 @@ export class Host extends Device {
       targetIp: n.ip,
     };
     this.fabric.transmit(n.port, { src: n.port.mac, dst: BROADCAST_MAC, payload: arp });
-    this.fabric.scheduler.schedule(ARP_RETRY_MS, () => this.#probe(n, src));
+    n.retry = this.fabric.scheduler.schedule(ARP_RETRY_MS, () => this.#probe(n, src));
     this.fabric.changed();
   }
 
@@ -213,8 +226,18 @@ export class Host extends Device {
   }
 
   #learn(port: Port, ip: Ip, mac: Mac): void {
-    const queued = this.neighbors.get(ip)?.queue ?? [];
-    this.neighbors.set(ip, { ip, mac, port, state: 'REACHABLE', probes: 0, queue: [] });
+    const old = this.neighbors.get(ip);
+    if (old?.retry != null) this.fabric.scheduler.cancel(old.retry);
+    const queued = old?.queue ?? [];
+    this.neighbors.set(ip, {
+      ip,
+      mac,
+      port,
+      state: 'REACHABLE',
+      probes: 0,
+      queue: [],
+      retry: null,
+    });
     for (const packet of queued) this.#sendFrame(port, mac, packet);
     this.fabric.changed();
   }

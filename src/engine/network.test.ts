@@ -57,6 +57,8 @@ describe('Network', () => {
     expect(pc1.neighbors.get(ip('10.0.0.2'))?.state).toBe('REACHABLE');
     expect(pc2.neighbors.get(ip('10.0.0.1'))?.mac).toBe(pc1.ports[0]?.mac);
     expect(pc1.echoRepliesFrom.has(ip('10.0.0.2'))).toBe(true);
+    // The ARP retry timer was cancelled once the reply arrived.
+    expect(net.scheduler.pending).toBe(0);
   });
 
   it('pings through a switch, which learns MAC addresses', () => {
