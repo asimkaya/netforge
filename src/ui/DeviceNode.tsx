@@ -16,18 +16,28 @@ export const BODY_HANDLE = 'body';
 
 const SOCKET = { w: 22, h: 16 };
 
+/** Spanning Tree state of a switch port, when STP runs and the port is not forwarding. */
+function stpHold(port: Port): string | null {
+  const stp = port.device.bridge?.stp;
+  if (!stp?.enabled || !hasCarrier(port)) return null;
+  const state = stp.stateOf(port);
+  return state === 'forwarding' ? null : state;
+}
+
 function portTitle(port: Port): string {
   const peer = peerOf(port);
+  const hold = stpHold(port);
   const state = !port.adminUp
     ? 'disabled'
     : peer
-      ? `to ${peer.device.name} ${peer.name}${hasCarrier(port) ? '' : ' (no carrier)'}`
+      ? `to ${peer.device.name} ${peer.name}${hasCarrier(port) ? '' : ' (no carrier)'}${hold ? ` · STP ${hold}` : ''}`
       : 'free: drag to another port to add a cable';
   return `${port.name} · ${PORT_TYPE_LABEL[port.type]} · ${state}`;
 }
 
 function ledColor(port: Port): string {
-  if (hasCarrier(port)) return '#22c55e';
+  // Like a real switch: amber while Spanning Tree holds the port back.
+  if (hasCarrier(port)) return stpHold(port) ? '#f59e0b' : '#22c55e';
   if (port.link) return '#f59e0b';
   return '#334155';
 }

@@ -201,3 +201,98 @@ export function VlanInterfacesSection({ device }: { device: Device }) {
     </Section>
   );
 }
+
+/** Spanning Tree: on/off, bridge priority, the elected root and each port's role. */
+export function StpSection({ device }: { device: Device }) {
+  const { net } = useLab();
+  const bridge = device.bridge;
+  const [priority, setPriority] = useState(String(bridge?.stp.priority ?? 32768));
+  const [error, setError] = useState<string | null>(null);
+  if (!bridge || bridge.ports.some((p) => p.type === 'wifi')) return null;
+  const stp = bridge.stp;
+  const rootDevice = [...net.devices.values()].find((d) => d.bridge?.stp.bridgeId === stp.rootId);
+  const toggle = (on: boolean) => {
+    if (!on && net.hasL2Loop(device)) {
+      setError('This switch is part of a loop: turning STP off would flood the network.');
+      return;
+    }
+    setError(null);
+    stp.setEnabled(on);
+  };
+  const value = Number(priority);
+  const validPriority = /^\d+$/.test(priority) && value <= 65535;
+  return (
+    <Section title="Spanning Tree (STP)">
+      <label className="flex items-center gap-2 text-xs">
+        <input
+          type="checkbox"
+          aria-label="Spanning Tree"
+          checked={stp.enabled}
+          onChange={(e) => toggle(e.target.checked)}
+        />
+        Spanning Tree
+        <code className="text-(--nf-muted)">
+          ip link set br0 type bridge stp_state {stp.enabled ? 0 : 1}
+        </code>
+      </label>
+      {error && (
+        <p role="alert" className="text-xs text-red-400">
+          {error}
+        </p>
+      )}
+      <p className="text-xs text-(--nf-muted)">
+        With STP on every switch, you can add redundant cables: the switches elect a root and block
+        the extra paths. Ports listen and learn for 30 s before forwarding.
+      </p>
+      {stp.enabled && (
+        <>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (validPriority) stp.setPriority(value);
+            }}
+            className="flex items-end gap-2 text-xs"
+          >
+            <label className="flex flex-col gap-1">
+              Bridge priority (lowest wins)
+              <input
+                value={priority}
+                onChange={(e) => setPriority(e.target.value)}
+                aria-invalid={!validPriority}
+                className={`${FIELD} w-24`}
+              />
+            </label>
+            <button type="submit" className={SECONDARY} disabled={!validPriority}>
+              Set
+            </button>
+          </form>
+          <p className="text-xs">
+            {stp.rootPort === null
+              ? 'This switch is the root bridge.'
+              : `Root bridge: ${rootDevice?.name ?? stp.rootId}, reached through ${stp.rootPort.name} (path cost ${stp.rootCost}).`}
+          </p>
+          <table className="w-full text-left text-xs">
+            <thead className="text-(--nf-muted)">
+              <tr>
+                <th className="py-1 font-medium">Port</th>
+                <th className="py-1 font-medium">Role</th>
+                <th className="py-1 font-medium">State</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bridge.ports
+                .filter((p) => p.link)
+                .map((p) => (
+                  <tr key={p.name} className="border-t border-(--nf-border)">
+                    <td className="py-1 font-mono">{p.name}</td>
+                    <td className="py-1">{stp.ports.get(p)?.role}</td>
+                    <td className="py-1">{stp.stateOf(p)}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </>
+      )}
+    </Section>
+  );
+}

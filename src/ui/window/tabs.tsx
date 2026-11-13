@@ -17,7 +17,7 @@ import {
 } from './network-sections.tsx';
 import { Terminal } from '../apps/Terminal.tsx';
 import { FirewallSection } from './firewall-section.tsx';
-import { SwitchVlanSection, VlanInterfacesSection } from './vlan-sections.tsx';
+import { StpSection, SwitchVlanSection, VlanInterfacesSection } from './vlan-sections.tsx';
 import { cable, hasDesktop, removeDevice, setWindowView, useLab, type AppId } from '../lab.ts';
 
 const HOSTNAME = /^[A-Za-z0-9][A-Za-z0-9-]{0,62}$/;
@@ -193,6 +193,7 @@ export function ConfigTab({ device }: { device: Device }) {
       )}
       <WirelessSection device={device} />
       <SwitchVlanSection device={device} />
+      <StpSection device={device} />
       <VlanInterfacesSection device={device} />
       {(device.ip?.ports.length ?? 0) > 0 && <RoutingSection device={device} />}
       <FirewallSection device={device} />
