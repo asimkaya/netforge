@@ -46,4 +46,4 @@ docs/         architecture, roadmap, features, ADRs
 - TypeScript is pinned to 6.0.x because typescript-eslint does not support 7.x yet.
 - React Flow's dark background is overridden through `--xy-background-color` in
   `src/ui/index.css`; theme tokens are the `--nf-*` custom properties there.
-- `docs/RAPOR.md` is a private, git-ignored planning note. Do not commit it.
+- `docs/RAPOR*.md` are private, git-ignored planning notes (Turkish). Do not commit them.
