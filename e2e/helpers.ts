@@ -66,7 +66,16 @@ export async function run(page: Page, device: string, command: string) {
 
 export async function add(
   page: Page,
-  label: 'PC' | 'Laptop' | 'Phone' | 'Server' | 'Switch' | 'Access Point' | 'Router' | 'Internet',
+  label:
+    | 'PC'
+    | 'Laptop'
+    | 'Phone'
+    | 'Server'
+    | 'Switch'
+    | 'Access Point'
+    | 'Router'
+    | 'Home Router'
+    | 'Internet',
   times = 1,
 ) {
   for (let i = 0; i < times; i++) {

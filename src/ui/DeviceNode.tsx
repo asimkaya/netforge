@@ -273,6 +273,66 @@ function ApFace({ device, activity }: { device: Device; activity: Record<string,
   );
 }
 
+/** A home router: antennas and Wi-Fi range, the Internet (WAN) port and four LAN ports. */
+function HomeRouterFace({
+  device,
+  activity,
+}: {
+  device: Device;
+  activity: Record<string, number>;
+}) {
+  const wan = device.port('eth0');
+  const lan = device.ports.filter((p) => p.type === 'ethernet' && p !== wan);
+  const clients = device.ports.filter((p) => p.type === 'wifi' && p.link).length;
+  const on = device.hostapd !== null;
+  const pitch = SOCKET.w + 6;
+  return (
+    <div className="relative h-[92px] w-[200px]">
+      {on && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-dashed border-sky-400/40 bg-sky-400/5"
+          style={{ width: WIFI_RANGE * 2, height: WIFI_RANGE * 2 }}
+        />
+      )}
+      <div className="flex items-baseline gap-2 px-3 pt-1.5">
+        <span className="truncate text-xs font-semibold">{device.name}</span>
+        <span className="truncate text-[10px] text-(--nf-muted)">
+          {on
+            ? `${device.hostapd?.ssid} · ${clients} client${clients === 1 ? '' : 's'}`
+            : 'Wi-Fi off'}
+        </span>
+      </div>
+      <span className="absolute top-[30px] left-3 text-[9px] font-semibold text-amber-400">
+        Internet
+      </span>
+      <span className="absolute top-[30px] left-[62px] text-[9px] text-(--nf-muted)">LAN</span>
+      {wan && (
+        <Socket
+          port={wan}
+          x={12}
+          y={44}
+          position={Position.Bottom}
+          activity={activity[wan.name]}
+          label="WAN"
+        />
+      )}
+      {lan.map((p, i) => (
+        <Socket
+          key={p.name}
+          port={p}
+          x={62 + i * pitch}
+          y={44}
+          position={Position.Bottom}
+          activity={activity[p.name]}
+          label={p.name.slice(3)}
+        />
+      ))}
+      <RadioHandles device={device} />
+    </div>
+  );
+}
+
 function SwitchFace({ device, activity }: { device: Device; activity: Record<string, number> }) {
   const copper = device.ports.filter((p) => p.type === 'ethernet');
   const fiber = device.ports.filter((p) => p.type === 'sfp');
@@ -324,9 +384,11 @@ export function DeviceNode({ id, data, selected }: NodeProps<DeviceNodeType>) {
   const Face =
     kind === 'ap'
       ? ApFace
-      : kind === 'pc' || kind === 'server' || kind === 'laptop' || kind === 'phone'
-        ? HostFace
-        : SwitchFace;
+      : kind === 'homerouter'
+        ? HomeRouterFace
+        : kind === 'pc' || kind === 'server' || kind === 'laptop' || kind === 'phone'
+          ? HostFace
+          : SwitchFace;
   return (
     <div
       className={`relative rounded-xl border bg-(--nf-surface) shadow-sm transition-colors ${

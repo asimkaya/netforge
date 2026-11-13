@@ -110,6 +110,20 @@ export function ApArt({ className }: { className?: string | undefined }) {
   );
 }
 
+export function HomeRouterArt({ className }: { className?: string | undefined }) {
+  return (
+    <svg viewBox="0 0 48 40" className={className} aria-hidden>
+      <path d="M14 20V6M34 20V6" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" />
+      <path d="M18 9a8 8 0 0 1 12 0" stroke="#38bdf8" strokeWidth="1.5" fill="none" />
+      <rect x="4" y="18" width="40" height="14" rx="4" fill="#1e293b" />
+      <rect x="8" y="23" width="5" height="5" rx="0.8" fill="#f59e0b" />
+      {[0, 1, 2, 3].map((i) => (
+        <rect key={i} x={17 + i * 6} y={23} width="4" height="5" rx="0.8" fill="#05080f" />
+      ))}
+    </svg>
+  );
+}
+
 export function SpecArt({ spec, className }: { spec: SpecId; className?: string | undefined }) {
   if (spec === 'pc') return <PcArt className={className} />;
   if (spec === 'router') return <RouterArt className={className} />;
@@ -118,5 +132,6 @@ export function SpecArt({ spec, className }: { spec: SpecId; className?: string 
   if (spec === 'laptop') return <LaptopArt className={className} />;
   if (spec === 'phone') return <PhoneArt className={className} />;
   if (spec === 'ap') return <ApArt className={className} />;
+  if (spec === 'homerouter') return <HomeRouterArt className={className} />;
   return <SwitchArt className={className} />;
 }
