@@ -12,7 +12,8 @@ Each phase ends with a usable, deployed product.
 | **3: Services and apps**              | Lightweight TCP and socket API, virtual filesystem, Server device, HTTP + Web Browser, Text Editor, Mail (SMTP/POP3), Internet cloud, Packet Capture app                                                                                | ✅ Done |
 | **4: Wireless**                       | Access point, home router, laptop, phone; SSID, WPA2, range on the canvas                                                                                                                                                               | ✅ Done |
 | **5: Managed switching and security** | VLANs, trunks, inter-VLAN routing, STP; NAT and firewall (`nft` + GUI); dynamic routing (OSPF with BIRD, ADR 0007); IPv6 (NDP, SLAAC)                                                                                                   | ✅ Done |
-| **6: Beyond**                         | Link aggregation (bonding), WireGuard VPN, SSH, pcap export, task editor, Bluetooth/IoT, real Linux node via v86 (WASM), multiplayer over WebRTC                                                                                        | ⏳ Next |
+| **6: Beyond**                         | WireGuard VPN, SSH, pcap export, task editor, shell pipelines                                                                                                                                                                           | ✅ Done |
+| **7: Later**                          | Link aggregation (bonding, LACP), Bluetooth/IoT, real Linux node via v86 (WASM), multiplayer over WebRTC; see ADR 0008                                                                                                                  |         |
 
 ## Guided task curriculum (draft)
 
@@ -28,4 +29,5 @@ Audience: beginners who know what a computer and a cable are.
 8. Reach the "internet" through NAT.
 9. Block traffic with a firewall.
 10. Site-to-site VPN with WireGuard.
-11. Troubleshooting: here is a broken network, find the fault.
+11. Troubleshooting: here is a broken network, find the fault (teachers can build these
+    with the task editor).

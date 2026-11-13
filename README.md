@@ -7,9 +7,12 @@ routers on a canvas, connect them, configure them from a Linux-style shell, and 
 packets travel hop by hop. Guided tasks take you from "two machines that can ping each
 other" to VLANs, routing, NAT, firewalls and VPNs.
 
-> **Status:** Phase 2: PCs, switches and Linux routers; static routing, traceroute, DHCP
-> and DNS with dnsmasq; simulation mode, guided tasks, undo and share links. See
-> [features](docs/FEATURES.md) and the [roadmap](docs/ROADMAP.md).
+> **Status:** Phases 0–6 are done: PCs, laptops, phones, servers, switches, access points,
+> Linux routers and an Internet cloud; Wi-Fi, VLANs, Spanning Tree, static and OSPF
+> routing, DHCP, DNS, HTTP, mail, NAT and nftables firewalls, IPv6 with SLAAC, WireGuard
+> VPNs and SSH; simulation mode, packet capture with pcap export, guided tasks and a task
+> editor, undo and share links. See [features](docs/FEATURES.md) and the
+> [roadmap](docs/ROADMAP.md).
 
 ## Principles
 
