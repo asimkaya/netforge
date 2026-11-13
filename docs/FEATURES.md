@@ -40,16 +40,20 @@ Legend: ✅ supported · 🟡 partial · ❌ not yet
 
 ## App
 
-| Feature                          | Status | Notes                                                                                                                                           |
-| -------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Canvas: add, move, delete, cable | ✅     | Drag or click to add. Drag from a port to a port; drop on a device body to use its only fitting port or choose from a menu. Delete key removes. |
-| Device faceplates                | ✅     | Visible sockets with link LEDs (green up, amber no carrier, grey no cable) that blink on traffic.                                               |
-| Device inspector                 | ✅     | Rename, all ports with peers, MACs, addresses, ARP and MAC tables; cable a free port from a list.                                               |
-| Terminal per device              | ✅     | History with Up/Down, Ctrl+C.                                                                                                                   |
-| Realtime mode                    | ✅     | Virtual time follows the wall clock.                                                                                                            |
-| Simulation mode                  | ✅     | Step/Play frame by frame, event list, layer-by-layer frame details, animation.                                                                  |
-| Guided tasks                     | ✅     | "Two computers, one cable", "Meet the switch".                                                                                                  |
-| Autosave (IndexedDB)             | ✅     | Saves 500 ms after changes. Running pings and ARP tables are not saved.                                                                         |
-| Export / import lab file         | ✅     | Versioned JSON (`netforge-lab`, version 2), validated on import; version 1 files are upgraded.                                                  |
-| Share by link, undo/redo         | ❌     | Phase 2                                                                                                                                         |
-| Light theme                      | ❌     | Tokens exist, no toggle yet.                                                                                                                    |
+| Feature                           | Status | Notes                                                                                                                                                        |
+| --------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Canvas: add, move, delete, cable  | ✅     | Drag or click to add. Drag from a port to a port; drop on a device body to use its only fitting port or choose from a menu. Delete key removes.              |
+| Device faceplates                 | ✅     | Visible sockets with link LEDs (green up, amber no carrier, grey no cable) that blink on traffic.                                                            |
+| Device windows                    | ✅     | A click (or Enter, or the right-click menu) opens a window beside the device. Several at once; move, resize, minimize, close. Full screen on narrow screens. |
+| Physical tab                      | ✅     | Ports with type, MAC and cable; Unplug or Connect to from a list; switch MAC table.                                                                          |
+| Config tab                        | ✅     | Hostname; interfaces on/off (same as `ip link set`).                                                                                                         |
+| Desktop tab (PCs), CLI (switches) | ✅     | Apps: Terminal and IP Configuration. More apps come with the protocols behind them (ADR 0006).                                                               |
+| IP Configuration app              | ✅     | Add/remove IPv4 addresses with prefix and mask; shows the matching `ip addr` command and the ARP table.                                                      |
+| Terminal app                      | ✅     | One session per device, history with Up/Down, Ctrl+C.                                                                                                        |
+| Realtime mode                     | ✅     | Virtual time follows the wall clock.                                                                                                                         |
+| Simulation mode                   | ✅     | Step/Play frame by frame, event list, layer-by-layer frame details, animation.                                                                               |
+| Guided tasks                      | ✅     | "Two computers, one cable", "Meet the switch".                                                                                                               |
+| Autosave (IndexedDB)              | ✅     | Saves 500 ms after changes. Running pings and ARP tables are not saved.                                                                                      |
+| Export / import lab file          | ✅     | Versioned JSON (`netforge-lab`, version 2), validated on import; version 1 files are upgraded.                                                               |
+| Share by link, undo/redo          | ❌     | Phase 2                                                                                                                                                      |
+| Light theme                       | ❌     | Tokens exist, no toggle yet.                                                                                                                                 |

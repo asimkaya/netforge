@@ -50,8 +50,12 @@ comes next.
 - Reads engine state and sends commands. It never re-implements network logic.
 - Theme colors are CSS custom properties in `src/ui/index.css` (`--nf-*`). Dark is the
   default.
-- `lab.ts` is the single UI store: the live `Network` plus layout, selection, mode,
-  terminal sessions and task progress. Components read it with `useLab()`.
+- `lab.ts` is the single UI store: the live `Network` plus layout, selection, open
+  device windows, mode, terminal sessions and task progress. Components read it with
+  `useLab()`.
+- Device windows live in `window/` (frame, tabs) and their apps in `apps/` (Terminal,
+  IP Configuration). Apps call the same engine methods as the shell, so the GUI and the
+  CLI never disagree.
 - Realtime mode advances the scheduler every animation frame (`clock.ts`); simulation
   mode only advances it when the user steps.
 

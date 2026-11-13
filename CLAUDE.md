@@ -25,6 +25,7 @@ structure, and [docs/ROADMAP.md](docs/ROADMAP.md) to see which phase we are in.
 - Small commits, one logical change each. Never use `--no-verify`.
 - Before committing, all of these must pass:
   `npm run lint && npm run typecheck && npm test` (and `npm run test:e2e` for UI changes).
+  Check the exit code: piping test output through `tail`/`grep` hides failures.
 - New engine behavior needs Vitest tests next to the code (`foo.ts` → `foo.test.ts`).
 - New user-facing flows need a Playwright test in `e2e/`.
 - When a feature lands, update [docs/FEATURES.md](docs/FEATURES.md) in the same change.
@@ -45,7 +46,8 @@ docs/         architecture, roadmap, features, ADRs
 
 1. Add a `DeviceSpec` in `src/engine/specs.ts` (ports with types, `bridge`, `ip`).
 2. Draw its faceplate in `src/ui/DeviceNode.tsx` and a small icon in `src/ui/icons.tsx`;
-   every port must be a `Socket` (React Flow handle) so it can be cabled.
+   every port must be a `Socket` (React Flow handle) so it can be cabled. Choose its
+   window tabs in `src/ui/window/Windows.tsx`.
 3. If saved labs could contain something the new code reads differently, bump
    `PROJECT_VERSION` in `src/ui/project.ts` and add a migration with a test.
 4. Engine tests for its behavior, an e2e test for cabling it, and a FEATURES.md row.
@@ -60,5 +62,7 @@ docs/         architecture, roadmap, features, ADRs
   mounted mid-drag is ignored.
 - Nodes are controlled: `Canvas.tsx` must feed React Flow's `measured` sizes back, or
   nodes become unclickable after re-renders.
-- E2E tests share helpers in `e2e/helpers.ts` (`add`, `connect('pc1', 'sw1/eth3')`, `run`).
+- E2E tests share helpers in `e2e/helpers.ts`: `add`, `connect('pc1', 'sw1/eth3')`,
+  `open` (brings a device window to the front), `terminal`, `run`, `win`. Windows can
+  cover devices and each other; scope locators to a window with `win(page, name)`.
 - `docs/RAPOR*.md` are private, git-ignored planning notes (Turkish). Do not commit them.
