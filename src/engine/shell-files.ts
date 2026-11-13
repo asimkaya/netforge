@@ -12,6 +12,32 @@ export interface ParsedLine {
  * group them (\" and \\ escape inside double quotes), and > / >> redirect output to a file.
  * Returns an error message in bash wording for an unfinished quote or a missing file name.
  */
+/**
+ * Splits a line on `|` outside quotes: the commands of a pipeline. Returns an error in bash
+ * wording when a side of a pipe is empty.
+ */
+export function splitPipeline(line: string): string[] | string {
+  const parts: string[] = [];
+  let current = '';
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i] ?? '';
+    if (c === "'" || c === '"') {
+      const close = line.indexOf(c, i + 1);
+      const end = close < 0 ? line.length - 1 : close;
+      current += line.slice(i, end + 1);
+      i = end;
+    } else if (c === '|') {
+      parts.push(current);
+      current = '';
+    } else current += c;
+  }
+  parts.push(current);
+  if (parts.length > 1 && parts.some((p) => p.trim() === '')) {
+    return "bash: syntax error near unexpected token `|'";
+  }
+  return parts;
+}
+
 export function parseLine(line: string): ParsedLine | string {
   const words: string[] = [];
   let word = '';
@@ -105,6 +131,11 @@ export const ls: Command = (_net, device, args, io) => {
 };
 
 export const cat: Command = (_net, device, args, io) => {
+  // With no files, cat copies its input (the previous command of a pipeline).
+  if (args.length === 0) {
+    io.stdin?.forEach((l) => io.out(l));
+    return;
+  }
   const fs = needFs(device, 'cat', io);
   if (!fs) return;
   for (const name of args) {
@@ -157,4 +188,57 @@ export const mkdir: Command = (_net, device, args, io) => {
       io.out(`mkdir: cannot create directory '${name}': File exists`);
     else fs.mkdir(path);
   }
+};
+
+/** `grep [-i] [-v] [-c] [-E] PATTERN [FILE...]`: lines that match, from files or the pipe. */
+export const grep: Command = (_net, device, args, io) => {
+  const flags = new Set<string>();
+  const rest: string[] = [];
+  for (const a of args) {
+    if (/^-[ivcE]+$/.test(a)) for (const f of a.slice(1)) flags.add(f);
+    else rest.push(a);
+  }
+  const [pattern, ...files] = rest;
+  if (pattern === undefined) {
+    io.out('Usage: grep [OPTION]... PATTERNS [FILE]...');
+    return;
+  }
+  let re: RegExp;
+  try {
+    // shortcut: basic and extended regular expressions both use JavaScript's syntax.
+    re = new RegExp(pattern, flags.has('i') ? 'i' : '');
+  } catch {
+    io.out('grep: Unmatched ( or \\(');
+    return;
+  }
+  const sources: { name: string; lines: readonly string[] }[] = [];
+  if (files.length === 0) sources.push({ name: '(standard input)', lines: io.stdin ?? [] });
+  for (const name of files) {
+    const path = normalizePath(name);
+    const text = path === null ? undefined : device.fs?.read(path);
+    if (text === undefined) io.out(`grep: ${name}: No such file or directory`);
+    else sources.push({ name, lines: text.replace(/\n$/, '').split('\n') });
+  }
+  for (const source of sources) {
+    const hits = source.lines.filter((l) => re.test(l) !== flags.has('v'));
+    const prefix = sources.length > 1 ? `${source.name}:` : '';
+    if (flags.has('c')) io.out(`${prefix}${hits.length}`);
+    else hits.forEach((l) => io.out(`${prefix}${l}`));
+  }
+};
+
+/** `tee [-a] FILE...`: copies the pipe to files and to the output. */
+export const tee: Command = (_net, device, args, io) => {
+  const append = args.includes('-a');
+  const lines = io.stdin ?? [];
+  const text = lines.map((l) => `${l}\n`).join('');
+  for (const name of args.filter((a) => a !== '-a')) {
+    const path = normalizePath(name);
+    const error =
+      path === null || !device.fs
+        ? `${name}: No such file or directory`
+        : device.fs.write(path, text, append);
+    if (error) io.out(`tee: ${error}`);
+  }
+  lines.forEach((l) => io.out(l));
 };

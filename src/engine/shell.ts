@@ -13,7 +13,19 @@ import { normalizePath } from './fs.ts';
 import { DEFAULT_TTL } from './ip.ts';
 import type { Network } from './network.ts';
 import { hasCarrier, type Port } from './port.ts';
-import { cat, echo, ls, mkdir, parseLine, pwd, rm, touch } from './shell-files.ts';
+import {
+  cat,
+  echo,
+  grep,
+  ls,
+  mkdir,
+  parseLine,
+  pwd,
+  rm,
+  splitPipeline,
+  tee,
+  touch,
+} from './shell-files.ts';
 import { conntrack, nft } from './shell-firewall.ts';
 import { inet6Lines, ip6AddrChange, ip6Neigh, ip6Route, ping6, radvd } from './shell-ip6.ts';
 import { bird, birdc } from './shell-routing.ts';
@@ -38,6 +50,8 @@ import {
 export interface ShellIO {
   /** Writes one line of output. */
   out(line: string): void;
+  /** Lines from the previous command of a pipeline (`a | b`), if any. */
+  stdin?: readonly string[];
   /** Signals that a long-running command finished. */
   exit(): void;
 }
@@ -103,6 +117,7 @@ const HELP = [
   '  ss -t                              list TCP sockets',
   '  hostname [NAME]                    show or set the device name',
   '  ls, cat, echo TEXT > FILE, rm, touch, mkdir, pwd   work with files',
+  '  CMD | grep [-i] [-v] TEXT          keep the lines that match (also tee FILE)',
   '  clear                              clear the screen',
 ];
 
@@ -934,6 +949,8 @@ const ping: Command = (net, device, args, io) => {
 
 const COMMANDS: Record<string, Command> = {
   ip,
+  grep,
+  tee,
   radvd,
   ping6: (net, device, args, io) => ping(net, device, ['-6', ...args], io),
   bird,
@@ -977,6 +994,32 @@ const COMMANDS: Record<string, Command> = {
  * `clear` is handled by the terminal UI.
  */
 export function run(net: Network, device: Device, line: string, io: ShellIO): Process | undefined {
+  const segments = splitPipeline(line);
+  if (typeof segments === 'string') {
+    io.out(segments);
+    return undefined;
+  }
+  // `a | b`: each command's output lines become the next one's input.
+  let stdin: string[] | undefined;
+  for (const segment of segments.slice(0, -1)) {
+    const lines: string[] = [];
+    const proc = runOne(net, device, segment, {
+      out: (l) => lines.push(l),
+      exit: () => {},
+      ...(stdin ? { stdin } : {}),
+    });
+    if (proc) {
+      proc.interrupt();
+      // shortcut: a pipeline cannot stream a long-running command (like ping) yet.
+      io.out('bash: NetForge pipes only take commands that finish at once');
+      return undefined;
+    }
+    stdin = lines;
+  }
+  return runOne(net, device, segments.at(-1) ?? '', stdin ? { ...io, stdin } : io);
+}
+
+function runOne(net: Network, device: Device, line: string, io: ShellIO): Process | undefined {
   const parsed = parseLine(line);
   if (typeof parsed === 'string') {
     io.out(parsed);

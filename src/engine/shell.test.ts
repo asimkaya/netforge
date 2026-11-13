@@ -159,4 +159,25 @@ describe('shell', () => {
     sh(net, pc1, 'ip neigh flush all');
     expect(pc1.ip?.neighbors.size).toBe(0);
   });
+  it('pipes output into grep and tee', () => {
+    const { net, pc1 } = lab();
+    expect(sh(net, pc1, 'ip addr | grep inet').lines).toEqual([
+      '    inet 192.168.1.10/24 brd 192.168.1.255 scope global eth0',
+      `    inet6 fe80::ff:fe00:${pc1.ports[0]?.mac.slice(-2).replace(/^0/, '')}/64 scope link`,
+    ]);
+    expect(sh(net, pc1, 'ip addr | grep -v inet | grep -c ETHER').lines).toEqual(['0']);
+    expect(sh(net, pc1, 'ip addr | grep -ic ETHER').lines).toEqual(['1']);
+    expect(sh(net, pc1, 'echo hello | tee notes.txt').lines).toEqual(['hello']);
+    expect(sh(net, pc1, 'cat notes.txt').lines).toEqual(['hello']);
+    expect(sh(net, pc1, 'echo "a|b" | cat').lines).toEqual(['a|b']);
+    expect(sh(net, pc1, 'grep x missing.txt').lines).toEqual([
+      'grep: missing.txt: No such file or directory',
+    ]);
+    expect(sh(net, pc1, 'echo a |').lines).toEqual([
+      "bash: syntax error near unexpected token `|'",
+    ]);
+    expect(sh(net, pc1, 'ping -c 1 192.168.1.20 | grep ttl').lines).toEqual([
+      'bash: NetForge pipes only take commands that finish at once',
+    ]);
+  });
 });
