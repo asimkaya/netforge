@@ -239,4 +239,73 @@ describe('tasks', () => {
     sh(pc, 'ping -c 1 198.18.0.10');
     expect(progress()).toBe(6);
   });
+  it('inter-vlan routes two VLANs through a trunk to one router port', () => {
+    const t = task('inter-vlan');
+    const net = new Network();
+    const { ctx, sh } = play(net);
+    const progress = () => advance(t, ctx, 0);
+    const sw = net.addDevice('switch');
+    const [pc1, pc2] = [net.addDevice('pc'), net.addDevice('pc')];
+    const r1 = net.addDevice('router');
+    const port = (d: typeof sw, name: string) => d.port(name) ?? (undefined as never);
+    net.connect(port(pc1, 'eth0'), port(sw, 'eth0'));
+    net.connect(port(pc2, 'eth0'), port(sw, 'eth1'));
+    sh(sw, 'ip link set br0 type bridge vlan_filtering 1');
+    sh(sw, 'bridge vlan add dev eth0 vid 10 pvid untagged');
+    sh(sw, 'bridge vlan add dev eth1 vid 20 pvid untagged');
+    sh(pc1, 'ip addr add 192.168.10.10/24 dev eth0');
+    sh(pc2, 'ip addr add 192.168.20.10/24 dev eth0');
+    expect(progress()).toBe(1);
+    net.connect(port(r1, 'eth0'), port(sw, 'eth7'));
+    sh(sw, 'bridge vlan add dev eth7 vid 10');
+    expect(progress()).toBe(1); // one tagged VLAN is not a trunk for two
+    sh(sw, 'bridge vlan add dev eth7 vid 20');
+    expect(progress()).toBe(2);
+    for (const vid of [10, 20]) {
+      sh(r1, `ip link add link eth0 name eth0.${vid} type vlan id ${vid}`);
+      sh(r1, `ip addr add 192.168.${vid}.1/24 dev eth0.${vid}`);
+    }
+    expect(progress()).toBe(2); // VLAN interfaces start down
+    sh(r1, 'ip link set eth0.10 up');
+    sh(r1, 'ip link set eth0.20 up');
+    expect(progress()).toBe(3);
+    sh(pc1, 'ip route add default via 192.168.10.1');
+    sh(pc2, 'ip route add default via 192.168.20.1');
+    expect(progress()).toBe(4);
+    sh(pc1, 'ping -c 1 192.168.20.10');
+    expect(progress()).toBe(5);
+  });
+
+  it('ospf goes from two LANs to a route learned with BIRD', () => {
+    const t = task('ospf');
+    const net = new Network();
+    const { ctx, sh } = play(net);
+    const progress = () => advance(t, ctx, 0);
+    const [r1, r2] = [net.addDevice('router'), net.addDevice('router')];
+    const [pc1, pc2] = [net.addDevice('pc'), net.addDevice('pc')];
+    const port = (d: typeof r1, name: string) => d.port(name) ?? (undefined as never);
+    net.connect(port(r1, 'eth1'), port(r2, 'eth1'));
+    net.connect(port(pc1, 'eth0'), port(r1, 'eth0'));
+    net.connect(port(pc2, 'eth0'), port(r2, 'eth0'));
+    expect(progress()).toBe(1);
+    sh(r1, 'ip addr add 10.0.0.1/30 dev eth1');
+    sh(r2, 'ip addr add 10.0.0.2/30 dev eth1');
+    sh(r1, 'ip addr add 192.168.1.1/24 dev eth0');
+    sh(r2, 'ip addr add 192.168.2.1/24 dev eth0');
+    sh(pc1, 'ip addr add 192.168.1.10/24 dev eth0');
+    sh(pc2, 'ip addr add 192.168.2.10/24 dev eth0');
+    sh(pc1, 'ip route add default via 192.168.1.1');
+    sh(pc2, 'ip route add default via 192.168.2.1');
+    expect(progress()).toBe(2);
+    sh(r1, 'bird');
+    expect(progress()).toBe(2);
+    sh(r2, 'bird');
+    expect(progress()).toBe(3);
+    sh(r1, 'ip route');
+    expect(progress()).toBe(4);
+    sh(pc1, 'ping -c 1 192.168.2.10');
+    expect(progress()).toBe(5);
+    sh(r1, 'killall bird');
+    sh(r2, 'killall bird');
+  });
 });

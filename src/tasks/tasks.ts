@@ -187,6 +187,33 @@ function masqueradesOn(router: Device, port: string): boolean {
   );
 }
 
+/** Routers cabled to a switch port that carries two or more tagged VLANs (a trunk). */
+function trunkRouters(net: Network): { router: Device; sw: Device }[] {
+  return switches(net).flatMap((sw) => {
+    const bridge = sw.bridge;
+    if (!bridge?.vlanFiltering) return [];
+    return sw.ports.flatMap((port) => {
+      const peer = peerOf(port);
+      const v = bridge.vlans.get(port);
+      const tagged = [...(v?.vids ?? [])].filter((vid) => !v?.untagged.has(vid));
+      return peer && isRouter(peer.device) && tagged.length >= 2
+        ? [{ router: peer.device, sw }]
+        : [];
+    });
+  });
+}
+
+/** Pairs of routers cabled to each other, each with a PC of its own. */
+function ospfPairs(net: Network): [Device, Device][] {
+  return routers(net).flatMap((a) =>
+    neighborsOf(a)
+      .filter(
+        (b) => isRouter(b) && b.id > a.id && pcsOnRouter(a).length > 0 && pcsOnRouter(b).length > 0,
+      )
+      .map((b): [Device, Device] => [a, b]),
+  );
+}
+
 export const TASKS: Task[] = [
   {
     id: 'first-ping',
@@ -440,6 +467,122 @@ export const TASKS: Task[] = [
       },
     ],
     done: 'No reply: the switch now keeps VLAN 10 and VLAN 20 apart, as if they were two switches. Even ARP broadcasts stay inside their VLAN. To connect VLANs you need a router: give it VLAN interfaces (Router → Config → VLAN interfaces) on a trunk port.',
+  },
+  {
+    id: 'inter-vlan',
+    title: 'Route between VLANs',
+    summary: 'Connect two VLANs through one router port, a "router on a stick".',
+    steps: [
+      {
+        title: 'Two VLANs, two networks',
+        detail:
+          'On a switch with VLAN filtering, put one PC in VLAN 10 (`192.168.10.10/24`) and one in VLAN 20 (`192.168.20.10/24`). Do the "Split a switch with VLANs" task first if this is new.',
+        check: ({ net }) =>
+          switches(net).some((sw) => {
+            const groups = vlanGroups(sw);
+            return groups.some((a) =>
+              groups.some((b) => a !== b && a.some((x) => b.some((y) => !shareSubnet(x, y)))),
+            );
+          }),
+      },
+      {
+        title: 'Cable a router to a trunk port',
+        detail:
+          'Cable a router’s `eth0` to the switch, and make that switch port a trunk carrying VLANs 10 and 20 (Config → VLANs → Trunk `10,20`).',
+        hint: 'A trunk sends frames with an 802.1Q tag, so one cable can carry many VLANs.',
+        check: ({ net }) => trunkRouters(net).length > 0,
+      },
+      {
+        title: 'Give the router a VLAN interface per VLAN',
+        detail:
+          'Router → Config → VLAN interfaces: add VLAN 10 and VLAN 20 on `eth0`, then give `eth0.10` the address `192.168.10.1/24` and `eth0.20` `192.168.20.1/24`.',
+        check: ({ net }) =>
+          trunkRouters(net).some(
+            ({ router }) =>
+              router.vlanPorts.filter((p) => p.adminUp && (router.ip?.addrsOn(p).length ?? 0) > 0)
+                .length >= 2,
+          ),
+      },
+      {
+        title: 'Point the PCs at their gateways',
+        detail:
+          'Each PC’s default gateway is the router’s address in its VLAN: `192.168.10.1` and `192.168.20.1`.',
+        check: ({ net }) =>
+          trunkRouters(net).some(({ router, sw }) => {
+            const gateways = new Set(
+              router.vlanPorts.flatMap((p) => router.ip?.addrsOn(p).map((a) => a.ip) ?? []),
+            );
+            const pcs = vlanGroups(sw).flat();
+            const ok = pcs.filter((pc) => {
+              const via = pc.ip?.staticRoutes.find((r) => r.dst.prefix === 0)?.via;
+              return via !== undefined && via !== null && gateways.has(via);
+            });
+            return ok.length >= 2;
+          }),
+      },
+      {
+        title: 'Ping across VLANs',
+        detail:
+          'Ping the VLAN 20 PC from the VLAN 10 PC. Watch it in Simulation mode: the frames to the router carry a VLAN tag.',
+        check: ({ net }) =>
+          switches(net).some((sw) => {
+            const groups = vlanGroups(sw);
+            return groups.some((g) => g.some((pc) => groups.some((o) => o !== g && pinged(pc, o))));
+          }),
+      },
+    ],
+    done: 'The router received each packet tagged with VLAN 10 on eth0.10, routed it, and sent it back down the same cable tagged with VLAN 20. One physical port, two logical networks.',
+  },
+  {
+    id: 'ospf',
+    title: 'Let routers find the way (OSPF)',
+    summary: 'Replace hand-written routes with a routing protocol.',
+    steps: [
+      {
+        title: 'Two routers, two LANs',
+        detail: 'Cable two routers together (`eth1` to `eth1`) and a PC to each router’s `eth0`.',
+        check: ({ net }) => ospfPairs(net).length > 0,
+      },
+      {
+        title: 'Address everything',
+        detail:
+          'Router link: `10.0.0.1/30` and `10.0.0.2/30`. LANs: `192.168.1.0/24` and `192.168.2.0/24`, with each PC using its router as gateway.',
+        check: ({ net }) =>
+          ospfPairs(net).some(([a, b]) =>
+            [a, b].every((r) =>
+              pcsOnRouter(r).some((l) => pcInPortNetwork(r, l) && gatewayIsRouter(r, l)),
+            ),
+          ),
+      },
+      {
+        title: 'Start OSPF on both routers',
+        detail:
+          'In each router’s CLI run `bird` (or Config → Dynamic routing → Start OSPF). Then `birdc show ospf neighbors`.',
+        hint: 'Routers ship /etc/bird.conf with OSPF on every Ethernet port.',
+        check: ({ net }) =>
+          ospfPairs(net).some(([a, b]) =>
+            [a, b].every((r) => r.bird?.neighbors.some((n) => n.full)),
+          ),
+      },
+      {
+        title: 'See the learned route',
+        detail: 'On a router run `ip route`: the other LAN appears with `proto bird`.',
+        check: (ctx) =>
+          ran(ctx, /^(ip\s+r(o(u(te?)?)?)?|birdc\s+show\s+route)/, isRouter) &&
+          ospfPairs(ctx.net).some(([a]) => (a.bird?.routes.length ?? 0) > 0),
+      },
+      {
+        title: 'Ping from LAN to LAN',
+        detail: 'Ping one PC from the other.',
+        check: ({ net }) =>
+          ospfPairs(net).some(([a, b]) => {
+            const left = pcsOnRouter(a).map((l) => l.pc);
+            const right = pcsOnRouter(b).map((l) => l.pc);
+            return left.some((pc) => pinged(pc, right)) || right.some((pc) => pinged(pc, left));
+          }),
+      },
+    ],
+    done: 'Nobody typed a route: the routers said hello, swapped link-state advertisements, and each ran Dijkstra’s shortest path algorithm. Add a third router and a backup link, unplug a cable and watch them reroute.',
   },
   {
     id: 'nat',
