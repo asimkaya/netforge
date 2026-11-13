@@ -1,4 +1,4 @@
-import { inSubnet, networkOf, type Cidr } from '../engine/addr.ts';
+import { formatIp, inSubnet, networkOf, type Cidr } from '../engine/addr.ts';
 import type { Device } from '../engine/device.ts';
 import type { Network } from '../engine/network.ts';
 import { peerOf, type Port } from '../engine/port.ts';
@@ -145,6 +145,46 @@ function largestSubnetGroup(group: Device[]): number {
     }
   }
   return Math.max(0, ...[...counts.values()].map((s) => s.size));
+}
+
+/** PCs on a switch grouped by the access VLAN (PVID) of their port, with VLAN filtering on. */
+function vlanGroups(sw: Device): Device[][] {
+  const bridge = sw.bridge;
+  if (!bridge?.vlanFiltering) return [];
+  const groups = new Map<number, Device[]>();
+  for (const port of sw.ports) {
+    const peer = peerOf(port);
+    const pvid = bridge.vlans.get(port)?.pvid;
+    if (!peer || !isPc(peer.device) || pvid === null || pvid === undefined) continue;
+    groups.set(pvid, [...(groups.get(pvid) ?? []), peer.device]);
+  }
+  return [...groups.values()];
+}
+
+/** The example website inside the Internet cloud, 198.18.0.10. */
+const SITE_IP = 0xc612000a;
+
+/** Routers cabled to the Internet cloud and to a PC, with the port that goes to the cloud. */
+function natRouters(net: Network): { router: Device; wan: Port }[] {
+  return routers(net).flatMap((router) => {
+    const wan = router.ports.find((p) => peerOf(p)?.device.spec.id === 'internet');
+    return wan && pcsOnRouter(router).length > 0 ? [{ router, wan }] : [];
+  });
+}
+
+/** A nat postrouting rule masquerades traffic leaving through `port`. */
+function masqueradesOn(router: Device, port: string): boolean {
+  return (router.ip?.nf.tables ?? []).some((t) =>
+    t.chains.some(
+      (c) =>
+        c.base?.hook === 'postrouting' &&
+        c.rules.some(
+          (r) =>
+            r.action.kind === 'masquerade' &&
+            r.matches.every((m) => m.kind !== 'oifname' || (m.name === port && !m.neg)),
+        ),
+    ),
+  );
 }
 
 export const TASKS: Task[] = [
@@ -347,6 +387,129 @@ export const TASKS: Task[] = [
       },
     ],
     done: 'No typing addresses by hand! The PCs broadcast a DHCP Discover, the server offered an address with a gateway and DNS server, and the PCs took it. The server remembered their names, so DNS could answer for them.',
+  },
+  {
+    id: 'vlans',
+    title: 'Split a switch with VLANs',
+    summary: 'Turn one switch into two separate networks without new hardware.',
+    steps: [
+      {
+        title: 'Connect three PCs in one network',
+        detail:
+          'Add a switch and three PCs, cable them, and give the PCs addresses in one network: `192.168.1.10/24`, `.20` and `.30`.',
+        check: ({ net }) => switches(net).some((sw) => largestSubnetGroup(hostsOn(sw)) >= 3),
+      },
+      {
+        title: 'Turn on VLAN filtering',
+        detail:
+          'Switch → Config → VLANs → tick VLAN filtering. In its CLI: `ip link set br0 type bridge vlan_filtering 1`.',
+        hint: 'Until filtering is on, a Linux bridge ignores VLAN settings: every port is in one network.',
+        check: ({ net }) => switches(net).some((sw) => sw.bridge?.vlanFiltering),
+      },
+      {
+        title: 'Put two PCs in VLAN 10 and one in VLAN 20',
+        detail:
+          'Make the PC ports access ports: two in VLAN 10, one in VLAN 20. In the CLI: `bridge vlan add dev eth0 vid 10 pvid untagged` then `bridge vlan del dev eth0 vid 1`.',
+        hint: '`pvid` puts untagged frames from the PC into that VLAN; `untagged` sends that VLAN’s frames to the PC without a tag.',
+        check: ({ net }) =>
+          switches(net).some((sw) => {
+            const groups = vlanGroups(sw);
+            return groups.length >= 2 && groups.some((g) => g.length >= 2);
+          }),
+      },
+      {
+        title: 'Ping inside a VLAN',
+        detail: 'Ping from one VLAN 10 PC to the other.',
+        check: ({ net }) =>
+          switches(net).some((sw) => vlanGroups(sw).some((g) => g.some((pc) => pinged(pc, g)))),
+      },
+      {
+        title: 'Try to reach the other VLAN',
+        detail:
+          'Now ping the VLAN 20 PC from a VLAN 10 PC. Same network addresses, same switch: does it answer?',
+        check: (ctx) =>
+          switches(ctx.net).some((sw) => {
+            const groups = vlanGroups(sw);
+            return ctx.commands.some((c) => {
+              const from = groups.find((g) => g.some((pc) => pc.id === c.device));
+              const target = /^ping\s.*?(\d+\.\d+\.\d+\.\d+)\s*$/.exec(c.line)?.[1];
+              const owns = (pc: Device) => addrsOf(pc).some((a) => formatIp(a.ip) === target);
+              return from !== undefined && groups.some((g) => g !== from && g.some(owns));
+            });
+          }),
+      },
+    ],
+    done: 'No reply: the switch now keeps VLAN 10 and VLAN 20 apart, as if they were two switches. Even ARP broadcasts stay inside their VLAN. To connect VLANs you need a router: give it VLAN interfaces (Router → Config → VLAN interfaces) on a trunk port.',
+  },
+  {
+    id: 'nat',
+    title: 'Reach the Internet through NAT',
+    summary: 'Share one public address with a private network, then add a firewall.',
+    steps: [
+      {
+        title: 'Connect a router to the Internet',
+        detail:
+          'Add the Internet cloud, a router and a PC. Cable the router’s `eth1` to the cloud and the PC to the router’s `eth0`.',
+        check: ({ net }) => natRouters(net).length > 0,
+      },
+      {
+        title: 'Get a public address from the provider',
+        detail:
+          'In the router’s CLI: `dhclient eth1`. The cloud hands out an address and a default route.',
+        check: ({ net }) =>
+          natRouters(net).some(({ router, wan }) => (router.ip?.addrsOn(wan).length ?? 0) > 0),
+      },
+      {
+        title: 'Set up the private network',
+        detail:
+          'Router: `ip addr add 192.168.1.1/24 dev eth0`. PC: `192.168.1.10/24` with gateway `192.168.1.1` (IP Configuration).',
+        check: ({ net }) =>
+          natRouters(net).some(({ router }) =>
+            pcsOnRouter(router).some(
+              (l) => pcInPortNetwork(router, l) && gatewayIsRouter(router, l),
+            ),
+          ),
+      },
+      {
+        title: 'Turn on NAT',
+        detail:
+          'Router → Config → Firewall and NAT → Share this connection (NAT), with `eth1` as the Internet side. It runs `nft add rule ip nat postrouting oifname "eth1" masquerade`.',
+        hint: 'Without NAT the PC’s packets reach the Internet, but nobody there knows the way back to 192.168.1.0/24.',
+        check: ({ net }) =>
+          natRouters(net).some(({ router, wan }) => masqueradesOn(router, wan.name)),
+      },
+      {
+        title: 'Ping the Internet from the PC',
+        detail:
+          'On the PC: `ping 198.18.0.10` (the example website). Then try `conntrack -L` on the router.',
+        check: ({ net }) =>
+          natRouters(net).some(({ router }) =>
+            pcsOnRouter(router).some((l) => l.pc.ip?.echoRepliesFrom.has(SITE_IP)),
+          ),
+      },
+      {
+        title: 'Only let replies in',
+        detail:
+          'Add a firewall: a forward chain with policy drop that accepts `ct state established,related` and anything from `eth0`. Paste the hint into the ruleset editor (Config tab), then ping again.',
+        hint: 'table ip filter { chain forward { type filter hook forward priority 0; policy drop; ct state established,related accept; iifname "eth0" accept } }',
+        check: ({ net }) =>
+          natRouters(net).some(({ router }) => {
+            const nf = router.ip?.nf;
+            const guarded = nf?.tables.some((t) =>
+              t.chains.some(
+                (c) =>
+                  c.base?.hook === 'forward' &&
+                  c.base.policy === 'drop' &&
+                  c.rules.some((r) =>
+                    r.matches.some((m) => m.kind === 'ct' && m.states.includes('established')),
+                  ),
+              ),
+            );
+            return !!guarded && (nf?.connections().some((c) => c.replied) ?? false);
+          }),
+      },
+    ],
+    done: 'Your PC used the router’s public address: NAT rewrote each packet on the way out and remembered the connection (conntrack) to rewrite the replies. The firewall now drops anything that starts outside, while replies to your own connections still come back.',
   },
 ];
 
