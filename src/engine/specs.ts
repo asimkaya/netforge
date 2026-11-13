@@ -1,6 +1,7 @@
 import type { PortType } from './port.ts';
 
-export type SpecId = 'pc' | 'laptop' | 'phone' | 'server' | 'switch' | 'ap' | 'router' | 'internet';
+export type SpecId =
+  'pc' | 'laptop' | 'phone' | 'server' | 'switch' | 'ap' | 'router' | 'homerouter' | 'internet';
 
 /**
  * What a device is made of. Adding a device type means adding a spec here (and its
@@ -13,8 +14,13 @@ export interface DeviceSpec {
   /** Default hostnames are prefix + counter, e.g. pc1, sw2. */
   namePrefix: string;
   ports: { name: string; type: PortType }[];
-  /** All ports are enslaved to one learning bridge (L2 switching). */
+  /** Ports are enslaved to one learning bridge (L2 switching): all, or `bridgePorts`. */
   bridge: boolean;
+  bridgePorts?: string[];
+  /** The bridge gets its own IP interface, `br0` (a home router's LAN side). */
+  bridgeIp?: boolean;
+  /** A port that asks for an address with DHCP whenever its link comes up (a WAN port). */
+  wanDhcp?: string;
   /** Runs an IP stack on the ports that are not bridged. */
   ip: boolean;
   /** Initial `net.ipv4.ip_forward`: forwards packets between its interfaces. */
@@ -160,6 +166,42 @@ export const SPECS: Record<SpecId, DeviceSpec> = {
     ip: true,
     forwarding: true,
     files: { '/etc/bird.conf': BIRD_SAMPLE },
+  },
+  homerouter: {
+    id: 'homerouter',
+    label: 'Home Router',
+    description:
+      'Home Wi-Fi router: Internet port (eth0) with DHCP, 4 LAN ports and Wi-Fi bridged as br0, DHCP server, NAT and a firewall, all ready',
+    namePrefix: 'home',
+    ports: [
+      ...ports('ethernet', 0, 5),
+      ...Array.from({ length: 8 }, (_, i) => ({ name: `wlan${i}`, type: 'wifi' as const })),
+    ],
+    bridge: true,
+    bridgePorts: [
+      ...['eth1', 'eth2', 'eth3', 'eth4'],
+      ...Array.from({ length: 8 }, (_, i) => `wlan${i}`),
+    ],
+    bridgeIp: true,
+    wanDhcp: 'eth0',
+    ip: true,
+    forwarding: true,
+    files: {
+      '/etc/hostapd/hostapd.conf':
+        'interface=wlan0\nssid=HomeWiFi\nwpa=2\nwpa_passphrase=netforge123\n',
+    },
+    setup: [
+      'ip addr add 192.168.1.1/24 dev br0',
+      'dnsmasq --dhcp-range=192.168.1.100,192.168.1.199,12h',
+      'hostapd -B /etc/hostapd/hostapd.conf',
+      'nft add table ip nat',
+      'nft add chain ip nat postrouting { type nat hook postrouting priority srcnat ; }',
+      'nft add rule ip nat postrouting oifname "eth0" masquerade',
+      'nft add table ip filter',
+      'nft add chain ip filter forward { type filter hook forward priority filter ; policy drop ; }',
+      'nft add rule ip filter forward ct state established,related accept',
+      'nft add rule ip filter forward iifname "br0" accept',
+    ],
   },
   internet: {
     id: 'internet',

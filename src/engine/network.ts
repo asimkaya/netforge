@@ -53,6 +53,8 @@ export interface NetworkSnapshot {
     };
     /** The nftables ruleset, as `nft list ruleset` prints it. */
     firewall?: string;
+    /** Addresses of the bridge's own interface (`br0`), on home routers. */
+    bridgeAddrs?: string[];
     /** WireGuard interfaces with their keys and peers. */
     wireguard?: {
       name: string;
@@ -365,6 +367,10 @@ export class Network implements Fabric {
   }
 
   transmit(from: Port, frame: EthernetFrame): void {
+    if (from.bridgeSelf) {
+      if (from.adminUp) from.device.bridge?.sendLocal(frame);
+      return;
+    }
     if (from.parent) {
       // A VLAN interface sends through its parent port with an 802.1Q tag.
       if (from.adminUp) this.transmit(from.parent, { ...frame, vlan: from.vid ?? 0 });
@@ -459,6 +465,9 @@ export class Network implements Fabric {
         ...(d.bridge && !isDefaultBridge(d.bridge) ? { bridge: bridgeJSON(d.bridge) } : {}),
         ...(d.ip?.nf.active ? { firewall: formatRuleset(d.ip.nf.tables).join('\n') } : {}),
         ...(d.ip ? { ip6: ip6JSON(d.ip.v6) } : {}),
+        ...(d.bridgePort && d.ip
+          ? { bridgeAddrs: d.ip.addrsOn(d.bridgePort).map(formatCidr) }
+          : {}),
         ...(d.vlanPorts.some((p) => p.tunnel) ? { wireguard: wireguardJSON(d) } : {}),
       })),
       links: [...this.links.values()].map((l) => ({
@@ -500,6 +509,12 @@ export class Network implements Fabric {
         }
       });
       if (d.bridge && device.bridge) loadBridge(device.bridge, d.bridge, d.id);
+      for (const text of d.bridgeAddrs ?? []) {
+        const cidr = parseCidr(text);
+        const br0 = device.bridgePort;
+        if (!cidr || !br0 || !device.ip) throw new Error(`Invalid address ${text} on ${d.id}`);
+        device.ip.addAddress(br0, cidr);
+      }
       for (const v of d.vlanPorts ?? []) {
         const parent = device.port(v.parent);
         const error = parent ? device.addVlanPort(parent, v.name, v.vid) : 'no parent';

@@ -10,6 +10,7 @@ export const FOOTPRINT: Record<SpecId, { w: number; h: number }> = {
   ap: { w: 160, h: 110 },
   switch: { w: 340, h: 100 },
   router: { w: 220, h: 100 },
+  homerouter: { w: 200, h: 120 },
   internet: { w: 220, h: 100 },
 };
 

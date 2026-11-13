@@ -38,6 +38,8 @@ export class Bridge {
   readonly vlans = new Map<Port, PortVlans>();
   /** Spanning Tree (`stp_state`), off by default like on Linux. */
   readonly stp: Stp;
+  /** The bridge's own interface (`br0` with an address), when the device routes too. */
+  local: { port: Port; receive(frame: EthernetFrame): void } | null = null;
 
   constructor(
     readonly fabric: Fabric,
@@ -103,6 +105,12 @@ export class Bridge {
     this.#expire();
     // Listening and learning ports learn addresses (learning only) but forward nothing.
     if (!this.stp.forwards(port)) return;
+    const local = this.local;
+    if (local && (vid === 0 || vid === DEFAULT_VID)) {
+      const group = frame.dst === BROADCAST_MAC || /^(01:|33:33:)/.test(frame.dst);
+      if (frame.dst === local.port.mac || group) local.receive(untagged(frame));
+      if (frame.dst === local.port.mac) return;
+    }
     const entry = frame.dst === BROADCAST_MAC ? undefined : this.#fdb.get(`${vid}/${frame.dst}`);
     if (entry) {
       if (entry.port !== port && this.stp.forwards(entry.port))
@@ -117,6 +125,19 @@ export class Bridge {
   carrierChanged(port: Port): void {
     for (const [key, entry] of this.#fdb) if (entry.port === port) this.#fdb.delete(key);
     this.stp.carrierChanged(port);
+  }
+
+  /** Sends a frame from the bridge's own interface out of the right port, or floods it. */
+  sendLocal(frame: EthernetFrame): void {
+    const vid = this.vlanFiltering ? DEFAULT_VID : 0;
+    const entry = this.#fdb.get(`${vid}/${frame.dst}`);
+    if (entry && this.stp.forwards(entry.port)) {
+      this.#egress(entry.port, frame, vid);
+      return;
+    }
+    for (const out of this.ports) {
+      if (hasCarrier(out) && this.stp.forwards(out)) this.#egress(out, frame, vid);
+    }
   }
 
   /** The VLAN a frame belongs to, or null if the port must drop it. */

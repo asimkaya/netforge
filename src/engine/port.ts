@@ -37,6 +37,8 @@ export interface Port {
   readonly parent?: Port;
   readonly vid?: number;
   readonly tunnel?: Tunnel;
+  /** Set on a bridge's own interface (`br0`): frames go through the bridge's ports. */
+  readonly bridgeSelf?: { readonly ports: readonly Port[] };
 }
 
 export interface Link {
@@ -56,6 +58,8 @@ export function peerOf(port: Port): Port | null {
 export function hasCarrier(port: Port): boolean {
   if (port.parent) return port.adminUp && hasCarrier(port.parent);
   if (port.tunnel) return port.adminUp;
+  // Like Linux, a bridge has carrier while one of its ports has.
+  if (port.bridgeSelf) return port.adminUp && port.bridgeSelf.ports.some((p) => hasCarrier(p));
   const peer = peerOf(port);
   return port.adminUp && peer !== null && peer.adminUp;
 }

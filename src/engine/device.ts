@@ -2,6 +2,7 @@ import type { Mac } from './addr.ts';
 import { BIRD_CONF, Bird, parseBirdConf } from './bird.ts';
 import { RADVD_CONF, parseRadvd } from './ip6.ts';
 import { Bridge } from './bridge.ts';
+import { dhclient } from './dhcp.ts';
 import { WireGuard } from './wireguard.ts';
 import type { Process, ShellIO } from './shell.ts';
 import { startSshd } from './ssh.ts';
@@ -12,7 +13,7 @@ import { startPop3, startSmtp } from './mail.ts';
 import { startHostapd, type HostapdConfig } from './wifi.ts';
 import { IpStack } from './ip.ts';
 import { untagged, type EthernetFrame } from './packet.ts';
-import type { Port } from './port.ts';
+import { hasCarrier, type Port } from './port.ts';
 import type { Scheduler } from './scheduler.ts';
 import type { DeviceSpec } from './specs.ts';
 
@@ -28,6 +29,9 @@ export class Device {
   readonly ports: readonly Port[];
   /** VLAN interfaces added with `ip link add link eth0 name eth0.10 type vlan id 10`. */
   readonly vlanPorts: Port[] = [];
+  /** The bridge's own IP interface (`br0`), on devices that route and bridge. */
+  bridgePort: Port | null = null;
+  #bridgeCarrier = false;
   readonly bridge: Bridge | null;
   readonly ip: IpStack | null;
   /** Files, on devices with an IP stack (hosts, servers, routers). */
@@ -64,9 +68,25 @@ export class Device {
       link: null,
       adminUp: true,
     }));
-    this.bridge = spec.bridge ? new Bridge(fabric, this.ports) : null;
+    const bridged = this.ports.filter((p) => spec.bridgePorts?.includes(p.name) ?? true);
+    this.bridge = spec.bridge ? new Bridge(fabric, bridged) : null;
     const routed = this.ports.filter((p) => !this.bridge?.owns(p));
     this.ip = spec.ip ? new IpStack(fabric, routed, spec.forwarding) : null;
+    if (spec.bridgeIp && this.bridge && this.ip) {
+      // Linux gives br0 the MAC address of its first port.
+      const br0: Port = {
+        name: 'br0',
+        type: 'ethernet',
+        mac: bridged[0]?.mac ?? '',
+        device: this,
+        link: null,
+        adminUp: true,
+        bridgeSelf: this.bridge,
+      };
+      this.bridgePort = br0;
+      this.bridge.local = { port: br0, receive: (frame) => this.ip?.receive(br0, frame) };
+      this.ip.addPort(br0);
+    }
     this.fs = spec.ip ? new FileSystem(spec.files ?? {}, () => fabric.changed()) : null;
   }
 
@@ -232,9 +252,9 @@ export class Device {
     return this.interfaces().find((p) => p.name === name);
   }
 
-  /** Physical ports, then VLAN interfaces, in `ip link` order. */
+  /** Physical ports, the bridge interface, then VLAN and tunnel interfaces (`ip link` order). */
   interfaces(): Port[] {
-    return [...this.ports, ...this.vlanPorts];
+    return [...this.ports, ...(this.bridgePort ? [this.bridgePort] : []), ...this.vlanPorts];
   }
 
   /** Adds a VLAN interface on a routed port. It starts down, like on Linux. */
@@ -322,7 +342,17 @@ export class Device {
   /** Called when a port gains or loses carrier. */
   carrierChanged(port: Port): void {
     this.bridge?.carrierChanged(port);
-    this.ip?.carrierChanged(port);
+    if (!this.bridge?.owns(port)) this.ip?.carrierChanged(port);
     for (const sub of this.vlanPorts) if (sub.parent === port) this.ip?.carrierChanged(sub);
+    const br0 = this.bridgePort;
+    if (br0 && hasCarrier(br0) !== this.#bridgeCarrier) {
+      this.#bridgeCarrier = hasCarrier(br0);
+      this.ip?.carrierChanged(br0);
+    }
+    // A WAN port asks for an address when plugged in, unless it already has one.
+    const ip = this.ip;
+    if (port.name === this.spec.wanDhcp && hasCarrier(port) && ip?.addrsOn(port).length === 0) {
+      dhclient(this, port, { out: () => {}, exit: () => {} });
+    }
   }
 }

@@ -6,7 +6,7 @@ import type { Point } from './lab.ts';
 
 export const PROJECT_FORMAT = 'netforge-lab';
 /** Bump on any incompatible change and add a migration for the previous version. */
-export const PROJECT_VERSION = 10;
+export const PROJECT_VERSION = 11;
 
 export interface TaskProgress {
   /** Id of the task being played, if any. */
@@ -278,6 +278,13 @@ function readSnapshot(value: unknown): NetworkSnapshot {
         : { vlanPorts: readVlanPorts(d.vlanPorts, `device #${i + 1}`) }),
       ...(d.bridge === undefined ? {} : { bridge: readBridge(d.bridge, `device #${i + 1}`) }),
       ...(d.ip6 === undefined ? {} : { ip6: readIp6(d.ip6, `device #${i + 1}`) }),
+      ...(d.bridgeAddrs === undefined
+        ? {}
+        : {
+            bridgeAddrs: arr(d.bridgeAddrs, `device #${i + 1} br0 addresses`).map((a) =>
+              str(a, 'address', CIDR),
+            ),
+          }),
       ...(d.wireguard === undefined
         ? {}
         : { wireguard: readWireguard(d.wireguard, `device #${i + 1}`) }),
@@ -432,6 +439,8 @@ const MIGRATIONS: Record<number, (file: Json) => Json> = {
   8: (file) => file,
   // v10 adds tasks written in the task editor (`tasks.custom`).
   9: (file) => file,
+  // v11 adds the home router device and its br0 addresses (`bridgeAddrs`).
+  10: (file) => file,
   // v2: devices name a spec instead of a kind; switches gain two SFP uplinks (eth8, eth9);
   // per-kind name counters become per-prefix counters.
   1: (file) => {
