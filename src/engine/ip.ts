@@ -328,6 +328,7 @@ export class IpStack implements TcpHost {
       this.#handleArp(port, p);
       return;
     }
+    if (p.kind === 'bpdu') return;
     const isLocal = (q: Ipv4Packet) =>
       this.ownsIp(q.dst) ||
       q.dst === LIMITED_BROADCAST ||

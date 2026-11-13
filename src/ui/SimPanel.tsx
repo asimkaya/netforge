@@ -27,9 +27,25 @@ function layers(frame: EthernetFrame): { name: string; fields: Field[] }[] {
     fields: [
       ['Destination', frame.dst],
       ['Source', frame.src],
-      ['Type', p.kind === 'arp' ? 'ARP (0x0806)' : 'IPv4 (0x0800)'],
+      ...(frame.vlan === undefined ? [] : [['802.1Q VLAN', String(frame.vlan)] satisfies Field]),
+      ['Type', { arp: 'ARP (0x0806)', ipv4: 'IPv4 (0x0800)', bpdu: 'LLC, Spanning Tree' }[p.kind]],
     ] satisfies Field[],
   };
+  if (p.kind === 'bpdu') {
+    return [
+      ethernet,
+      {
+        name: 'Spanning Tree Protocol',
+        fields: [
+          ['Root bridge', p.rootId],
+          ['Root path cost', String(p.rootCost)],
+          ['Bridge', p.bridgeId],
+          ['Port', `0x${p.portId.toString(16)}`],
+          ['Topology change', p.tc ? 'yes' : 'no'],
+        ],
+      },
+    ];
+  }
   if (p.kind === 'arp') {
     return [
       ethernet,

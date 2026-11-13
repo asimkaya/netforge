@@ -105,12 +105,26 @@ function describeTcp(t: TcpSegment): string {
   return `Flags ${tcpFlags(t.flags)}, ${seq}${ack}, length ${length}${app}`;
 }
 
+/** Destination MAC of Spanning Tree BPDUs (the 802.1D bridge group address). */
+export const STP_MAC = '01:80:c2:00:00:00';
+
+/** A Spanning Tree configuration BPDU. */
+export interface BpduPacket {
+  kind: 'bpdu';
+  rootId: string;
+  rootCost: number;
+  bridgeId: string;
+  portId: number;
+  /** Set while announcing a topology change; the id lets bridges pass it on once. */
+  tc?: string;
+}
+
 export interface EthernetFrame {
   src: Mac;
   dst: Mac;
   /** 802.1Q tag: the VLAN id on trunk links; absent on untagged frames. */
   vlan?: number;
-  payload: ArpPacket | Ipv4Packet;
+  payload: ArpPacket | Ipv4Packet | BpduPacket;
 }
 
 function describeIcmp(p: Ipv4Packet, icmp: IcmpPacket): string {
@@ -161,6 +175,10 @@ export function describeFrame(frame: EthernetFrame): string {
 
 function describePayload(frame: EthernetFrame): string {
   const p = frame.payload;
+  if (p.kind === 'bpdu') {
+    const flags = p.tc ? 'Topology change' : 'none';
+    return `STP 802.1d, Config, Flags [${flags}], bridge-id ${p.bridgeId}.${p.portId.toString(16)}, length 35`;
+  }
   if (p.kind === 'arp') {
     return p.op === 'request'
       ? `ARP, Request who-has ${formatIp(p.targetIp)} tell ${formatIp(p.senderIp)}`
@@ -175,12 +193,13 @@ function describePayload(frame: EthernetFrame): string {
 }
 
 export type Protocol =
-  'arp' | 'icmp' | 'udp' | 'dhcp' | 'dns' | 'tcp' | 'http' | 'smtp' | 'pop3' | 'ssh';
+  'arp' | 'stp' | 'icmp' | 'udp' | 'dhcp' | 'dns' | 'tcp' | 'http' | 'smtp' | 'pop3' | 'ssh';
 
 /** Protocol label used to color packets in the UI. */
 export function protocolOf(frame: EthernetFrame): Protocol {
   const p = frame.payload;
   if (p.kind === 'arp') return 'arp';
+  if (p.kind === 'bpdu') return 'stp';
   if (p.payload.kind === 'icmp') return 'icmp';
   if (p.payload.kind === 'tcp') {
     const t = p.payload;

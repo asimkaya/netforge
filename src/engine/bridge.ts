@@ -2,6 +2,7 @@ import { BROADCAST_MAC, type Mac } from './addr.ts';
 import type { Fabric } from './device.ts';
 import { untagged, type EthernetFrame } from './packet.ts';
 import { hasCarrier, type Port } from './port.ts';
+import { Stp } from './stp.ts';
 
 /** Same default as the Linux bridge `ageing_time` (300 s). */
 export const FDB_AGEING_MS = 300_000;
@@ -35,12 +36,15 @@ export class Bridge {
   /** `ip link set br0 type bridge vlan_filtering 1`: without it, VLAN settings are ignored. */
   vlanFiltering = false;
   readonly vlans = new Map<Port, PortVlans>();
+  /** Spanning Tree (`stp_state`), off by default like on Linux. */
+  readonly stp: Stp;
 
   constructor(
     readonly fabric: Fabric,
     readonly ports: readonly Port[],
   ) {
     for (const port of ports) this.vlans.set(port, defaultVlans());
+    this.stp = new Stp(fabric, ports, () => this.#fdb.clear());
   }
 
   owns(port: Port): boolean {
@@ -83,6 +87,11 @@ export class Bridge {
   }
 
   receive(port: Port, frame: EthernetFrame): void {
+    if (frame.payload.kind === 'bpdu' && this.stp.enabled) {
+      this.stp.receive(port, frame.payload);
+      return;
+    }
+    if (!this.stp.learns(port)) return;
     const vid = this.#ingress(port, frame);
     if (vid === null) return;
     const now = this.fabric.scheduler.now;
@@ -92,18 +101,22 @@ export class Bridge {
       this.#fdb.set(key, { mac: frame.src, port, vlan: vid, updated: now });
     }
     this.#expire();
+    // Listening and learning ports learn addresses (learning only) but forward nothing.
+    if (!this.stp.forwards(port)) return;
     const entry = frame.dst === BROADCAST_MAC ? undefined : this.#fdb.get(`${vid}/${frame.dst}`);
     if (entry) {
-      if (entry.port !== port) this.#egress(entry.port, frame, vid);
+      if (entry.port !== port && this.stp.forwards(entry.port))
+        this.#egress(entry.port, frame, vid);
       return;
     }
     for (const out of this.ports) {
-      if (out !== port && hasCarrier(out)) this.#egress(out, frame, vid);
+      if (out !== port && hasCarrier(out) && this.stp.forwards(out)) this.#egress(out, frame, vid);
     }
   }
 
   carrierChanged(port: Port): void {
     for (const [key, entry] of this.#fdb) if (entry.port === port) this.#fdb.delete(key);
+    this.stp.carrierChanged(port);
   }
 
   /** The VLAN a frame belongs to, or null if the port must drop it. */

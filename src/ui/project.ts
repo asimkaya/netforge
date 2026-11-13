@@ -5,7 +5,7 @@ import type { Point } from './lab.ts';
 
 export const PROJECT_FORMAT = 'netforge-lab';
 /** Bump on any incompatible change and add a migration for the previous version. */
-export const PROJECT_VERSION = 6;
+export const PROJECT_VERSION = 7;
 
 export interface TaskProgress {
   /** Id of the task being played, if any. */
@@ -161,7 +161,13 @@ function readBridge(value: unknown, what: string) {
       untagged: list('untagged'),
     };
   }
-  return { vlanFiltering: b.vlanFiltering, vlans };
+  if (b.stp !== undefined && typeof b.stp !== 'boolean') fail(`${what} STP setting is invalid.`);
+  return {
+    vlanFiltering: b.vlanFiltering,
+    vlans,
+    ...(b.stp === undefined ? {} : { stp: b.stp }),
+    ...(b.priority === undefined ? {} : { priority: count(b.priority, `${what} bridge priority`) }),
+  };
 }
 
 /** Device files: sizes are checked again when the engine writes them. */
@@ -269,6 +275,8 @@ const MIGRATIONS: Record<number, (file: Json) => Json> = {
   // v6 adds optional VLAN interfaces (`vlanPorts`), switch VLAN settings (`bridge`) and the
   // nftables ruleset (`firewall`).
   5: (file) => file,
+  // v7 adds Spanning Tree settings (`stp`, `priority`) to the switch settings.
+  6: (file) => file,
   // v2: devices name a spec instead of a kind; switches gain two SFP uplinks (eth8, eth9);
   // per-kind name counters become per-prefix counters.
   1: (file) => {

@@ -2,6 +2,7 @@ import { formatCidr, formatIp, macFromIndex, parseCidr, parseIp } from './addr.t
 import { defaultVlans, type Bridge } from './bridge.ts';
 import { Device, type Fabric } from './device.ts';
 import { formatRuleset, runNft } from './nft.ts';
+import { DEFAULT_PRIORITY } from './stp.ts';
 import type { EthernetFrame } from './packet.ts';
 import { MEDIUM_OF, cableError, hasCarrier, peerOf, type Link, type Port } from './port.ts';
 import { Scheduler } from './scheduler.ts';
@@ -45,6 +46,9 @@ export interface NetworkSnapshot {
     /** Switch VLAN settings, when they differ from the defaults. */
     bridge?: {
       vlanFiltering: boolean;
+      /** Spanning Tree on, and the bridge priority. */
+      stp?: boolean;
+      priority?: number;
       vlans: Record<string, { vids: number[]; pvid: number | null; untagged: number[] }>;
     };
     /** IP settings beyond addresses; absent on devices without an IP stack. */
@@ -66,6 +70,8 @@ function isDefaultBridge(bridge: Bridge): boolean {
     a.size === b.size && [...a].every((x) => b.has(x));
   return (
     !bridge.vlanFiltering &&
+    !bridge.stp.enabled &&
+    bridge.stp.priority === DEFAULT_PRIORITY &&
     [...bridge.vlans.values()].every(
       (v) => v.pvid === def.pvid && same(v.vids, def.vids) && same(v.untagged, def.untagged),
     )
@@ -76,6 +82,8 @@ function bridgeJSON(bridge: Bridge): BridgeSnapshot {
   const sorted = (set: Set<number>) => [...set].sort((a, b) => a - b);
   return {
     vlanFiltering: bridge.vlanFiltering,
+    stp: bridge.stp.enabled,
+    priority: bridge.stp.priority,
     vlans: Object.fromEntries(
       [...bridge.vlans].map(([port, v]) => [
         port.name,
@@ -87,6 +95,12 @@ function bridgeJSON(bridge: Bridge): BridgeSnapshot {
 
 function loadBridge(bridge: Bridge, saved: BridgeSnapshot, id: string): void {
   bridge.vlanFiltering = saved.vlanFiltering;
+  const priority = saved.priority ?? DEFAULT_PRIORITY;
+  if (!Number.isInteger(priority) || priority < 0 || priority > 65535) {
+    throw new Error(`Invalid bridge priority on ${id}`);
+  }
+  bridge.stp.priority = priority;
+  if (saved.stp) bridge.stp.setEnabled(true);
   for (const [name, v] of Object.entries(saved.vlans)) {
     const port = bridge.ports.find((p) => p.name === name);
     const valid = (vid: number) => Number.isInteger(vid) && vid >= 1 && vid <= 4094;
@@ -98,6 +112,12 @@ function loadBridge(bridge: Bridge, saved: BridgeSnapshot, id: string): void {
     }
     bridge.vlans.set(port, { vids: new Set(v.vids), pvid: v.pvid, untagged: new Set(v.untagged) });
   }
+}
+
+/** Every switch in the domain runs STP, so redundant cables are safe. */
+function stpEverywhere(domain: Set<Port>): boolean {
+  const bridges = new Set([...domain].flatMap((p) => (p.device.bridge ? [p.device.bridge] : [])));
+  return bridges.size > 0 && [...bridges].every((b) => b.stp.enabled);
 }
 
 export class Network implements Fabric {
@@ -159,9 +179,10 @@ export class Network implements Fabric {
     const [pa, pb] = this.#pickPorts(a, b);
     const error = cableError(pa, pb);
     if (error) throw new Error(error);
-    if (this.#l2Domain(pa).has(pb)) {
+    const domain = this.#l2Domain(pa);
+    if (domain.has(pb) && !stpEverywhere(domain)) {
       throw new Error(
-        `${pa.device.name} and ${pb.device.name} are already connected through switches. A second path would create a switching loop.`,
+        `${pa.device.name} and ${pb.device.name} are already connected through switches. A second path would create a switching loop. Turn on Spanning Tree (STP) on the switches to allow redundant cables.`,
       );
     }
     return this.#attach(this.#nextId('l'), pa, pb);
@@ -405,12 +426,24 @@ export class Network implements Fabric {
       }
       net.devices.set(device.id, device);
     }
+    // Spanning Tree converges as if the switches had been running all along.
+    const stp = [...net.devices.values()].flatMap((d) =>
+      d.bridge?.stp.enabled ? [d.bridge.stp] : [],
+    );
+    stp.forEach((s) => (s.instant = true));
     for (const l of snapshot.links) {
       const pa = net.devices.get(l.a.device)?.port(l.a.port);
       const pb = net.devices.get(l.b.device)?.port(l.b.port);
       const wireless = pa?.type === 'wifi' && pb?.type === 'wifi';
       if (!pa || !pb || cableError(pa, pb, wireless)) throw new Error(`Invalid link ${l.id}`);
       net.#attach(l.id, pa, pb);
+    }
+    if (stp.length > 0) {
+      for (let i = 0; i < 1000 && net.scheduler.pending > 0; i++) {
+        net.scheduler.runUntil(net.scheduler.now + 1);
+      }
+      stp.forEach((s) => (s.instant = false));
+      net.trace = [];
     }
     net.#counters = { ...snapshot.counters, names: { ...snapshot.counters.names }, trace: 0 };
     net.version = 0;
@@ -449,6 +482,21 @@ export class Network implements Fabric {
     };
     const pa = pick(a, b);
     return [pa, pick(b, pa)];
+  }
+
+  /**
+   * Whether the switches around `device` form a loop (more cables than a tree needs).
+   * Turning STP off there would make frames circle forever.
+   */
+  hasL2Loop(device: Device): boolean {
+    const start = device.ports[0];
+    if (!start) return false;
+    const domain = this.#l2Domain(start);
+    const nodes = new Set(
+      [...domain].map((p) => (p.device.bridge?.owns(p) ? p.device.id : `${p.device.id}/${p.name}`)),
+    );
+    const links = new Set([...domain].flatMap((p) => (p.link ? [p.link] : [])));
+    return links.size >= nodes.size;
   }
 
   /**

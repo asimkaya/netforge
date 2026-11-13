@@ -15,6 +15,7 @@ import type { Network } from './network.ts';
 import { hasCarrier, type Port } from './port.ts';
 import { cat, echo, ls, mkdir, parseLine, pwd, rm, touch } from './shell-files.ts';
 import { conntrack, nft } from './shell-firewall.ts';
+import { pathCost } from './stp.ts';
 import {
   curl,
   dhclientCommand,
@@ -72,6 +73,9 @@ const HELP = [
   '  traceroute [-m MAX_TTL] ADDR       show the routers on the way to ADDR',
   '  bridge fdb [show]                  show learned MAC addresses (switches)',
   '  bridge vlan [show]                 show the VLANs of each port (switches)',
+  '  bridge link [show]                 show the Spanning Tree state of ports (switches)',
+  '  ip link set br0 type bridge stp_state 1 [priority N]   turn on Spanning Tree',
+  '  ip -d link show br0                show bridge settings, root bridge and root port',
   '  bridge vlan add|del dev IF vid VID [pvid] [untagged]   set port VLANs',
   '  dhclient [-r] IF                   get (or release) an address with DHCP',
   '  dnsmasq --dhcp-range=START,END ... start a DHCP/DNS server (see dnsmasq --help)',
@@ -139,11 +143,20 @@ function listed(device: Device, name: string | undefined, io: ShellIO): Port[] {
   return port ? [port] : [];
 }
 
-function bridgeLines(device: Device, index: number): string[] {
-  return [
+function bridgeLines(device: Device, index: number, details = false): string[] {
+  const lines = [
     `${index + 1}: br0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 state UP`,
     `    link/ether ${device.ports[0]?.mac ?? ''} brd ff:ff:ff:ff:ff:ff`,
   ];
+  const br = device.bridge;
+  if (details && br) {
+    const s = br.stp;
+    const rootPort = s.rootPort ? br.ports.indexOf(s.rootPort) + 1 : 0;
+    lines.push(
+      `    bridge forward_delay 1500 hello_time 200 max_age 2000 ageing_time 30000 stp_state ${s.enabled ? 1 : 0} priority ${s.priority} vlan_filtering ${br.vlanFiltering ? 1 : 0} bridge_id ${s.bridgeId} root_id ${s.enabled ? s.rootId : s.bridgeId} root_port ${rootPort} root_path_cost ${s.rootCost}`,
+    );
+  }
+  return lines;
 }
 
 /** Reads `key VALUE` pairs from command arguments. */
@@ -159,17 +172,38 @@ function vlanId(text: string): number | null {
 }
 
 /** `ip link set br0 type bridge vlan_filtering 0|1`. */
-function setBridge(device: Device, args: string[], io: ShellIO): void {
-  const value = option(args, 'vlan_filtering');
-  if (!device.bridge) {
+/** `ip link set br0 type bridge [vlan_filtering 0|1] [stp_state 0|1] [priority N]`. */
+function setBridge(net: Network, device: Device, args: string[], io: ShellIO): void {
+  const br = device.bridge;
+  if (!br) {
     io.out('Cannot find device "br0"');
     return;
   }
-  if (args[0] !== 'bridge' || (value !== '0' && value !== '1')) {
-    io.out('Usage: ip link set br0 type bridge vlan_filtering 0|1');
+  const vlan = option(args, 'vlan_filtering');
+  const stp = option(args, 'stp_state');
+  const priority = option(args, 'priority');
+  const flag = (v: string | undefined) => v === undefined || v === '0' || v === '1';
+  const prio = priority === undefined ? null : /^\d+$/.test(priority) ? Number(priority) : -1;
+  const known = new Set(['bridge', 'vlan_filtering', 'stp_state', 'priority', vlan, stp, priority]);
+  if (
+    args[0] !== 'bridge' ||
+    args.some((a) => !known.has(a)) ||
+    (vlan === undefined && stp === undefined && priority === undefined) ||
+    !flag(vlan) ||
+    !flag(stp) ||
+    (prio !== null && !(prio >= 0 && prio <= 65535))
+  ) {
+    io.out('Usage: ip link set br0 type bridge [vlan_filtering 0|1] [stp_state 0|1] [priority N]');
     return;
   }
-  device.bridge.setVlanFiltering(value === '1');
+  if (stp === '0' && br.stp.enabled && net.hasL2Loop(device)) {
+    // A simulator guard: Linux would let the frames circle forever.
+    io.out('Error: br0 is part of a switching loop; turning STP off would flood the network.');
+    return;
+  }
+  if (vlan !== undefined) br.setVlanFiltering(vlan === '1');
+  if (prio !== null) br.stp.setPriority(prio);
+  if (stp !== undefined) br.stp.setEnabled(stp === '1');
 }
 
 /** `ip link add link IF name NAME type vlan id VID`. */
@@ -192,13 +226,19 @@ function addLink(device: Device, args: string[], io: ShellIO): void {
   if (error) io.out(error);
 }
 
-function ipLink(net: Network, device: Device, args: string[], io: ShellIO): undefined {
+function ipLink(
+  net: Network,
+  device: Device,
+  args: string[],
+  io: ShellIO,
+  details = false,
+): undefined {
   const [verb, ...rest] = args;
   if (verb === undefined || matches(verb, 'show') || matches(verb, 'list')) {
     const name = devArg(rest);
     const all = device.interfaces();
     if (name === 'br0' && device.bridge) {
-      bridgeLines(device, all.length).forEach(io.out);
+      bridgeLines(device, all.length, details).forEach(io.out);
       return;
     }
     listed(device, name, io).forEach((p) => linkLines(device, p, all.indexOf(p)).forEach(io.out));
@@ -210,7 +250,7 @@ function ipLink(net: Network, device: Device, args: string[], io: ShellIO): unde
     const name = rest[at];
     const state = rest[at + 1];
     if (name === 'br0' && state === 'type') {
-      setBridge(device, rest.slice(at + 2), io);
+      setBridge(net, device, rest.slice(at + 2), io);
       return;
     }
     const port = findPort(device, name, io);
@@ -407,7 +447,10 @@ function ipRoute(_net: Network, device: Device, args: string[], io: ShellIO): un
   if (error) io.out(error);
 }
 
-const ip: Command = (net, device, args, io) => {
+const ip: Command = (net, device, allArgs, io) => {
+  // `ip -d ...` shows details (bridge settings for `ip -d link show br0`).
+  const details = allArgs[0] === '-d' || allArgs[0] === '-details';
+  const args = details ? allArgs.slice(1) : allArgs;
   const [object, ...rest] = args;
   if (object === undefined || object === 'help') {
     io.out('Usage: ip OBJECT { COMMAND | help }');
@@ -415,7 +458,7 @@ const ip: Command = (net, device, args, io) => {
     return;
   }
   if (matches(object, 'address')) return ipAddr(net, device, rest, io);
-  if (matches(object, 'link')) return ipLink(net, device, rest, io);
+  if (matches(object, 'link')) return ipLink(net, device, rest, io, details);
   if (matches(object, 'neighbour') || matches(object, 'neighbor')) {
     return ipNeigh(net, device, rest, io);
   }
@@ -471,15 +514,38 @@ function bridgeVlan(device: Device, args: string[], io: ShellIO): void {
   }
 }
 
+/** `bridge link`: each bridge port with its Spanning Tree state and path cost. */
+function bridgeLink(device: Device, io: ShellIO): void {
+  const br = device.bridge;
+  if (!br) return;
+  br.ports.forEach((port, i) => {
+    const carrier = hasCarrier(port);
+    const flags = [
+      'BROADCAST',
+      'MULTICAST',
+      ...(port.adminUp ? ['UP'] : []),
+      ...(carrier ? ['LOWER_UP'] : []),
+    ];
+    const noCarrier = port.adminUp && !carrier ? 'NO-CARRIER,' : '';
+    io.out(
+      `${i + 1}: ${port.name}: <${noCarrier}${flags.join(',')}> mtu 1500 master br0 state ${br.stp.stateOf(port)} priority 32 cost ${pathCost(port)}`,
+    );
+  });
+}
+
 const bridge: Command = (_net, device, args, io) => {
   const [object, ...rest] = args;
   if (object !== undefined && matches(object, 'vlan')) {
     bridgeVlan(device, rest, io);
     return;
   }
+  if (object !== undefined && matches(object, 'link')) {
+    bridgeLink(device, io);
+    return;
+  }
   const br = device.bridge;
   if (!br || object !== 'fdb' || (rest[0] !== undefined && rest[0] !== 'show')) {
-    io.out('Usage: bridge fdb [show] | bridge vlan [show|add|del]');
+    io.out('Usage: bridge fdb [show] | bridge link [show] | bridge vlan [show|add|del]');
     return;
   }
   for (const e of br.fdb()) {
