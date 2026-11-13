@@ -220,7 +220,7 @@ export class Ip6Stack {
   send(
     dst: Ip6,
     payload: Icmp6Packet,
-    opts: { dev?: Port; hopLimit?: number } = {},
+    opts: { dev?: Port; hopLimit?: number; src?: Ip6 } = {},
   ): string | null {
     const hopLimit = opts.hopLimit ?? DEFAULT_HOP_LIMIT;
     if (this.ownsIp(dst)) {
@@ -245,7 +245,7 @@ export class Ip6Stack {
     }
     const route = opts.dev ? { port: opts.dev, via: null } : this.routeTo(dst);
     if (!route) return 'Network is unreachable';
-    const src = this.sourceOn(route.port, dst);
+    const src = opts.src ?? this.sourceOn(route.port, dst);
     this.#output(route.port, route.via, { kind: 'ipv6', src, dst, hopLimit, payload });
     return null;
   }
@@ -380,10 +380,11 @@ export class Ip6Stack {
         this.#autoconfigure(port, packet.src, srcMac, m.prefixes, m.lifetime);
         return;
       case 'echo-request':
+        // The reply comes from the address that was pinged (any of ours for multicast).
         this.send(
           packet.src,
           { ...m, type: 'echo-reply' },
-          isLinkLocal(packet.src) || isMulticast6(packet.dst) ? { dev: port } : {},
+          isLinkLocal(packet.src) || isMulticast6(packet.dst) ? { dev: port } : { src: packet.dst },
         );
         return;
       case 'echo-reply':

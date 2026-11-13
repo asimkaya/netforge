@@ -106,6 +106,9 @@ describe('IPv6', () => {
     );
     const pc2Addr = sh(net, pc2, 'ip -6 addr')[2]?.trim().split(' ')[1]?.split('/')[0] ?? '';
     expect(received(sh(net, pc1, `ping -c 1 ${pc2Addr}`))).toBe(true);
+    // With a second address, replies still come from the one that was pinged.
+    sh(net, pc2, 'ip addr add 2001:db8:2::20/64 dev eth0');
+    expect(sh(net, pc1, 'ping -c 1 2001:db8:2::20')[1]).toMatch(/^64 bytes from 2001:db8:2::20: /);
     sh(net, r1, 'killall radvd');
     wait(net, 10);
     // radvd says goodbye: hosts drop it as their default router.
