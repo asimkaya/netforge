@@ -3,6 +3,7 @@ import { SPECS, type SpecId } from '../engine/specs.ts';
 import { DRAG_MIME } from './Canvas.tsx';
 import { SpecArt } from './icons.tsx';
 import { addDevice, getLab } from './lab.ts';
+import { freeSpot } from './placement.ts';
 
 /** Device palette: drag onto the canvas, or click to add near the center. */
 export function Palette() {
@@ -13,13 +14,12 @@ export function Palette() {
     const center = pane
       ? flow.screenToFlowPosition({ x: pane.x + pane.width / 2, y: pane.y + pane.height / 2 })
       : { x: 0, y: 0 };
-    // Network gear goes on a top row and PCs on the row below, so cables don't cross devices.
-    const sameRow = (id: SpecId) => (id === 'pc') === (spec === 'pc');
-    const n = [...getLab().net.devices.values()].filter((d) => sameRow(d.spec.id)).length;
-    const at =
-      spec !== 'pc'
-        ? { x: center.x - 160 + n * 40, y: center.y - 190 + n * 40 }
-        : { x: center.x - 72 + ((n % 4) - 1.5) * 170, y: center.y + 20 + Math.floor(n / 4) * 130 };
+    const { layout, net } = getLab();
+    const placed = [...net.devices.values()].flatMap((d) => {
+      const at = layout[d.id];
+      return at ? [{ spec: d.spec.id, at }] : [];
+    });
+    const at = freeSpot(spec, center, placed);
     addDevice(spec, at);
   };
 
