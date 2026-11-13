@@ -306,8 +306,25 @@ export function interruptCommand(id: string): void {
   const s = sessions.get(id);
   if (!s?.process) return;
   s.lines.push('^C');
-  s.process.interrupt();
-  s.process = null;
+  if (s.process.signal) {
+    // Interactive programs (ssh) handle Ctrl+C themselves and keep running.
+    s.process.signal();
+  } else {
+    s.process.interrupt();
+    s.process = null;
+  }
+  emit();
+}
+
+/** Sends a typed line to the interactive program running in a terminal (like ssh). */
+export function sendInput(id: string, line: string): void {
+  const s = sessions.get(id);
+  const proc = s?.process;
+  if (!s || !proc?.input) return;
+  const secret = proc.secret?.() ?? false;
+  s.lines.push(`${proc.prompt?.() ?? ''}${secret ? '' : line}`);
+  if (!secret && line.trim()) s.history.push(line.trim());
+  proc.input(line);
   emit();
 }
 

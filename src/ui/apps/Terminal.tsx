@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { interruptCommand, prompt, runCommand, session, useLab } from '../lab.ts';
+import { interruptCommand, prompt, runCommand, sendInput, session, useLab } from '../lab.ts';
 
 /** A device's shell. Up/Down browse history, Ctrl+C stops a command. */
 export function Terminal({ deviceId }: { deviceId: string }) {
@@ -11,6 +11,10 @@ export function Terminal({ deviceId }: { deviceId: string }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const running = s.process !== null;
+  // An interactive program (ssh) waiting for a line shows its own prompt.
+  const programPrompt = s.process?.input ? (s.process.prompt?.() ?? null) : null;
+  const secret = s.process?.secret?.() ?? false;
+  const typing = !running || programPrompt !== null;
 
   // Follow new output. Scrolling the log itself (not scrollIntoView) leaves the page alone.
   useEffect(() => {
@@ -20,7 +24,7 @@ export function Terminal({ deviceId }: { deviceId: string }) {
 
   useEffect(() => {
     inputRef.current?.focus();
-  }, [deviceId, running]);
+  }, [deviceId, running, typing]);
 
   if (!device) return null;
 
@@ -30,9 +34,10 @@ export function Terminal({ deviceId }: { deviceId: string }) {
       interruptCommand(deviceId);
       return;
     }
-    if (running) return;
+    if (!typing) return;
     if (e.key === 'Enter') {
-      runCommand(deviceId, input);
+      if (running) sendInput(deviceId, input);
+      else runCommand(deviceId, input);
       setInput('');
       setHistoryIndex(null);
     } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
@@ -65,7 +70,7 @@ export function Terminal({ deviceId }: { deviceId: string }) {
         {s.lines.map((line, i) => (
           <div key={i}>{line || ' '}</div>
         ))}
-        {running ? (
+        {running && !typing ? (
           // Keeps keyboard focus inside the terminal so Ctrl+C reaches it.
           <input
             ref={inputRef}
@@ -75,15 +80,16 @@ export function Terminal({ deviceId }: { deviceId: string }) {
           />
         ) : (
           <label className="flex">
-            <span className="text-emerald-400">{prompt(device.name)}</span>
+            <span className="text-emerald-400">{programPrompt ?? prompt(device.name)}</span>
             <input
               ref={inputRef}
               value={input}
+              type={secret ? 'password' : 'text'}
               onChange={(e) => setInput(e.target.value)}
               className="min-w-0 flex-1 bg-transparent outline-none"
               spellCheck={false}
               autoComplete="off"
-              aria-label="Command"
+              aria-label={secret ? 'Password' : 'Command'}
             />
           </label>
         )}

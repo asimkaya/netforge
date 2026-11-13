@@ -148,6 +148,12 @@ function layers(frame: EthernetFrame): { name: string; fields: Field[] }[] {
     };
     if (!inner.data) return [ethernet, ip, tcp];
     const service = TCP_SERVICES[inner.dstPort] ?? TCP_SERVICES[inner.srcPort];
+    if (service === 'ssh' && !inner.data.startsWith('SSH-')) {
+      const sealed: Field[] = [
+        ['Encrypted packet', `${inner.data.length} bytes, unreadable without the keys`],
+      ];
+      return [ethernet, ip, tcp, { name: 'SSH Protocol', fields: sealed }];
+    }
     const lines = inner.data.split(/\r?\n/).slice(0, 12);
     return [
       ethernet,

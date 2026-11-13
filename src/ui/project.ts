@@ -111,7 +111,7 @@ function readIpSettings(value: unknown, what: string) {
 function readServices(value: unknown, what: string) {
   const services = obj(value, `${what} services`);
   const list = (
-    key: 'dnsmasq' | 'httpd' | 'postfix' | 'dovecot' | 'hostapd' | 'bird' | 'radvd',
+    key: 'dnsmasq' | 'httpd' | 'postfix' | 'dovecot' | 'hostapd' | 'bird' | 'radvd' | 'sshd',
     pattern: RegExp,
   ) =>
     services[key] === undefined
@@ -129,6 +129,7 @@ function readServices(value: unknown, what: string) {
     ...list('hostapd', /^[\w./-]{1,240}$/),
     ...list('bird', /^[\w./-]{1,240}$/),
     ...list('radvd', /^[\w./-]{1,240}$/),
+    ...list('sshd', /^$/),
   };
 }
 
