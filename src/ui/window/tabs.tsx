@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import type { Device } from '../../engine/device.ts';
 import { PORT_TYPE_LABEL, hasCarrier, peerOf, type Port } from '../../engine/port.ts';
+import { Browser } from '../apps/Browser.tsx';
 import { IpConfig, PortForm } from '../apps/IpConfig.tsx';
-import { RoutingSection, Section, ServicesSection } from './network-sections.tsx';
+import { TextEditor } from '../apps/TextEditor.tsx';
+import { RoutingSection, Section, ServicesSection, WebServerSection } from './network-sections.tsx';
 import { Terminal } from '../apps/Terminal.tsx';
 import { cable, hasDesktop, removeDevice, setWindowView, useLab, type AppId } from '../lab.ts';
 
@@ -179,6 +181,7 @@ export function ConfigTab({ device }: { device: Device }) {
       )}
       <RoutingSection device={device} />
       <ServicesSection device={device} />
+      <WebServerSection device={device} />
       <button
         type="button"
         onClick={() => removeDevice(device.id)}
@@ -193,7 +196,22 @@ export function ConfigTab({ device }: { device: Device }) {
 const APPS: { id: AppId; label: string; icon: string; hint: string }[] = [
   { id: 'terminal', label: 'Terminal', icon: '>_', hint: 'Linux shell: ip, ping, …' },
   { id: 'ipconfig', label: 'IP Configuration', icon: '⚙', hint: 'Set addresses without commands' },
+  { id: 'browser', label: 'Web Browser', icon: '◎', hint: 'Open web pages over HTTP' },
+  { id: 'editor', label: 'Text Editor', icon: '✎', hint: 'Edit files, like web pages' },
 ];
+
+function AppView({ device, app }: { device: Device; app: AppId }) {
+  switch (app) {
+    case 'terminal':
+      return <Terminal deviceId={device.id} />;
+    case 'ipconfig':
+      return <IpConfig device={device} />;
+    case 'browser':
+      return <Browser device={device} />;
+    case 'editor':
+      return <TextEditor device={device} />;
+  }
+}
 
 /** The PC's desktop: an app grid, or the open app with a way back. */
 export function DesktopTab({ device, app }: { device: Device; app: AppId | null }) {
@@ -212,7 +230,7 @@ export function DesktopTab({ device, app }: { device: Device; app: AppId | null 
           <span className="font-semibold">{label}</span>
         </div>
         <div className="min-h-0 flex-1 overflow-auto">
-          {app === 'terminal' ? <Terminal deviceId={device.id} /> : <IpConfig device={device} />}
+          <AppView device={device} app={app} />
         </div>
       </div>
     );

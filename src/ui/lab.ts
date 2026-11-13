@@ -19,7 +19,7 @@ export interface TerminalSession {
 }
 
 export type WindowTab = 'physical' | 'config' | 'desktop' | 'cli';
-export type AppId = 'terminal' | 'ipconfig';
+export type AppId = 'terminal' | 'ipconfig' | 'browser' | 'editor';
 
 /** A device window floating over the canvas. */
 export interface DeviceWindow {

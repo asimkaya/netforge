@@ -59,7 +59,7 @@ export async function run(page: Page, device: string, command: string) {
   return w;
 }
 
-export async function add(page: Page, label: 'PC' | 'Switch' | 'Router', times = 1) {
+export async function add(page: Page, label: 'PC' | 'Server' | 'Switch' | 'Router', times = 1) {
   for (let i = 0; i < times; i++) {
     await page.getByRole('button', { name: new RegExp(`Add ${label}`) }).click();
   }

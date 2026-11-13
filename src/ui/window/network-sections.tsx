@@ -254,3 +254,46 @@ export function ServicesSection({ device }: { device: Device }) {
     </Section>
   );
 }
+
+/** Starts and stops httpd, the web server that serves the device's files. */
+export function WebServerSection({ device }: { device: Device }) {
+  const [error, setError] = useState<string | null>(null);
+  if (!device.fs) return null;
+  const server = device.httpd;
+  return (
+    <Section title="Web server (httpd)">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        {server ? (
+          <>
+            <span>
+              Serving <code className="font-mono">{server.config.home}</code> on port{' '}
+              {server.config.port}.
+            </span>
+            <button type="button" onClick={() => device.stopHttpd()} className={SECONDARY}>
+              Stop web server
+            </button>
+          </>
+        ) : (
+          <>
+            <span className="text-(--nf-muted)">Stopped.</span>
+            <button
+              type="button"
+              onClick={() => setError(device.startHttpd([]))}
+              className={PRIMARY}
+            >
+              Start web server
+            </button>
+          </>
+        )}
+        <code className="text-(--nf-muted)">
+          {server ? 'killall httpd' : 'httpd -p 80 -h /var/www/html'}
+        </code>
+      </div>
+      {error && (
+        <p role="alert" className="text-xs text-red-400">
+          {error}
+        </p>
+      )}
+    </Section>
+  );
+}
