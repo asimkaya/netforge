@@ -44,7 +44,7 @@ comes next.
   `port.ts` (typed ports and cables), `bridge.ts` (L2 switching), `ip.ts` (IPv4, ARP,
   routing, forwarding, ICMP errors, UDP sockets), `dnsmasq.ts` (DHCP and DNS server),
   `dhcp.ts` (dhclient), `dns.ts` (resolver), `tcp.ts` (TCP), `http.ts` (httpd, client),
-  `mail.ts` (SMTP, POP3), `fs.ts` (device files), `shell.ts`, `shell-files.ts` and
+  `mail.ts` (SMTP, POP3), `wifi.ts` (hostapd, association, range), `fs.ts` (device files), `shell.ts`, `shell-files.ts` and
   `shell-services.ts` (Linux-style commands). Specs may list `setup` commands that a new
   device runs once (the internet cloud configures itself this way).
 - Services and apps talk through the IP stack's sockets (`openUdp`, `openIcmp`), never by
@@ -64,6 +64,8 @@ comes next.
 - `history.ts` keeps undo snapshots of the lab file format; `share.ts` packs a lab into a
   `#lab=` link; `placement.ts` finds a free spot for new devices. Apps call the same engine methods as the shell, so the GUI and the
   CLI never disagree.
+- `net.locate` is set by the UI store to device centers on the canvas; Wi-Fi range uses it,
+  and moving a device re-checks range.
 - Realtime mode advances the scheduler every animation frame (`clock.ts`); simulation
   mode only advances it when the user steps.
 
