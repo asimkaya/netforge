@@ -110,11 +110,25 @@ export function useLab(): LabState {
 }
 
 /** Replaces the whole lab (new task, import, restore from storage). */
-export function loadLab(project: Project): void {
-  for (const session of sessions.values()) session.process?.interrupt();
-  sessions.clear();
+export function loadLab(project: Project, options: { keepWindows?: boolean } = {}): void {
+  for (const session of sessions.values()) {
+    session.process?.interrupt();
+    session.process = null;
+  }
+  // Undo/redo keep open windows and terminal history for devices that still exist.
+  if (!options.keepWindows) sessions.clear();
+  const has = (id: string | null) => id !== null && project.net.devices.has(id);
   unsubscribeNet();
-  state = { ...freshState(project), mode: state.mode };
+  state = {
+    ...freshState(project),
+    mode: state.mode,
+    ...(options.keepWindows
+      ? {
+          windows: state.windows.filter((w) => has(w.device)),
+          selected: has(state.selected) ? state.selected : null,
+        }
+      : {}),
+  };
   unsubscribeNet = project.net.subscribe(emit);
   emit();
 }
