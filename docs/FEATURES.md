@@ -7,11 +7,13 @@ Legend: ✅ supported · 🟡 partial · ❌ not yet
 
 ## Devices
 
-| Device | Status | Notes                                                                                                                                  |
-| ------ | ------ | -------------------------------------------------------------------------------------------------------------------------------------- |
-| PC     | ✅     | One Ethernet port (`eth0`). No loopback interface. Can forward packets if `ip_forward` is turned on.                                   |
-| Switch | ✅     | 8 Ethernet ports (`eth0`–`eth7`) and 2 SFP fiber uplinks (`eth8`, `eth9`); unmanaged learning bridge. No IP address, no VLANs, no STP. |
-| Router | ✅     | Linux router with 4 Ethernet ports (`eth0`–`eth3`), `ip_forward` on. CLI tab instead of a desktop.                                     |
+| Device   | Status | Notes                                                                                                                                                                               |
+| -------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PC       | ✅     | One Ethernet port (`eth0`). No loopback interface. Can forward packets if `ip_forward` is turned on.                                                                                |
+| Switch   | ✅     | 8 Ethernet ports (`eth0`–`eth7`) and 2 SFP fiber uplinks (`eth8`, `eth9`); unmanaged learning bridge. No IP address, no VLANs, no STP.                                              |
+| Server   | ✅     | One Ethernet port, desktop apps, a sample site in `/var/www/html`; runs httpd, postfix, dovecot, dnsmasq.                                                                           |
+| Internet | ✅     | Four provider networks (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`, `100.64.0.0/24`) with DHCP and DNS; hosts `www.example.com` at `198.18.0.10`. No real Internet access. |
+| Router   | ✅     | Linux router with 4 Ethernet ports (`eth0`–`eth3`), `ip_forward` on. CLI tab instead of a desktop.                                                                                  |
 
 ## Network behavior
 
@@ -23,6 +25,10 @@ Legend: ✅ supported · 🟡 partial · ❌ not yet
 | ARP               | ✅     | 3 probes, 1 s apart, then `FAILED`. Entries stay `REACHABLE` forever (no `STALE`/aging).                                                                                                                                                                                                        |
 | IPv4 routing      | ✅     | Connected and static routes, longest prefix match, default gateway. Routers look the route up, then check and decrement TTL, like Linux. No policy routing, no metrics.                                                                                                                         |
 | ICMP              | ✅     | Echo, time exceeded, destination unreachable (net, host after failed ARP, port). Errors about the sender's own packets are reported locally, like Linux. Broadcast pings are ignored.                                                                                                           |
+| TCP               | 🟡     | Three-way handshake, data with seq/ack, FIN close, RST for closed ports, SYN retried 3 times (1, 2, 4 s). One segment per application message; no data retransmission, windowing or congestion control.                                                                                         |
+| HTTP              | ✅     | HTTP/1.1 GET/HEAD, `Connection: close`; 200, 400, 404, 501.                                                                                                                                                                                                                                     |
+| Email             | 🟡     | SMTP delivery to local mailboxes (`/var/mail/USER`, mbox) and POP3 retrieval; dot-stuffing. No relaying between servers, no MX records, any POP3 password accepted.                                                                                                                             |
+| Files             | ✅     | Per-device files (64 KB per file, 512 KB in all), saved with the lab.                                                                                                                                                                                                                           |
 | UDP               | ✅     | Sockets with ephemeral ports from 32768; closed ports answer with port unreachable.                                                                                                                                                                                                             |
 | DHCP              | ✅     | dnsmasq server and dhclient: Discover/Offer/Request/Ack, Nak, Release. The server answers on the interface whose subnet contains the range, and gives itself as gateway and DNS server unless options say otherwise. No relays; leases are not renewed or saved, and no address conflict check. |
 | DNS               | ✅     | dnsmasq answers its host records and its DHCP clients' hostnames; A records only, no upstream servers, no caching, no `/etc/hosts`.                                                                                                                                                             |
@@ -63,7 +69,7 @@ Legend: ✅ supported · 🟡 partial · ❌ not yet
 | Simulation mode                            | ✅     | Step/Play frame by frame, event list, layer-by-layer frame details (Ethernet, ARP, IPv4, ICMP, UDP, DHCP, DNS), animation.                                                                             |
 | Guided tasks                               | ✅     | "Two computers, one cable", "Meet the switch", "Two networks, one router", "Automatic addresses with DHCP".                                                                                            |
 | Autosave (IndexedDB)                       | ✅     | Saves 500 ms after changes. Running commands, ARP tables, MAC tables and DHCP leases are not saved; running dnsmasq is.                                                                                |
-| Export / import lab file                   | ✅     | Versioned JSON (`netforge-lab`, version 3), validated on import; versions 1 and 2 are upgraded.                                                                                                        |
+| Export / import lab file                   | ✅     | Versioned JSON (`netforge-lab`, version 4), validated on import; older versions are upgraded.                                                                                                          |
 | Undo / redo                                | ✅     | Ctrl+Z, Ctrl+Y and buttons. Changes within 0.4 s are one step. Covers devices, cables, settings and layout, not task progress; undoing rebuilds the network, so ARP/MAC tables and leases start empty. |
 | Share by link                              | ✅     | `#lab=` URL with the lab compressed in the browser; validated like an import, 2 MB limit, asks before replacing a lab. Long labs make long links.                                                      |
 | Light theme                                | ❌     | Tokens exist, no toggle yet.                                                                                                                                                                           |
