@@ -2,6 +2,7 @@ import { formatIp, parseIp, type Ip } from './addr.ts';
 import { dhclient, dhcpRelease } from './dhcp.ts';
 import { isHostname, resolve } from './dns.ts';
 import { httpGet } from './http.ts';
+import { describeFrame } from './packet.ts';
 import { TCP_ERROR_TEXT } from './tcp.ts';
 import type { Command } from './shell.ts';
 
@@ -380,4 +381,71 @@ export const postfix: Command = (_net, device, args, io) => {
 export const dovecot: Command = (_net, device, _args, io) => {
   const error = device.startMail('dovecot');
   if (error) io.out(error);
+};
+
+/** Virtual time as tcpdump prints it: HH:MM:SS.microseconds. */
+function stamp(ms: number): string {
+  const us = Math.round(ms * 1000);
+  const s = Math.floor(us / 1_000_000);
+  const hh = String(Math.floor(s / 3600)).padStart(2, '0');
+  const mm = String(Math.floor(s / 60) % 60).padStart(2, '0');
+  const ss = String(s % 60).padStart(2, '0');
+  return `${hh}:${mm}:${ss}.${String(us % 1_000_000).padStart(6, '0')}`;
+}
+
+/** `tcpdump [-i IF] [-c COUNT] [-n]`: prints frames this device sends and receives. */
+export const tcpdump: Command = (net, device, args, io) => {
+  let iface: string | undefined;
+  let count = Infinity;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '-i') iface = args[++i];
+    else if (arg === '-c') {
+      count = Number(args[++i]);
+      if (!Number.isInteger(count) || count < 1) {
+        io.out(`tcpdump: invalid packet count ${args[i] ?? ''}`);
+        return;
+      }
+    } else if (arg !== '-n' && arg !== '-nn' && arg !== '-v') {
+      io.out(`tcpdump: unsupported option or filter '${arg ?? ''}'`);
+      return;
+    }
+  }
+  if (iface !== undefined && iface !== 'any' && !device.port(iface)) {
+    io.out(`tcpdump: ${iface}: No such device exists`);
+    return;
+  }
+  const name = iface ?? device.ports[0]?.name ?? 'any';
+  io.out('tcpdump: verbose output suppressed, use -v[v]... for full protocol decode');
+  io.out(`listening on ${name}, link-type EN10MB (Ethernet), snapshot length 262144 bytes`);
+  let last = net.trace.at(-1)?.seq ?? 0;
+  let captured = 0;
+  let done = false;
+  const matches = (end: { device: string; port: string }) =>
+    end.device === device.id && (iface === undefined || iface === 'any' || end.port === iface);
+  const finish = () => {
+    if (done) return;
+    done = true;
+    unsubscribe();
+    io.out('');
+    io.out(`${captured} packet${captured === 1 ? '' : 's'} captured`);
+    io.out(`${captured} packet${captured === 1 ? '' : 's'} received by filter`);
+    io.out('0 packets dropped by kernel');
+    io.exit();
+  };
+  const unsubscribe = net.subscribe(() => {
+    if (done) return;
+    for (const entry of net.trace) {
+      if (entry.seq <= last) continue;
+      last = entry.seq;
+      if (!matches(entry.from) && !matches(entry.to)) continue;
+      captured++;
+      io.out(`${stamp(entry.time)} ${describeFrame(entry.frame)}`);
+      if (captured >= count) {
+        finish();
+        return;
+      }
+    }
+  });
+  return { interrupt: finish };
 };

@@ -425,7 +425,9 @@ export class IpStack implements TcpHost {
     // Never answer an ICMP error with another one, nor packets without a real sender.
     if (p.kind === 'icmp' && p.type !== 'echo-request' && p.type !== 'echo-reply') return;
     if (original.src === 0 || original.src === LIMITED_BROADCAST) return;
-    this.#send(original.src, error);
+    // Errors about packets sent to us come from the address they were sent to, like Linux.
+    const src = this.ownsIp(original.dst) ? original.dst : undefined;
+    this.#send(original.src, error, DEFAULT_TTL, src);
   }
 
   /** Routes an error about one of our packets to the socket that sent it. */

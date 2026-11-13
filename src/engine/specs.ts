@@ -1,6 +1,6 @@
 import type { PortType } from './port.ts';
 
-export type SpecId = 'pc' | 'server' | 'switch' | 'router';
+export type SpecId = 'pc' | 'server' | 'switch' | 'router' | 'internet';
 
 /**
  * What a device is made of. Adding a device type means adding a spec here (and its
@@ -21,6 +21,8 @@ export interface DeviceSpec {
   forwarding: boolean;
   /** Files a new device starts with. */
   files?: Record<string, string>;
+  /** Shell commands a new device runs once, e.g. to come pre-configured. */
+  setup?: string[];
 }
 
 function ports(type: PortType, from: number, count: number) {
@@ -37,6 +39,21 @@ const SAMPLE_PAGE = `<!doctype html>
   </body>
 </html>
 `;
+
+const INTERNET_PAGE = `<!doctype html>
+<html>
+  <head><title>Example site</title></head>
+  <body>
+    <h1>Hello from the Internet</h1>
+    <p>You reached www.example.com, a site inside NetForge's simulated Internet.</p>
+    <p>Your request travelled through every router between you and this cloud.</p>
+  </body>
+</html>
+`;
+
+/** The cloud's access networks (documentation ranges) and its website address. */
+const ISP_NETS = ['192.0.2', '198.51.100', '203.0.113', '100.64.0'];
+const SITE = '198.18.0.10';
 
 export const SPECS: Record<SpecId, DeviceSpec> = {
   pc: {
@@ -81,6 +98,29 @@ export const SPECS: Record<SpecId, DeviceSpec> = {
     bridge: false,
     ip: true,
     forwarding: true,
+  },
+  internet: {
+    id: 'internet',
+    label: 'Internet',
+    description:
+      'The Internet as one box: each port is a provider network with DHCP, DNS and a sample website',
+    namePrefix: 'internet',
+    ports: ports('ethernet', 0, 4),
+    bridge: false,
+    ip: true,
+    forwarding: true,
+    files: { '/var/www/html/index.html': INTERNET_PAGE },
+    setup: [
+      ...ISP_NETS.map((net, i) => `ip addr add ${net}.1/24 dev eth${i}`),
+      `ip addr add ${SITE}/32 dev eth0`,
+      [
+        'dnsmasq',
+        ...ISP_NETS.map((net) => `--dhcp-range=${net}.100,${net}.199,12h`),
+        `--address=/www.example.com/${SITE}`,
+        `--address=/example.com/${SITE}`,
+      ].join(' '),
+      'httpd',
+    ],
   },
 };
 

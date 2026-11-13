@@ -158,7 +158,8 @@ function deviceName(net: Network, id: string): string {
   return net.devices.get(id)?.name ?? '(removed)';
 }
 
-function Details({ entry }: { entry: TraceEntry }) {
+/** A frame's headers, layer by layer. Also used by the Packet Capture app. */
+export function Details({ entry }: { entry: TraceEntry }) {
   return (
     <div className="space-y-2 text-xs">
       {layers(entry.frame).map((layer) => (

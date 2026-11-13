@@ -14,6 +14,7 @@ describe('freeSpot', () => {
       server: [180, 120],
       switch: [340, 100],
       router: [220, 100],
+      internet: [220, 100],
     } as const;
     for (const [i, a] of placed.entries()) {
       for (const b of placed.slice(i + 1)) {

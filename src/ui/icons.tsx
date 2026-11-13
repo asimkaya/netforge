@@ -66,9 +66,24 @@ export function ServerArt({ className }: { className?: string | undefined }) {
   );
 }
 
+export function CloudArt({ className }: { className?: string | undefined }) {
+  return (
+    <svg viewBox="0 0 48 40" className={className} aria-hidden>
+      <path
+        d="M14 30h22a8 8 0 0 0 0-16 11 11 0 0 0-21-2 8 8 0 0 0-1 18z"
+        fill="#1e293b"
+        stroke="#38bdf8"
+        strokeWidth="1.5"
+      />
+      <path d="M18 22h12M24 16v12" stroke="#38bdf8" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function SpecArt({ spec, className }: { spec: SpecId; className?: string | undefined }) {
   if (spec === 'pc') return <PcArt className={className} />;
   if (spec === 'router') return <RouterArt className={className} />;
   if (spec === 'server') return <ServerArt className={className} />;
+  if (spec === 'internet') return <CloudArt className={className} />;
   return <SwitchArt className={className} />;
 }

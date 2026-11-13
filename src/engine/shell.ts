@@ -26,6 +26,7 @@ import {
   postfix,
   resolvectl,
   ss,
+  tcpdump,
 } from './shell-services.ts';
 
 export interface ShellIO {
@@ -74,6 +75,7 @@ const HELP = [
   '  curl [-i|-I] URL                   fetch a web page over HTTP',
   '  postfix start|stop, dovecot        start the mail servers (SMTP 25, POP3 110)',
   '  nc -z HOST PORT                    check whether a TCP port is open',
+  '  tcpdump [-i IF] [-c COUNT]         show the packets this device sends and receives',
   '  ss -t                              list TCP sockets',
   '  hostname [NAME]                    show or set the device name',
   '  ls, cat, echo TEXT > FILE, rm, touch, mkdir, pwd   work with files',
@@ -663,6 +665,7 @@ const COMMANDS: Record<string, Command> = {
   postfix,
   resolvectl,
   ss,
+  tcpdump,
   killall,
   ping,
   traceroute,

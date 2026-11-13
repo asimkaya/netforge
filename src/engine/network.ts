@@ -3,6 +3,7 @@ import { Device, type Fabric } from './device.ts';
 import type { EthernetFrame } from './packet.ts';
 import { MEDIUM_OF, cableError, hasCarrier, peerOf, type Link, type Port } from './port.ts';
 import { Scheduler } from './scheduler.ts';
+import { run } from './shell.ts';
 import { SPECS, type SpecId } from './specs.ts';
 
 /** One-way propagation delay of every cable, in virtual ms. */
@@ -73,6 +74,15 @@ export class Network implements Fabric {
       macs,
     );
     this.devices.set(device.id, device);
+    // Ready-made devices (like the internet cloud) configure themselves with shell commands.
+    for (const line of spec.setup ?? []) {
+      run(this, device, line, {
+        out: (text) => {
+          if (/error|fatal|bad|cannot/i.test(text)) throw new Error(`${spec.id} setup: ${text}`);
+        },
+        exit: () => {},
+      });
+    }
     this.changed();
     return device;
   }

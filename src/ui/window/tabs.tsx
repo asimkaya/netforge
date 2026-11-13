@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { Device } from '../../engine/device.ts';
 import { PORT_TYPE_LABEL, hasCarrier, peerOf, type Port } from '../../engine/port.ts';
 import { Browser } from '../apps/Browser.tsx';
+import { Capture } from '../apps/Capture.tsx';
 import { IpConfig, PortForm } from '../apps/IpConfig.tsx';
 import { Mail } from '../apps/Mail.tsx';
 import { TextEditor } from '../apps/TextEditor.tsx';
@@ -207,6 +208,12 @@ const APPS: { id: AppId; label: string; icon: string; hint: string }[] = [
   { id: 'browser', label: 'Web Browser', icon: '◎', hint: 'Open web pages over HTTP' },
   { id: 'editor', label: 'Text Editor', icon: '✎', hint: 'Edit files, like web pages' },
   { id: 'mail', label: 'Mail', icon: '✉', hint: 'Send and read email (SMTP, POP3)' },
+  {
+    id: 'capture',
+    label: 'Packet Capture',
+    icon: '≋',
+    hint: 'See every frame this device sends and receives',
+  },
 ];
 
 function AppView({ device, app }: { device: Device; app: AppId }) {
@@ -221,6 +228,8 @@ function AppView({ device, app }: { device: Device; app: AppId }) {
       return <TextEditor device={device} />;
     case 'mail':
       return <Mail device={device} />;
+    case 'capture':
+      return <Capture device={device} />;
   }
 }
 
