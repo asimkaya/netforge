@@ -40,7 +40,9 @@ comes next.
 - Runs on the main thread today. If large labs make the UI stutter, move it into a Web
   Worker behind the same narrow API.
 - Key files: `scheduler.ts` (virtual clock), `network.ts` (devices, cables, trace,
-  snapshots), `host.ts`, `switch.ts`, `shell.ts` (Linux-style commands).
+  snapshots), `specs.ts` (device catalog), `device.ts` (a device built from a spec),
+  `port.ts` (typed ports and cables), `bridge.ts` (L2 switching), `ip.ts` (IPv4, ARP,
+  ICMP), `shell.ts` (Linux-style commands). See [ADR 0006](adr/0006-device-specs-ports-and-apps.md).
 
 ### `src/ui/`: user interface
 

@@ -41,9 +41,24 @@ e2e/          Playwright tests (run against the production build)
 docs/         architecture, roadmap, features, ADRs
 ```
 
+## Adding a device type
+
+1. Add a `DeviceSpec` in `src/engine/specs.ts` (ports with types, `bridge`, `ip`).
+2. Draw its faceplate in `src/ui/DeviceNode.tsx` and a small icon in `src/ui/icons.tsx`;
+   every port must be a `Socket` (React Flow handle) so it can be cabled.
+3. If saved labs could contain something the new code reads differently, bump
+   `PROJECT_VERSION` in `src/ui/project.ts` and add a migration with a test.
+4. Engine tests for its behavior, an e2e test for cabling it, and a FEATURES.md row.
+
 ## Gotchas
 
 - TypeScript is pinned to 6.0.x because typescript-eslint does not support 7.x yet.
 - React Flow's dark background is overridden through `--xy-background-color` in
   `src/ui/index.css`; theme tokens are the `--nf-*` custom properties there.
+- Each device node always mounts a full-size "body" target handle (pointer events off
+  until a cable drag starts). React Flow only knows handles it measured, so a handle
+  mounted mid-drag is ignored.
+- Nodes are controlled: `Canvas.tsx` must feed React Flow's `measured` sizes back, or
+  nodes become unclickable after re-renders.
+- E2E tests share helpers in `e2e/helpers.ts` (`add`, `connect('pc1', 'sw1/eth3')`, `run`).
 - `docs/RAPOR*.md` are private, git-ignored planning notes (Turkish). Do not commit them.
