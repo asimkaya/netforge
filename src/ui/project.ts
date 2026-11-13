@@ -1,17 +1,20 @@
 import { macFromIndex } from '../engine/addr.ts';
 import { Network, type NetworkSnapshot } from '../engine/network.ts';
 import { isSpecId, type SpecId } from '../engine/specs.ts';
+import { SERVICES, checkError, type CustomCheck, type CustomTask } from '../tasks/custom.ts';
 import type { Point } from './lab.ts';
 
 export const PROJECT_FORMAT = 'netforge-lab';
 /** Bump on any incompatible change and add a migration for the previous version. */
-export const PROJECT_VERSION = 9;
+export const PROJECT_VERSION = 10;
 
 export interface TaskProgress {
   /** Id of the task being played, if any. */
   active: string | null;
   /** Number of completed steps per task id. */
   steps: Record<string, number>;
+  /** Tasks written in the task editor, saved and shared with the lab. */
+  custom?: CustomTask[];
 }
 
 export interface ProjectFile {
@@ -317,15 +320,93 @@ function readLayout(value: unknown): Record<string, Point> {
   return layout;
 }
 
+const TEXT = (max: number) => new RegExp(`^[^\\u0000-\\u0008]{0,${max}}$`);
+const DEVICE = /^([A-Za-z0-9][A-Za-z0-9-]{0,62})?$/;
+
+function readCheck(value: unknown, what: string): CustomCheck {
+  const c = obj(value, what);
+  const name = (v: unknown, field: string) => str(v, `${what} ${field}`, DEVICE);
+  let check: CustomCheck;
+  switch (c.kind) {
+    case 'ping':
+      check = {
+        kind: 'ping',
+        from: name(c.from, 'device'),
+        to: str(c.to, `${what} target`, /^[\w.:-]{0,63}$/),
+      };
+      break;
+    case 'address':
+      check = {
+        kind: 'address',
+        device: name(c.device, 'device'),
+        network: str(c.network, `${what} network`, CIDR),
+      };
+      break;
+    case 'cable':
+      check = { kind: 'cable', a: name(c.a, 'device'), b: name(c.b, 'device') };
+      break;
+    case 'service': {
+      const service = SERVICES.find((s) => s === c.service) ?? fail(`${what} service is invalid.`);
+      check = { kind: 'service', device: name(c.device, 'device'), service };
+      break;
+    }
+    case 'command':
+      check = {
+        kind: 'command',
+        device: name(c.device, 'device'),
+        text: str(c.text, `${what} text`, TEXT(200)),
+      };
+      break;
+    case 'devices':
+      check = {
+        kind: 'devices',
+        spec: isSpecId(c.spec) ? c.spec : fail(`${what} device type is invalid.`),
+        count: count(c.count, `${what} count`),
+      };
+      break;
+    default:
+      fail(`${what} kind is invalid.`);
+  }
+  const error = checkError(check);
+  if (error) fail(`${what}: ${error}`);
+  return check;
+}
+
+function readCustomTasks(value: unknown): CustomTask[] {
+  return arr(value, 'custom tasks').map((raw, i) => {
+    const what = `custom task #${i + 1}`;
+    const t = obj(raw, what);
+    const steps = arr(t.steps, `${what} steps`).map((rawStep, j) => {
+      const s = obj(rawStep, `${what} step #${j + 1}`);
+      return {
+        title: str(s.title, `${what} step title`, TEXT(200)),
+        detail: str(s.detail, `${what} step text`, TEXT(2000)),
+        ...(s.hint === undefined ? {} : { hint: str(s.hint, `${what} hint`, TEXT(2000)) }),
+        check: readCheck(s.check, `${what} step #${j + 1} check`),
+      };
+    });
+    if (steps.length === 0 || steps.length > 30) fail(`${what} needs 1 to 30 steps.`);
+    return {
+      id: str(t.id, `${what} id`, /^custom-[a-z0-9-]{1,40}$/),
+      title: str(t.title, `${what} title`, TEXT(200)),
+      summary: str(t.summary, `${what} summary`, TEXT(2000)),
+      steps,
+      done: str(t.done, `${what} done text`, TEXT(2000)),
+    };
+  });
+}
+
 function readTasks(value: unknown): TaskProgress {
   if (value === undefined) return emptyProgress();
   const t = obj(value, 'tasks');
-  const active = t.active === null ? null : str(t.active, 'active task', /^[a-z0-9-]{1,40}$/);
+  const active = t.active === null ? null : str(t.active, 'active task', /^[a-z0-9-]{1,48}$/);
   const steps: Record<string, number> = {};
   for (const [id, n] of Object.entries(obj(t.steps, 'task steps'))) {
-    steps[str(id, 'task id', /^[a-z0-9-]{1,40}$/)] = count(n, `progress of ${id}`);
+    steps[str(id, 'task id', /^[a-z0-9-]{1,48}$/)] = count(n, `progress of ${id}`);
   }
-  return { active, steps };
+  return t.custom === undefined
+    ? { active, steps }
+    : { active, steps, custom: readCustomTasks(t.custom) };
 }
 
 /**
@@ -349,6 +430,8 @@ const MIGRATIONS: Record<number, (file: Json) => Json> = {
   7: (file) => file,
   // v9 adds WireGuard interfaces (`wireguard`).
   8: (file) => file,
+  // v10 adds tasks written in the task editor (`tasks.custom`).
+  9: (file) => file,
   // v2: devices name a spec instead of a kind; switches gain two SFP uplinks (eth8, eth9);
   // per-kind name counters become per-prefix counters.
   1: (file) => {

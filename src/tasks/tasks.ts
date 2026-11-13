@@ -1,6 +1,7 @@
 import { formatIp, inSubnet, networkOf, type Cidr } from '../engine/addr.ts';
 import type { Device } from '../engine/device.ts';
 import type { Network } from '../engine/network.ts';
+import { compile, type CustomTask } from './custom.ts';
 import { peerOf, type Port } from '../engine/port.ts';
 
 export interface TaskContext {
@@ -726,8 +727,10 @@ export const TASKS: Task[] = [
   },
 ];
 
-export function findTask(id: string | null): Task | undefined {
-  return TASKS.find((t) => t.id === id);
+/** A built-in task, or one of the lab's own tasks (from the task editor). */
+export function findTask(id: string | null, custom: readonly CustomTask[] = []): Task | undefined {
+  const own = custom.find((t) => t.id === id);
+  return own ? compile(own) : TASKS.find((t) => t.id === id);
 }
 
 /**
