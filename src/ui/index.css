@@ -1,0 +1,40 @@
+@import 'tailwindcss';
+@import '@xyflow/react/dist/style.css';
+
+/* Dark is the default theme; light is opt-in via data-theme="light". */
+:root {
+  color-scheme: dark;
+  --nf-bg: #0b1120;
+  --nf-surface: #111a2e;
+  --nf-border: #1e293b;
+  --nf-text: #e2e8f0;
+  --nf-muted: #94a3b8;
+  --nf-accent: #38bdf8;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --nf-bg: #f8fafc;
+  --nf-surface: #ffffff;
+  --nf-border: #e2e8f0;
+  --nf-text: #0f172a;
+  --nf-muted: #475569;
+  --nf-accent: #0284c7;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--nf-bg);
+  color: var(--nf-text);
+  font-family: var(--font-sans);
+}
+
+.react-flow {
+  --xy-background-color: var(--nf-bg);
+}

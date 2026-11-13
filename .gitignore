@@ -30,3 +30,6 @@ Thumbs.db
 
 # Private notes (kept locally, not published)
 docs/RAPOR.md
+
+# Claude Code local settings
+.claude/settings.local.json
