@@ -52,14 +52,19 @@ export function startAutosave(): () => void {
   };
 }
 
-export function downloadLab(): void {
-  const blob = new Blob([serializeProject(getLab())], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
+/** Saves data as a file through the browser's download. */
+export function downloadFile(name: string, data: BlobPart, type: string): void {
+  const url = URL.createObjectURL(new Blob([data], { type }));
   const a = document.createElement('a');
   a.href = url;
-  a.download = `netforge-lab-${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = name;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+export function downloadLab(): void {
+  const name = `netforge-lab-${new Date().toISOString().slice(0, 10)}.json`;
+  downloadFile(name, serializeProject(getLab()), 'application/json');
 }
 
 /**

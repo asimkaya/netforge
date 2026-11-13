@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import type { Device } from '../../engine/device.ts';
 import { describeFrame, protocolOf, type Protocol } from '../../engine/packet.ts';
+import { pcapFile } from '../../engine/pcap.ts';
 import { useLab } from '../lab.ts';
+import { downloadFile } from '../storage.ts';
 import { Details } from '../SimPanel.tsx';
 import { PROTOCOL_COLORS } from '../theme.ts';
 
@@ -35,6 +37,21 @@ export function Capture({ device }: { device: Device }) {
         <span className="text-(--nf-muted)">
           {shown.length} of {mine.length} frames · same as <code>tcpdump</code>
         </span>
+        <button
+          type="button"
+          disabled={shown.length === 0}
+          onClick={() =>
+            downloadFile(
+              `${device.name}.pcap`,
+              pcapFile(shown) as Uint8Array<ArrayBuffer>,
+              'application/vnd.tcpdump.pcap',
+            )
+          }
+          title="Open it in Wireshark or with tcpdump -r"
+          className="ml-auto rounded border border-(--nf-border) px-2 hover:border-(--nf-accent) disabled:opacity-40"
+        >
+          Save as .pcap
+        </button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {shown.length === 0 ? (
