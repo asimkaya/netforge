@@ -6,7 +6,11 @@ import { PROTOCOL_COLORS } from './theme.ts';
 
 export type CableEdgeType = Edge<{ up: boolean; medium: Medium; packets: TraceEntry[] }, 'cable'>;
 
-const MEDIUM_COLOR: Record<Medium, string> = { copper: '#64748b', fiber: '#f59e0b' };
+const MEDIUM_COLOR: Record<Medium, string> = {
+  copper: '#64748b',
+  fiber: '#f59e0b',
+  wireless: '#38bdf8',
+};
 
 /** A straight cable from port to port, with packets animated along it. */
 export function CableEdge(props: EdgeProps<CableEdgeType>) {
@@ -25,7 +29,7 @@ export function CableEdge(props: EdgeProps<CableEdgeType>) {
         style={{
           stroke: selected ? 'var(--nf-accent)' : color,
           strokeWidth: selected ? 3.5 : 2.5,
-          strokeDasharray: up ? undefined : '6 4',
+          strokeDasharray: !up ? '6 4' : data?.medium === 'wireless' ? '2 6' : undefined,
         }}
       />
       {data?.packets.map((p) => (

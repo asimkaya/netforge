@@ -27,7 +27,13 @@ export interface NetworkSnapshot {
     name: string;
     ports: { name: string; mac: string; up: boolean; addrs?: string[] }[];
     /** Running services and their command-line arguments. */
-    services?: { dnsmasq?: string[]; httpd?: string[]; postfix?: string[]; dovecot?: string[] };
+    services?: {
+      dnsmasq?: string[];
+      httpd?: string[];
+      postfix?: string[];
+      dovecot?: string[];
+      hostapd?: string[];
+    };
     /** Files on the device (absolute path to text). */
     files?: Record<string, string>;
     /** IP settings beyond addresses; absent on devices without an IP stack. */
@@ -108,11 +114,28 @@ export class Network implements Fabric {
     return this.#attach(this.#nextId('l'), pa, pb);
   }
 
-  /** Free ports of `device` that could take a cable from `from`. */
+  /** Free ports of `device` that could take a cable from `from` (never Wi-Fi radios). */
   freePortsFor(device: Device, from?: Port): Port[] {
     return device.ports.filter(
-      (p) => !p.link && p !== from && (!from || MEDIUM_OF[p.type] === MEDIUM_OF[from.type]),
+      (p) =>
+        !p.link &&
+        p !== from &&
+        p.type !== 'wifi' &&
+        (!from || MEDIUM_OF[p.type] === MEDIUM_OF[from.type]),
     );
+  }
+
+  /**
+   * Where a device sits on the canvas, for Wi-Fi range. The UI provides it; without it every
+   * device counts as out of range.
+   */
+  locate: ((id: string) => { x: number; y: number } | null) | null = null;
+
+  /** Links a client's Wi-Fi radio to a free radio slot of an access point. */
+  associate(radio: Port, slot: Port): Link {
+    const error = cableError(radio, slot, true);
+    if (error) throw new Error(error);
+    return this.#attach(this.#nextId('l'), radio, slot);
   }
 
   disconnect(link: Link): void {
@@ -197,9 +220,10 @@ export class Network implements Fabric {
               },
             }
           : {}),
-        ...(d.dnsmasq || d.httpd || d.postfix || d.dovecot
+        ...(d.dnsmasq || d.httpd || d.postfix || d.dovecot || d.hostapd
           ? {
               services: {
+                ...(d.hostapd ? { hostapd: [...d.hostapd.args] } : {}),
                 ...(d.dnsmasq ? { dnsmasq: [...d.dnsmasq.args] } : {}),
                 ...(d.httpd ? { httpd: [...d.httpd.args] } : {}),
                 ...(d.postfix ? { postfix: [] } : {}),
@@ -278,6 +302,10 @@ export class Network implements Fabric {
         const error = device.startMail(kind);
         if (error) throw new Error(`${d.id}: ${error}`);
       }
+      if (d.services?.hostapd) {
+        const error = device.startHostapd(d.services.hostapd);
+        if (error) throw new Error(`${d.id}: ${error}`);
+      }
       if (d.services?.httpd) {
         const error = device.startHttpd(d.services.httpd);
         if (error) throw new Error(`${d.id}: ${error}`);
@@ -291,7 +319,8 @@ export class Network implements Fabric {
     for (const l of snapshot.links) {
       const pa = net.devices.get(l.a.device)?.port(l.a.port);
       const pb = net.devices.get(l.b.device)?.port(l.b.port);
-      if (!pa || !pb || cableError(pa, pb)) throw new Error(`Invalid link ${l.id}`);
+      const wireless = pa?.type === 'wifi' && pb?.type === 'wifi';
+      if (!pa || !pb || cableError(pa, pb, wireless)) throw new Error(`Invalid link ${l.id}`);
       net.#attach(l.id, pa, pb);
     }
     net.#counters = { ...snapshot.counters, names: { ...snapshot.counters.names }, trace: 0 };

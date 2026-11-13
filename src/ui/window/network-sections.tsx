@@ -1,7 +1,82 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { formatCidr, formatIp, networkOf, parseCidr, parseIp } from '../../engine/addr.ts';
 import type { Device } from '../../engine/device.ts';
+import { checkWireless } from '../../engine/wifi.ts';
 import { FIELD, PRIMARY, SECONDARY } from '../apps/IpConfig.tsx';
+import { useLab } from '../lab.ts';
+
+/** An access point's SSID and password: rewrites hostapd.conf and restarts hostapd. */
+export function WirelessSection({ device }: { device: Device }) {
+  const { net } = useLab();
+  const config = device.hostapd;
+  const [ssid, setSsid] = useState(config?.ssid ?? 'NetForge');
+  const [password, setPassword] = useState(config?.passphrase ?? '');
+  const [message, setMessage] = useState<string | null>(null);
+  const radios = device.bridge?.ports.filter((p) => p.type === 'wifi') ?? [];
+  if (radios.length === 0) return null;
+  const clients = radios.flatMap((p) => {
+    const link = p.link;
+    return link ? [(link.a.device === device ? link.b : link.a).device.name] : [];
+  });
+
+  const apply = (e: FormEvent) => {
+    e.preventDefault();
+    const lines = ['interface=wlan0', `ssid=${ssid}`];
+    if (password) lines.push('wpa=2', `wpa_passphrase=${password}`);
+    device.fs?.write('/etc/hostapd/hostapd.conf', `${lines.join('\n')}\n`);
+    device.stopHostapd();
+    checkWireless(net);
+    const error = device.startHostapd(['-B', '/etc/hostapd/hostapd.conf']);
+    setMessage(error ?? 'Saved. Clients must join again with the new settings.');
+  };
+
+  return (
+    <Section title="Wireless (hostapd)">
+      <form onSubmit={apply} className="flex flex-wrap items-end gap-2 text-xs">
+        <label className="flex flex-col gap-1">
+          Network name (SSID)
+          <input
+            value={ssid}
+            onChange={(e) => setSsid(e.target.value)}
+            className={`${FIELD} w-36`}
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          WPA2 password (empty: open network)
+          <input
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className={`${FIELD} w-36`}
+          />
+        </label>
+        <button type="submit" className={PRIMARY}>
+          Save and restart
+        </button>
+        {config && (
+          <button
+            type="button"
+            onClick={() => {
+              device.stopHostapd();
+              checkWireless(net);
+            }}
+            className={SECONDARY}
+          >
+            Turn radio off
+          </button>
+        )}
+      </form>
+      <p className="text-xs text-(--nf-muted)">
+        {config ? `Broadcasting ${config.ssid}` : 'Radio off'} · clients:{' '}
+        {clients.join(', ') || 'none'}
+      </p>
+      {message && (
+        <p role="status" className="text-xs text-(--nf-muted)">
+          {message}
+        </p>
+      )}
+    </Section>
+  );
+}
 
 export function Section({ title, children }: { title: string; children: ReactNode }) {
   return (

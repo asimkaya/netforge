@@ -5,7 +5,7 @@ import type { Point } from './lab.ts';
 
 export const PROJECT_FORMAT = 'netforge-lab';
 /** Bump on any incompatible change and add a migration for the previous version. */
-export const PROJECT_VERSION = 4;
+export const PROJECT_VERSION = 5;
 
 export interface TaskProgress {
   /** Id of the task being played, if any. */
@@ -108,7 +108,7 @@ function readIpSettings(value: unknown, what: string) {
 /** Service command lines; the engine's own option parser checks their content. */
 function readServices(value: unknown, what: string) {
   const services = obj(value, `${what} services`);
-  const list = (key: 'dnsmasq' | 'httpd' | 'postfix' | 'dovecot', pattern: RegExp) =>
+  const list = (key: 'dnsmasq' | 'httpd' | 'postfix' | 'dovecot' | 'hostapd', pattern: RegExp) =>
     services[key] === undefined
       ? {}
       : {
@@ -121,6 +121,7 @@ function readServices(value: unknown, what: string) {
     ...list('httpd', /^[\w./-]{1,240}$/),
     ...list('postfix', /^$/),
     ...list('dovecot', /^$/),
+    ...list('hostapd', /^[\w./-]{1,240}$/),
   };
 }
 
@@ -216,6 +217,8 @@ const MIGRATIONS: Record<number, (file: Json) => Json> = {
   2: (file) => file,
   // v4 adds optional per-device `files` and the httpd service.
   3: (file) => file,
+  // v5 adds laptops, phones, access points and the hostapd service.
+  4: (file) => file,
   // v2: devices name a spec instead of a kind; switches gain two SFP uplinks (eth8, eth9);
   // per-kind name counters become per-prefix counters.
   1: (file) => {

@@ -4,6 +4,7 @@ import { isHostname, resolve } from './dns.ts';
 import { httpGet } from './http.ts';
 import { describeFrame } from './packet.ts';
 import { TCP_ERROR_TEXT } from './tcp.ts';
+import { associatedAp, checkWireless, connectWifi, disconnectWifi, radioOf, scan } from './wifi.ts';
 import type { Command } from './shell.ts';
 
 /** `dnsmasq [OPTIONS]`: starts the DHCP and DNS server in the background. */
@@ -37,7 +38,11 @@ export const killall: Command = (_net, device, args, io) => {
         ? device.stopHttpd()
         : name === 'dovecot' || name === 'postfix'
           ? device.stopMail(name)
-          : false;
+          : name === 'hostapd'
+            ? device.stopHostapd()
+            : false;
+  // Clients of a stopped access point lose their wireless link.
+  if (stopped) checkWireless(_net);
   if (!stopped) io.out(`${name}: no process found`);
 };
 
@@ -448,4 +453,81 @@ export const tcpdump: Command = (net, device, args, io) => {
     }
   });
   return { interrupt: finish };
+};
+
+/** `hostapd [-B] CONFIG`: starts the access point described in the config file. */
+export const hostapd: Command = (_net, device, args, io) => {
+  const error = device.startHostapd(args);
+  if (error) io.out(error);
+  else io.out(`wlan0: AP-ENABLED`);
+};
+
+/** `nmcli dev wifi list|connect SSID [password PASS]`, `nmcli dev disconnect wlan0`, `nmcli dev status`. */
+export const nmcli: Command = (net, device, args, io) => {
+  const [object, verb, ...rest] = args;
+  const radio = radioOf(device);
+  if (object !== 'dev' && object !== 'device') {
+    io.out(
+      'Usage: nmcli dev { status | wifi list | wifi connect SSID [password PASS] | disconnect IF }',
+    );
+    return;
+  }
+  if (verb === 'status' || verb === undefined) {
+    io.out('DEVICE  TYPE      STATE         CONNECTION');
+    for (const port of device.ports) {
+      const wifi = port.type === 'wifi';
+      const peer = port.link
+        ? wifi
+          ? associatedAp(device)?.hostapd?.ssid
+          : 'Wired connection 1'
+        : undefined;
+      const state = peer ? 'connected' : wifi ? 'disconnected' : 'unavailable';
+      io.out(
+        `${port.name.padEnd(8)}${(wifi ? 'wifi' : 'ethernet').padEnd(10)}${state.padEnd(14)}${peer ?? '--'}`,
+      );
+    }
+    return;
+  }
+  if (verb === 'disconnect') {
+    if (!radio || rest[0] !== radio.name) {
+      io.out(`Error: Device '${rest[0] ?? ''}' not found.`);
+      return;
+    }
+    if (disconnectWifi(net, device)) io.out(`Device '${radio.name}' successfully disconnected.`);
+    else
+      io.out(
+        `Error: Device '${radio.name}' (${radio.name}) disconnecting failed: This device is not active`,
+      );
+    return;
+  }
+  if (verb !== 'wifi') {
+    io.out(`Error: argument '${verb}' not understood. Try passing --help instead.`);
+    return;
+  }
+  if (!radio) {
+    io.out('Error: No Wi-Fi device found.');
+    return;
+  }
+  const [action, ssid, passWord, password] = rest;
+  if (action === 'list' || action === undefined) {
+    const current = associatedAp(device);
+    io.out('IN-USE  SSID              MODE   CHAN  SIGNAL  BARS  SECURITY');
+    for (const n of scan(net, device)) {
+      const bars = ['▂', '▄', '▆', '█'].map((b, i) => (n.signal > 25 * i ? b : '_')).join('');
+      io.out(
+        `${n.ap === current ? '*' : ' '}       ${n.ssid.padEnd(18)}Infra  6     ${String(n.signal).padEnd(8)}${bars}  ${n.secured ? 'WPA2' : '--'}`,
+      );
+    }
+    return;
+  }
+  if (action === 'connect' && ssid !== undefined) {
+    if (passWord !== undefined && passWord !== 'password') {
+      io.out(`Error: invalid extra argument '${passWord}'.`);
+      return;
+    }
+    const error = connectWifi(net, device, ssid, password ?? null);
+    io.out(error ?? `Device '${radio.name}' successfully activated with '${ssid}'.`);
+    return;
+  }
+  io.out(`Error: argument '${action}' not understood. Try passing --help instead.`);
 };

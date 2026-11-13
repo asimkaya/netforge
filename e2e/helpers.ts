@@ -41,6 +41,11 @@ export async function terminal(page: Page, device: string) {
   const desktop = w.getByRole('tab', { name: 'Desktop' });
   if (await desktop.count()) {
     await desktop.click();
+    // Another app may be open: go back to the app grid first.
+    const back = w.getByRole('button', { name: '← Desktop' });
+    if ((await back.count()) && !(await w.getByRole('textbox', { name: 'Command' }).count())) {
+      await back.click();
+    }
     const app = w.getByRole('button', { name: 'Terminal' });
     if (await app.count()) await app.click();
   } else {
@@ -61,7 +66,7 @@ export async function run(page: Page, device: string, command: string) {
 
 export async function add(
   page: Page,
-  label: 'PC' | 'Server' | 'Switch' | 'Router' | 'Internet',
+  label: 'PC' | 'Laptop' | 'Phone' | 'Server' | 'Switch' | 'Access Point' | 'Router' | 'Internet',
   times = 1,
 ) {
   for (let i = 0; i < times; i++) {

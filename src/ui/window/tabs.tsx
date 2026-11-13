@@ -6,12 +6,14 @@ import { Capture } from '../apps/Capture.tsx';
 import { IpConfig, PortForm } from '../apps/IpConfig.tsx';
 import { Mail } from '../apps/Mail.tsx';
 import { TextEditor } from '../apps/TextEditor.tsx';
+import { Wifi } from '../apps/Wifi.tsx';
 import {
   MailServerSection,
   RoutingSection,
   Section,
   ServicesSection,
   WebServerSection,
+  WirelessSection,
 } from './network-sections.tsx';
 import { Terminal } from '../apps/Terminal.tsx';
 import { cable, hasDesktop, removeDevice, setWindowView, useLab, type AppId } from '../lab.ts';
@@ -187,7 +189,8 @@ export function ConfigTab({ device }: { device: Device }) {
           ))}
         </Section>
       )}
-      <RoutingSection device={device} />
+      <WirelessSection device={device} />
+      {(device.ip?.ports.length ?? 0) > 0 && <RoutingSection device={device} />}
       <ServicesSection device={device} />
       <WebServerSection device={device} />
       <MailServerSection device={device} />
@@ -208,6 +211,7 @@ const APPS: { id: AppId; label: string; icon: string; hint: string }[] = [
   { id: 'browser', label: 'Web Browser', icon: '◎', hint: 'Open web pages over HTTP' },
   { id: 'editor', label: 'Text Editor', icon: '✎', hint: 'Edit files, like web pages' },
   { id: 'mail', label: 'Mail', icon: '✉', hint: 'Send and read email (SMTP, POP3)' },
+  { id: 'wifi', label: 'Wi-Fi', icon: '((•))', hint: 'Join a wireless network' },
   {
     id: 'capture',
     label: 'Packet Capture',
@@ -230,6 +234,8 @@ function AppView({ device, app }: { device: Device; app: AppId }) {
       return <Mail device={device} />;
     case 'capture':
       return <Capture device={device} />;
+    case 'wifi':
+      return <Wifi device={device} />;
   }
 }
 
@@ -257,24 +263,26 @@ export function DesktopTab({ device, app }: { device: Device; app: AppId | null 
   }
   return (
     <ul className="grid grid-cols-[repeat(auto-fill,minmax(7rem,1fr))] gap-3 p-4">
-      {APPS.map((a) => (
-        <li key={a.id}>
-          <button
-            type="button"
-            onClick={() => setWindowView(device.id, { app: a.id })}
-            title={a.hint}
-            className="flex w-full flex-col items-center gap-2 rounded-lg p-3 text-xs hover:bg-(--nf-border) focus-visible:outline-2 focus-visible:outline-(--nf-accent)"
-          >
-            <span
-              className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#0b1f36] font-mono text-lg text-(--nf-accent)"
-              aria-hidden
+      {APPS.filter((a) => a.id !== 'wifi' || device.ports.some((p) => p.type === 'wifi')).map(
+        (a) => (
+          <li key={a.id}>
+            <button
+              type="button"
+              onClick={() => setWindowView(device.id, { app: a.id })}
+              title={a.hint}
+              className="flex w-full flex-col items-center gap-2 rounded-lg p-3 text-xs hover:bg-(--nf-border) focus-visible:outline-2 focus-visible:outline-(--nf-accent)"
             >
-              {a.icon}
-            </span>
-            {a.label}
-          </button>
-        </li>
-      ))}
+              <span
+                className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#0b1f36] font-mono text-lg text-(--nf-accent)"
+                aria-hidden
+              >
+                {a.icon}
+              </span>
+              {a.label}
+            </button>
+          </li>
+        ),
+      )}
     </ul>
   );
 }

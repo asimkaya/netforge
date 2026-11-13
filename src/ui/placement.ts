@@ -2,9 +2,12 @@ import type { SpecId } from '../engine/specs.ts';
 import type { Point } from './lab.ts';
 
 /** Rough on-canvas size of each device's faceplate, with a margin, for placement. */
-const FOOTPRINT: Record<SpecId, { w: number; h: number }> = {
+export const FOOTPRINT: Record<SpecId, { w: number; h: number }> = {
   pc: { w: 180, h: 120 },
+  laptop: { w: 180, h: 120 },
+  phone: { w: 120, h: 120 },
   server: { w: 180, h: 120 },
+  ap: { w: 160, h: 110 },
   switch: { w: 340, h: 100 },
   router: { w: 220, h: 100 },
   internet: { w: 220, h: 100 },
@@ -27,7 +30,7 @@ function overlaps(a: Point, aSpec: SpecId, b: Placed): boolean {
  */
 export function freeSpot(spec: SpecId, center: Point, placed: readonly Placed[]): Point {
   const size = FOOTPRINT[spec];
-  const host = spec === 'pc' || spec === 'server';
+  const host = spec === 'pc' || spec === 'server' || spec === 'laptop' || spec === 'phone';
   const baseY = host ? center.y + 30 : center.y - 190;
   const rowStep = host ? 140 : -120;
   for (let row = 0; row < 6; row++) {

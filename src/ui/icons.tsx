@@ -80,10 +80,43 @@ export function CloudArt({ className }: { className?: string | undefined }) {
   );
 }
 
+export function LaptopArt({ className }: { className?: string | undefined }) {
+  return (
+    <svg viewBox="0 0 48 40" className={className} aria-hidden>
+      <rect x="8" y="6" width="32" height="22" rx="2" fill="#1e293b" />
+      <rect x="11" y="9" width="26" height="16" rx="1" fill="#0f2a44" />
+      <path d="M3 30h42l-3 5H6z" fill="#334155" />
+    </svg>
+  );
+}
+
+export function PhoneArt({ className }: { className?: string | undefined }) {
+  return (
+    <svg viewBox="0 0 48 40" className={className} aria-hidden>
+      <rect x="16" y="3" width="16" height="34" rx="3" fill="#1e293b" />
+      <rect x="18" y="7" width="12" height="24" rx="1" fill="#0f2a44" />
+      <circle cx="24" cy="34" r="1.2" fill="#475569" />
+    </svg>
+  );
+}
+
+export function ApArt({ className }: { className?: string | undefined }) {
+  return (
+    <svg viewBox="0 0 48 40" className={className} aria-hidden>
+      <path d="M16 22V8M32 22V8" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" />
+      <rect x="8" y="20" width="32" height="12" rx="4" fill="#1e293b" />
+      <circle cx="34" cy="26" r="1.3" fill="#22c55e" />
+    </svg>
+  );
+}
+
 export function SpecArt({ spec, className }: { spec: SpecId; className?: string | undefined }) {
   if (spec === 'pc') return <PcArt className={className} />;
   if (spec === 'router') return <RouterArt className={className} />;
   if (spec === 'server') return <ServerArt className={className} />;
   if (spec === 'internet') return <CloudArt className={className} />;
+  if (spec === 'laptop') return <LaptopArt className={className} />;
+  if (spec === 'phone') return <PhoneArt className={className} />;
+  if (spec === 'ap') return <ApArt className={className} />;
   return <SwitchArt className={className} />;
 }

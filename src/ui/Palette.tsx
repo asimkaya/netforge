@@ -24,7 +24,7 @@ export function Palette() {
   };
 
   return (
-    <aside className="flex w-24 shrink-0 flex-col gap-2 border-r border-(--nf-border) bg-(--nf-surface) p-2">
+    <aside className="flex w-24 shrink-0 flex-col gap-2 overflow-y-auto border-r border-(--nf-border) bg-(--nf-surface) p-2">
       <h2 className="px-1 text-[10px] font-semibold tracking-wider text-(--nf-muted) uppercase">
         Devices
       </h2>

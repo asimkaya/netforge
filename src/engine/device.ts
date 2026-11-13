@@ -4,6 +4,7 @@ import { Dnsmasq } from './dnsmasq.ts';
 import { FileSystem } from './fs.ts';
 import { Httpd } from './http.ts';
 import { startPop3, startSmtp } from './mail.ts';
+import { startHostapd, type HostapdConfig } from './wifi.ts';
 import { IpStack } from './ip.ts';
 import type { EthernetFrame } from './packet.ts';
 import type { Port } from './port.ts';
@@ -31,6 +32,8 @@ export class Device {
   /** Stop functions of the running mail servers (postfix: SMTP, dovecot: POP3). */
   postfix: (() => void) | null = null;
   dovecot: (() => void) | null = null;
+  /** The running access point (hostapd) and the arguments it was started with. */
+  hostapd: (HostapdConfig & { args: string[] }) | null = null;
 
   constructor(
     readonly fabric: Fabric,
@@ -107,6 +110,24 @@ export class Device {
     if (!stop) return false;
     stop();
     this[kind] = null;
+    this.fabric.changed();
+    return true;
+  }
+
+  /** Starts hostapd from its config file. Returns an error message, or null. */
+  startHostapd(args: readonly string[]): string | null {
+    if (this.hostapd) return 'hostapd: already running';
+    const config = startHostapd(this, args);
+    if (typeof config === 'string') return config;
+    this.hostapd = { ...config, args: [...args] };
+    this.fabric.changed();
+    return null;
+  }
+
+  /** Stops hostapd; associated clients lose their link (the network drops them). */
+  stopHostapd(): boolean {
+    if (!this.hostapd) return false;
+    this.hostapd = null;
     this.fabric.changed();
     return true;
   }

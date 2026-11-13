@@ -3,6 +3,8 @@ import { Network } from '../engine/network.ts';
 import type { Port } from '../engine/port.ts';
 import { run, type Process } from '../engine/shell.ts';
 import type { SpecId } from '../engine/specs.ts';
+import { checkWireless } from '../engine/wifi.ts';
+import { FOOTPRINT } from './placement.ts';
 import { emptyProgress, type Project, type TaskProgress } from './project.ts';
 
 export interface Point {
@@ -19,7 +21,7 @@ export interface TerminalSession {
 }
 
 export type WindowTab = 'physical' | 'config' | 'desktop' | 'cli';
-export type AppId = 'terminal' | 'ipconfig' | 'browser' | 'editor' | 'mail' | 'capture';
+export type AppId = 'terminal' | 'ipconfig' | 'browser' | 'editor' | 'mail' | 'capture' | 'wifi';
 
 /** A device window floating over the canvas. */
 export interface DeviceWindow {
@@ -62,6 +64,18 @@ let tick = 0;
 const listeners = new Set<() => void>();
 const sessions = new Map<string, TerminalSession>();
 let unsubscribeNet = state.net.subscribe(emit);
+attachLocate(state.net);
+
+/** Gives the engine device centers on the canvas, for Wi-Fi range. */
+function attachLocate(net: Network): void {
+  net.locate = (id) => {
+    const at = state.layout[id];
+    const device = net.devices.get(id);
+    if (!at || !device) return null;
+    const size = FOOTPRINT[device.spec.id];
+    return { x: at.x + size.w / 2, y: at.y + size.h / 2 };
+  };
+}
 
 function freshState({ net, layout, tasks }: Project): LabState {
   return {
@@ -130,6 +144,7 @@ export function loadLab(project: Project, options: { keepWindows?: boolean } = {
       : {}),
   };
   unsubscribeNet = project.net.subscribe(emit);
+  attachLocate(project.net);
   emit();
 }
 
@@ -149,6 +164,8 @@ export function cable(a: Port, b: Port): void {
 
 export function moveDevice(id: string, to: Point): void {
   update({ layout: { ...state.layout, [id]: to } });
+  // Walking away from an access point drops the Wi-Fi link.
+  checkWireless(state.net);
 }
 
 export function removeDevice(id: string): void {
@@ -171,7 +188,7 @@ export function select(id: string | null): void {
 
 /** End hosts get a desktop with apps; network gear gets a CLI tab instead. */
 export function hasDesktop(spec: SpecId): boolean {
-  return spec === 'pc' || spec === 'server';
+  return spec === 'pc' || spec === 'server' || spec === 'laptop' || spec === 'phone';
 }
 
 let topZ = 1;

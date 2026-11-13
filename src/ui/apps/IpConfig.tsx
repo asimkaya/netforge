@@ -16,7 +16,8 @@ function DhcpBox({ device }: { device: Device }) {
   const [log, setLog] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const ip = device.ip;
-  const port = ip?.ports[0];
+  // Ask on the interface that is actually connected (e.g. wlan0 on a laptop on Wi-Fi).
+  const port = ip?.ports.find((p) => hasCarrier(p)) ?? ip?.ports[0];
   if (!ip || !port) return null;
   const lease = ip.dhcpLeases.get(port.name);
   const start = () => {

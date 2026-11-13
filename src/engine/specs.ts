@@ -1,6 +1,6 @@
 import type { PortType } from './port.ts';
 
-export type SpecId = 'pc' | 'server' | 'switch' | 'router' | 'internet';
+export type SpecId = 'pc' | 'laptop' | 'phone' | 'server' | 'switch' | 'ap' | 'router' | 'internet';
 
 /**
  * What a device is made of. Adding a device type means adding a spec here (and its
@@ -66,6 +66,26 @@ export const SPECS: Record<SpecId, DeviceSpec> = {
     ip: true,
     forwarding: false,
   },
+  laptop: {
+    id: 'laptop',
+    label: 'Laptop',
+    description: 'A laptop with an Ethernet port and Wi-Fi',
+    namePrefix: 'laptop',
+    ports: [...ports('ethernet', 0, 1), { name: 'wlan0', type: 'wifi' }],
+    bridge: false,
+    ip: true,
+    forwarding: false,
+  },
+  phone: {
+    id: 'phone',
+    label: 'Phone',
+    description: 'A phone with Wi-Fi only',
+    namePrefix: 'phone',
+    ports: [{ name: 'wlan0', type: 'wifi' }],
+    bridge: false,
+    ip: true,
+    forwarding: false,
+  },
   server: {
     id: 'server',
     label: 'Server',
@@ -88,6 +108,25 @@ export const SPECS: Record<SpecId, DeviceSpec> = {
     bridge: true,
     ip: false,
     forwarding: false,
+  },
+  ap: {
+    id: 'ap',
+    label: 'Access Point',
+    description: 'Wi-Fi access point bridging wireless clients to its Ethernet port (hostapd)',
+    namePrefix: 'ap',
+    // One radio slot per associated client, all bridged with the wired port.
+    ports: [
+      ...ports('ethernet', 0, 1),
+      ...Array.from({ length: 8 }, (_, i) => ({ name: `wlan${i}`, type: 'wifi' as const })),
+    ],
+    bridge: true,
+    ip: true,
+    forwarding: false,
+    files: {
+      '/etc/hostapd/hostapd.conf':
+        'interface=wlan0\nssid=NetForge\nwpa=2\nwpa_passphrase=netforge123\n',
+    },
+    setup: ['hostapd -B /etc/hostapd/hostapd.conf'],
   },
   router: {
     id: 'router',
