@@ -3,6 +3,8 @@ import { BIRD_CONF, Bird, parseBirdConf } from './bird.ts';
 import { RADVD_CONF, parseRadvd } from './ip6.ts';
 import { Bridge } from './bridge.ts';
 import { WireGuard } from './wireguard.ts';
+import type { Process, ShellIO } from './shell.ts';
+import { startSshd } from './ssh.ts';
 import { Dnsmasq } from './dnsmasq.ts';
 import { FileSystem } from './fs.ts';
 import { Httpd } from './http.ts';
@@ -37,6 +39,8 @@ export class Device {
   /** Stop functions of the running mail servers (postfix: SMTP, dovecot: POP3). */
   postfix: (() => void) | null = null;
   dovecot: (() => void) | null = null;
+  /** Stops the running SSH server, if started. */
+  sshd: (() => void) | null = null;
   /** The running BIRD routing daemon (OSPF), if started. */
   bird: Bird | null = null;
   /** The running access point (hostapd) and the arguments it was started with. */
@@ -155,6 +159,25 @@ export class Device {
     this.ip.routing = this.bird;
     this.fabric.changed();
     return null;
+  }
+
+  /** Starts sshd; `runLine` runs a command line in this device's shell for a session. */
+  startSshd(runLine: (line: string, io: ShellIO) => Process | undefined): string | null {
+    if (!this.ip || !this.fs) return 'sshd: command not found';
+    if (this.sshd) return 'sshd: error: Bind to port 22 failed: Address already in use.';
+    const stop = startSshd(this, this.ip, this.fs, runLine);
+    if (typeof stop === 'string') return stop;
+    this.sshd = stop;
+    this.fabric.changed();
+    return null;
+  }
+
+  stopSshd(): boolean {
+    if (!this.sshd) return false;
+    this.sshd();
+    this.sshd = null;
+    this.fabric.changed();
+    return true;
   }
 
   /** Starts radvd (`radvd [-C FILE]`): router advertisements for SLAAC. */

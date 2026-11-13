@@ -41,6 +41,7 @@ export interface NetworkSnapshot {
       hostapd?: string[];
       bird?: string[];
       radvd?: string[];
+      sshd?: string[];
     };
     /** Files on the device (absolute path to text). */
     files?: Record<string, string>;
@@ -420,9 +421,17 @@ export class Network implements Fabric {
               },
             }
           : {}),
-        ...(d.dnsmasq || d.httpd || d.postfix || d.dovecot || d.hostapd || d.bird || d.ip?.v6.radvd
+        ...(d.dnsmasq ||
+        d.httpd ||
+        d.postfix ||
+        d.dovecot ||
+        d.hostapd ||
+        d.bird ||
+        d.sshd ||
+        d.ip?.v6.radvd
           ? {
               services: {
+                ...(d.sshd ? { sshd: [] } : {}),
                 ...(d.ip?.v6.radvd ? { radvd: [...d.ip.v6.radvd.args] } : {}),
                 ...(d.bird ? { bird: [...d.bird.args] } : {}),
                 ...(d.hostapd ? { hostapd: [...d.hostapd.args] } : {}),
@@ -547,6 +556,10 @@ export class Network implements Fabric {
       }
       if (d.services?.bird) {
         const error = device.startBird(d.services.bird);
+        if (error) throw new Error(`${d.id}: ${error}`);
+      }
+      if (d.services?.sshd) {
+        const error = device.startSshd((line, io) => run(net, device, line, io));
         if (error) throw new Error(`${d.id}: ${error}`);
       }
       if (d.services?.radvd) {

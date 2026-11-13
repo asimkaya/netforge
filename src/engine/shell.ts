@@ -27,6 +27,7 @@ import {
   touch,
 } from './shell-files.ts';
 import { conntrack, nft } from './shell-firewall.ts';
+import { SSH_PORT, setPasswords, sshClient } from './ssh.ts';
 import { wg, wgQuick } from './shell-wireguard.ts';
 import { inet6Lines, ip6AddrChange, ip6Neigh, ip6Route, ping6, radvd } from './shell-ip6.ts';
 import { bird, birdc } from './shell-routing.ts';
@@ -61,6 +62,14 @@ export interface ShellIO {
 export interface Process {
   /** Stops the command, like Ctrl+C. */
   interrupt(): void;
+  /** Interactive programs (like `ssh`) take the lines the user types. */
+  input?(line: string): void;
+  /** The prompt before the input field; null while the program is busy. */
+  prompt?(): string | null;
+  /** Whether typing should be hidden (passwords). */
+  secret?(): boolean;
+  /** Ctrl+C handled by the program itself (ssh passes it to the remote command). */
+  signal?(): void;
 }
 
 export type Command = (
@@ -117,6 +126,8 @@ const HELP = [
   '  conntrack -L                       list tracked connections (firewall, NAT)',
   '  wg genkey | tee key | wg pubkey    WireGuard keys; wg show, wg set wg0 ...',
   '  wg-quick up|down wg0               VPN from /etc/wireguard/wg0.conf',
+  '  ssh [USER@]HOST [COMMAND]          log in to another device (sshd must run there)',
+  "  sshd; echo root:PASS | chpasswd    start the SSH server; change root's password",
   '  ss -t                              list TCP sockets',
   '  hostname [NAME]                    show or set the device name',
   '  ls, cat, echo TEXT > FILE, rm, touch, mkdir, pwd   work with files',
@@ -964,8 +975,62 @@ const ping: Command = (net, device, args, io) => {
   });
 };
 
+/** `ssh [-p PORT] [-l USER] [USER@]HOST [COMMAND...]`. */
+const ssh: Command = (net, device, args, io) => {
+  let port = SSH_PORT;
+  let user = 'root';
+  const rest: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i] ?? '';
+    if (a === '-p') port = Number(args[++i]);
+    else if (a === '-l') user = args[++i] ?? user;
+    else if (a.startsWith('-') && rest.length === 0) {
+      io.out(`unknown option -- ${a.slice(1)}`);
+      return;
+    } else rest.push(a);
+  }
+  const [dest, ...command] = rest;
+  if (!dest || !Number.isInteger(port) || port < 1 || port > 65535) {
+    io.out('usage: ssh [-p port] [-l login_name] destination [command]');
+    return;
+  }
+  const at = dest.lastIndexOf('@');
+  if (at > 0) user = dest.slice(0, at);
+  const host = dest.slice(at + 1);
+  const failure = (kind: 'unknown' | 'temporary') => [
+    `ssh: Could not resolve hostname ${host}: ${kind === 'unknown' ? 'Name or service not known' : 'Temporary failure in name resolution'}`,
+  ];
+  return withName(device, host, io, failure, (ip) =>
+    sshClient(
+      net,
+      device,
+      { user, host, ip, port, command: command.length ? command.join(' ') : null },
+      io,
+    ),
+  );
+};
+
+/** `sshd`: the SSH server (port 22). */
+const sshd: Command = (net, device, _args, io) => {
+  const error = device.startSshd((line, sub) => run(net, device, line, sub));
+  if (error) io.out(error);
+};
+
+/** `chpasswd`: sets passwords from `user:password` lines on its input. */
+const chpasswd: Command = (_net, device, _args, io) => {
+  if (!device.fs) {
+    io.out('chpasswd: command not found');
+    return;
+  }
+  const error = setPasswords(device.fs, io.stdin ?? []);
+  if (error) io.out(error);
+};
+
 const COMMANDS: Record<string, Command> = {
   ip,
+  ssh,
+  sshd,
+  chpasswd,
   wg,
   'wg-quick': wgQuick,
   grep,

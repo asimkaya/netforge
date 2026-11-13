@@ -44,7 +44,9 @@ export const killall: Command = (_net, device, args, io) => {
               ? device.stopBird()
               : name === 'radvd'
                 ? device.stopRadvd()
-                : false;
+                : name === 'sshd'
+                  ? device.stopSshd()
+                  : false;
   // Clients of a stopped access point lose their wireless link.
   if (stopped) checkWireless(_net);
   if (!stopped) io.out(`${name}: no process found`);

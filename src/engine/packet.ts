@@ -131,7 +131,10 @@ function describeTcp(t: TcpSegment): string {
   const ack = t.flags.includes('ACK') ? `, ack ${t.ack}` : '';
   const service = TCP_SERVICES[t.dstPort] ?? TCP_SERVICES[t.srcPort];
   const first = t.data?.split(/\r?\n/)[0]?.slice(0, 60);
-  const app = length > 0 && service ? `: ${service.toUpperCase()}: ${first}` : '';
+  // After the version banners, SSH is encrypted: Wireshark shows only the length.
+  const sealed = service === 'ssh' && !t.data?.startsWith('SSH-');
+  const text = sealed ? `Encrypted packet (len=${length})` : first;
+  const app = length > 0 && service ? `: ${service.toUpperCase()}: ${text}` : '';
   return `Flags ${tcpFlags(t.flags)}, ${seq}${ack}, length ${length}${app}`;
 }
 
