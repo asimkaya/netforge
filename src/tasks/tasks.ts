@@ -1,7 +1,7 @@
 import { inSubnet, networkOf, type Cidr } from '../engine/addr.ts';
 import type { Device } from '../engine/device.ts';
 import type { Network } from '../engine/network.ts';
-import { peerOf } from '../engine/port.ts';
+import { peerOf, type Port } from '../engine/port.ts';
 
 export interface TaskContext {
   net: Network;
@@ -28,6 +28,66 @@ export interface Task {
 
 const isPc = (d: Device) => d.spec.id === 'pc';
 const isSwitch = (d: Device) => d.spec.id === 'switch';
+const isRouter = (d: Device) => d.spec.id === 'router';
+
+function routers(net: Network): Device[] {
+  return [...net.devices.values()].filter(isRouter);
+}
+
+interface RouterLink {
+  port: Port;
+  pc: Device;
+}
+
+/** PCs cabled straight to a router port, with that port. */
+function pcsOnRouter(router: Device): RouterLink[] {
+  return router.ports.flatMap((port) => {
+    const peer = peerOf(port);
+    return peer && isPc(peer.device) ? [{ port, pc: peer.device }] : [];
+  });
+}
+
+/** The PC's address is in the same network as the router port it is cabled to. */
+function pcInPortNetwork(router: Device, link: RouterLink): boolean {
+  const routerAddrs = router.ip?.addrsOn(link.port) ?? [];
+  return addrsOf(link.pc).some((a) => routerAddrs.some((r) => sameSubnet(a, r)));
+}
+
+/** The PC's default route points at the router's address on their shared network. */
+function gatewayIsRouter(router: Device, link: RouterLink): boolean {
+  const via = link.pc.ip?.staticRoutes.find((r) => r.dst.prefix === 0)?.via;
+  if (via === undefined || via === null) return false;
+  return (router.ip?.addrsOn(link.port) ?? []).some((a) => a.ip === via);
+}
+
+/** Two PCs on different router ports, in different networks, both passing `check`. */
+function routedPair(net: Network, check: (router: Device, link: RouterLink) => boolean) {
+  return routers(net).some((r) => {
+    const links = pcsOnRouter(r).filter((l) => check(r, l));
+    return links.some((a) => links.some((b) => a.port !== b.port && !shareSubnet(a.pc, b.pc)));
+  });
+}
+
+/** The user ran a command matching `pattern` on a device that passes `on`. */
+function ran(ctx: TaskContext, pattern: RegExp, on: (d: Device) => boolean): boolean {
+  return ctx.commands.some((c) => {
+    const device = ctx.net.devices.get(c.device);
+    return device !== undefined && on(device) && pattern.test(c.line);
+  });
+}
+
+/** Switches shared by a router and at least two PCs, with the router's port to it. */
+function dhcpSegments(net: Network) {
+  return switches(net).flatMap((sw) => {
+    const pcs = hostsOn(sw);
+    return neighborsOf(sw)
+      .filter(isRouter)
+      .flatMap((router) => {
+        const port = router.ports.find((p) => peerOf(p)?.device === sw);
+        return port && pcs.length >= 2 ? [{ sw, router, port, pcs }] : [];
+      });
+  });
+}
 
 function hosts(net: Network): Device[] {
   return [...net.devices.values()].filter(isPc);
@@ -172,6 +232,121 @@ export const TASKS: Task[] = [
       },
     ],
     done: 'Well done! A switch learns which MAC address lives behind which port by reading the source of every frame. Unknown destinations and broadcasts (like ARP requests) go out of every other port.',
+  },
+  {
+    id: 'two-networks',
+    title: 'Two networks, one router',
+    summary: 'Connect two separate networks with a router and trace the path between them.',
+    steps: [
+      {
+        title: 'Add a router and two PCs',
+        detail: 'Drag a Router and two PCs onto the canvas.',
+        check: ({ net }) => routers(net).length > 0 && hosts(net).length >= 2,
+      },
+      {
+        title: 'Cable each PC to its own router port',
+        detail:
+          'Connect one PC to the router’s eth0 and the other to eth1. Each router port is a separate network.',
+        check: ({ net }) => routers(net).some((r) => pcsOnRouter(r).length >= 2),
+      },
+      {
+        title: 'Give the router an address in each network',
+        detail:
+          'Open the router, Config tab: give eth0 `192.168.1.1/24` and eth1 `192.168.2.1/24`. Or in its CLI: `ip addr add 192.168.1.1/24 dev eth0`.',
+        hint: 'Two different networks: the third number differs (1 and 2).',
+        check: ({ net }) =>
+          routers(net).some((r) => {
+            const nets = new Set(
+              pcsOnRouter(r).flatMap(({ port }) =>
+                (r.ip?.addrsOn(port) ?? []).map((a) => `${networkOf(a)}/${a.prefix}`),
+              ),
+            );
+            return nets.size >= 2;
+          }),
+      },
+      {
+        title: 'Give each PC an address in its router port’s network',
+        detail:
+          'For example `192.168.1.10/24` for the PC on eth0 and `192.168.2.10/24` for the PC on eth1.',
+        check: ({ net }) => routedPair(net, pcInPortNetwork),
+      },
+      {
+        title: 'Tell each PC where the router is',
+        detail:
+          'A PC reaches other networks only through its default gateway. In IP Configuration set it to the router’s address on the PC’s side, or run `ip route add default via 192.168.1.1`.',
+        hint: 'Try a ping before this step: you get “Network is unreachable”. The gateway fixes that.',
+        check: ({ net }) =>
+          routedPair(net, (r, l) => pcInPortNetwork(r, l) && gatewayIsRouter(r, l)),
+      },
+      {
+        title: 'Ping across the router',
+        detail:
+          'From one PC, ping the other one, e.g. `ping 192.168.2.10`. Notice `ttl=63`: the router took one off.',
+        check: ({ net }) =>
+          routers(net).some((r) => {
+            const pcs = pcsOnRouter(r).map((l) => l.pc);
+            return pcs.some((pc) =>
+              pinged(
+                pc,
+                pcs.filter((o) => !shareSubnet(o, pc)),
+              ),
+            );
+          }),
+      },
+      {
+        title: 'See the path with traceroute',
+        detail: 'Run `traceroute 192.168.2.10` on a PC. The first hop is the router.',
+        check: (ctx) => ran(ctx, /^traceroute\s/, isPc),
+      },
+    ],
+    done: 'You routed between two networks! The PC saw that the destination was not in its own network, so it sent the packet to its gateway. The router looked up its routing table, lowered the TTL and passed it on.',
+  },
+  {
+    id: 'dhcp',
+    title: 'Automatic addresses with DHCP',
+    summary: 'Let a DHCP server hand out addresses, then reach a PC by its name.',
+    steps: [
+      {
+        title: 'Build a small office network',
+        detail: 'Add a router, a switch and two PCs. Cable the router and both PCs to the switch.',
+        check: ({ net }) => dhcpSegments(net).length > 0,
+      },
+      {
+        title: 'Give the router an address',
+        detail:
+          'On the router port that goes to the switch, set `192.168.1.1/24` (Config tab or `ip addr add`).',
+        check: ({ net }) =>
+          dhcpSegments(net).some((s) => (s.router.ip?.addrsOn(s.port).length ?? 0) > 0),
+      },
+      {
+        title: 'Start a DHCP server on the router',
+        detail:
+          'Router → Config → DHCP and DNS server → Start server. Or in its CLI: `dnsmasq --dhcp-range=192.168.1.100,192.168.1.199`.',
+        check: ({ net }) =>
+          dhcpSegments(net).some((s) => {
+            const subnets = s.router.ip?.addrsOn(s.port) ?? [];
+            const ranges = s.router.dnsmasq?.config.ranges ?? [];
+            return ranges.some((r) => subnets.some((a) => inSubnet(r.start, a)));
+          }),
+      },
+      {
+        title: 'Let both PCs ask for an address',
+        detail:
+          'On each PC: IP Configuration → Get an address automatically, or `dhclient eth0` in the Terminal.',
+        hint: 'Switch to Simulation mode first to watch the four DHCP messages: Discover, Offer, Request, Ack.',
+        check: ({ net }) =>
+          dhcpSegments(net).some((s) => (s.router.dnsmasq?.activeLeases().length ?? 0) >= 2),
+      },
+      {
+        title: 'Reach a PC by its name',
+        detail:
+          'The DHCP server also answers DNS for its clients. On one PC run `ping pc2` (use the other PC’s name).',
+        check: (ctx) =>
+          ran(ctx, /^ping\s+(-\S+\s+\S+\s+)*[a-zA-Z][\w.-]*$/, isPc) &&
+          dhcpSegments(ctx.net).some((s) => s.pcs.some((pc) => pinged(pc, s.pcs))),
+      },
+    ],
+    done: 'No typing addresses by hand! The PCs broadcast a DHCP Discover, the server offered an address with a gateway and DNS server, and the PCs took it. The server remembered their names, so DNS could answer for them.',
   },
 ];
 

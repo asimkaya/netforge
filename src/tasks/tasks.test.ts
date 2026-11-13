@@ -9,7 +9,7 @@ function play(net: Network) {
   const sh = (device: Device, line: string) => {
     ctx.commands.push({ device: device.id, line });
     run(net, device, line, { out: () => {}, exit: () => {} });
-    net.scheduler.runUntil(net.scheduler.now + 15_000);
+    net.scheduler.runUntil(net.scheduler.now + 30_000);
   };
   return { ctx, sh };
 }
@@ -92,5 +92,81 @@ describe('tasks', () => {
     net.removeDevice(pc);
     expect(advance(t, ctx, 1)).toBe(1);
     expect(advance(t, ctx, 99)).toBe(t.steps.length);
+  });
+
+  it('two-networks follows routing from cables to traceroute', () => {
+    const t = task('two-networks');
+    const net = new Network();
+    const { ctx, sh } = play(net);
+    const progress = () => advance(t, ctx, 0);
+    const r1 = net.addDevice('router');
+    const [pc1, pc2] = [net.addDevice('pc'), net.addDevice('pc')];
+    expect(progress()).toBe(1);
+    const port = (d: Device, name: string) => {
+      const p = d.port(name);
+      if (!p) throw new Error(`no ${name}`);
+      return p;
+    };
+    net.connect(port(pc1, 'eth0'), port(r1, 'eth0'));
+    net.connect(port(pc2, 'eth0'), port(r1, 'eth1'));
+    expect(progress()).toBe(2);
+    sh(r1, 'ip addr add 192.168.1.1/24 dev eth0');
+    sh(r1, 'ip addr add 192.168.2.1/24 dev eth1');
+    expect(progress()).toBe(3);
+    sh(pc1, 'ip addr add 192.168.1.10/24 dev eth0');
+    sh(pc2, 'ip addr add 192.168.2.10/24 dev eth0');
+    expect(progress()).toBe(4);
+    sh(pc1, 'ip route add default via 192.168.1.1');
+    expect(progress()).toBe(4); // pc2 has no gateway yet
+    sh(pc2, 'ip route add default via 192.168.2.1');
+    expect(progress()).toBe(5);
+    sh(pc1, 'ping -c 1 192.168.2.10');
+    expect(progress()).toBe(6);
+    sh(pc1, 'traceroute 192.168.2.10');
+    expect(progress()).toBe(7);
+  });
+
+  it('two-networks does not accept a gateway that is not the router', () => {
+    const t = task('two-networks');
+    const net = new Network();
+    const { ctx, sh } = play(net);
+    const r1 = net.addDevice('router');
+    const [pc1, pc2] = [net.addDevice('pc'), net.addDevice('pc')];
+    net.connect(pc1, r1);
+    net.connect(pc2, r1);
+    sh(r1, 'ip addr add 10.0.1.1/24 dev eth0');
+    sh(r1, 'ip addr add 10.0.2.1/24 dev eth1');
+    sh(pc1, 'ip addr add 10.0.1.10/24 dev eth0');
+    sh(pc2, 'ip addr add 10.0.2.10/24 dev eth0');
+    sh(pc1, 'ip route add default via 10.0.1.99');
+    sh(pc2, 'ip route add default via 10.0.2.1');
+    expect(advance(t, ctx, 0)).toBe(4);
+  });
+
+  it('dhcp walks from a server to pinging a PC by name', () => {
+    const t = task('dhcp');
+    const net = new Network();
+    const { ctx, sh } = play(net);
+    const progress = () => advance(t, ctx, 0);
+    const r1 = net.addDevice('router');
+    const sw = net.addDevice('switch');
+    const [pc1, pc2] = [net.addDevice('pc'), net.addDevice('pc')];
+    [r1, pc1, pc2].forEach((d) => net.connect(d, sw));
+    expect(progress()).toBe(1);
+    sh(r1, 'ip addr add 192.168.1.1/24 dev eth0');
+    expect(progress()).toBe(2);
+    sh(r1, 'dnsmasq --dhcp-range=10.9.9.100,10.9.9.200');
+    expect(progress()).toBe(2); // a range outside the router's network serves nobody
+    sh(r1, 'killall dnsmasq');
+    sh(r1, 'dnsmasq --dhcp-range=192.168.1.100,192.168.1.199');
+    expect(progress()).toBe(3);
+    sh(pc1, 'dhclient eth0');
+    expect(progress()).toBe(3);
+    sh(pc2, 'dhclient eth0');
+    expect(progress()).toBe(4);
+    sh(pc1, 'ping -c 1 192.168.1.101');
+    expect(progress()).toBe(4); // by address, not by name
+    sh(pc1, 'ping -c 1 pc2');
+    expect(progress()).toBe(5);
   });
 });
