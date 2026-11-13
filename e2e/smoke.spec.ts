@@ -8,7 +8,7 @@ test('app loads with an empty topology canvas and no console errors', async ({ p
   await page.goto('/');
 
   await expect(page).toHaveTitle('NetForge');
-  await expect(page.getByRole('heading', { name: 'NetForge' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'NetForge', exact: true })).toBeVisible();
   await expect(page.locator('.react-flow')).toBeVisible();
   await expect(page.locator('.react-flow__node')).toHaveCount(0);
   expect(errors).toEqual([]);

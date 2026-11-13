@@ -6,6 +6,8 @@ import { LabMenu } from './LabMenu.tsx';
 import { setMode, useLab, type Mode } from './lab.ts';
 import { Palette } from './Palette.tsx';
 import { SimPanel } from './SimPanel.tsx';
+import { Sidebar } from './TaskPanel.tsx';
+import { useTaskProgress } from './taskProgress.ts';
 import { Terminal } from './Terminal.tsx';
 
 const MODES: { mode: Mode; label: string; hint: string }[] = [
@@ -46,6 +48,7 @@ function ModeSwitch({ mode }: { mode: Mode }) {
 export function App() {
   const { net, mode, terminal, notice } = useLab();
   useRealtimeClock(net, mode);
+  useTaskProgress();
 
   return (
     <ReactFlowProvider>
@@ -78,7 +81,9 @@ export function App() {
             {terminal && <Terminal key={terminal} deviceId={terminal} />}
           </main>
           <aside className="w-72 shrink-0 overflow-y-auto border-l border-(--nf-border) bg-(--nf-surface)">
-            <Inspector />
+            <Sidebar>
+              <Inspector />
+            </Sidebar>
           </aside>
         </div>
       </div>

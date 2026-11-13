@@ -3,7 +3,6 @@ import {
   BackgroundVariant,
   ConnectionMode,
   Controls,
-  MiniMap,
   ReactFlow,
   useReactFlow,
   type EdgeChange,
@@ -120,7 +119,6 @@ export function Canvas() {
     >
       <Background variant={BackgroundVariant.Dots} gap={20} size={1.5} />
       <Controls />
-      <MiniMap pannable zoomable />
     </ReactFlow>
   );
 }
