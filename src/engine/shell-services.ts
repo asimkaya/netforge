@@ -30,7 +30,13 @@ export const killall: Command = (_net, device, args, io) => {
     return;
   }
   const stopped =
-    name === 'dnsmasq' ? device.stopDnsmasq() : name === 'httpd' ? device.stopHttpd() : false;
+    name === 'dnsmasq'
+      ? device.stopDnsmasq()
+      : name === 'httpd'
+        ? device.stopHttpd()
+        : name === 'dovecot' || name === 'postfix'
+          ? device.stopMail(name)
+          : false;
   if (!stopped) io.out(`${name}: no process found`);
 };
 
@@ -349,4 +355,29 @@ export const curl: Command = (_net, device, args, io) => {
       io.exit();
     },
   };
+};
+
+/** `postfix start|stop|status`: the SMTP server (port 25). */
+export const postfix: Command = (_net, device, args, io) => {
+  const [verb] = args;
+  if (verb === 'start') {
+    const error = device.startMail('postfix');
+    io.out(error ?? 'postfix/postfix-script: starting the Postfix mail system');
+  } else if (verb === 'stop') {
+    if (device.stopMail('postfix'))
+      io.out('postfix/postfix-script: stopping the Postfix mail system');
+    else io.out('postfix/postfix-script: fatal: the Postfix mail system is not running');
+  } else if (verb === 'status') {
+    io.out(
+      device.postfix
+        ? 'postfix/postfix-script: the Postfix mail system is running'
+        : 'postfix/postfix-script: the Postfix mail system is not running',
+    );
+  } else io.out('usage: postfix start|stop|status');
+};
+
+/** `dovecot`: the POP3 server (port 110); `killall dovecot` stops it. */
+export const dovecot: Command = (_net, device, _args, io) => {
+  const error = device.startMail('dovecot');
+  if (error) io.out(error);
 };

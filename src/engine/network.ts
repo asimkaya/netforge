@@ -26,7 +26,7 @@ export interface NetworkSnapshot {
     name: string;
     ports: { name: string; mac: string; up: boolean; addrs?: string[] }[];
     /** Running services and their command-line arguments. */
-    services?: { dnsmasq?: string[]; httpd?: string[] };
+    services?: { dnsmasq?: string[]; httpd?: string[]; postfix?: string[]; dovecot?: string[] };
     /** Files on the device (absolute path to text). */
     files?: Record<string, string>;
     /** IP settings beyond addresses; absent on devices without an IP stack. */
@@ -187,11 +187,13 @@ export class Network implements Fabric {
               },
             }
           : {}),
-        ...(d.dnsmasq || d.httpd
+        ...(d.dnsmasq || d.httpd || d.postfix || d.dovecot
           ? {
               services: {
                 ...(d.dnsmasq ? { dnsmasq: [...d.dnsmasq.args] } : {}),
                 ...(d.httpd ? { httpd: [...d.httpd.args] } : {}),
+                ...(d.postfix ? { postfix: [] } : {}),
+                ...(d.dovecot ? { dovecot: [] } : {}),
               },
             }
           : {}),
@@ -260,6 +262,11 @@ export class Network implements Fabric {
           const error = device.fs.write(path, text);
           if (error) throw new Error(`${d.id}: ${error}`);
         }
+      }
+      for (const kind of ['postfix', 'dovecot'] as const) {
+        if (!d.services?.[kind]) continue;
+        const error = device.startMail(kind);
+        if (error) throw new Error(`${d.id}: ${error}`);
       }
       if (d.services?.httpd) {
         const error = device.startHttpd(d.services.httpd);

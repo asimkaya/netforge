@@ -297,3 +297,45 @@ export function WebServerSection({ device }: { device: Device }) {
     </Section>
   );
 }
+
+/** Starts and stops the mail servers: postfix (SMTP, sending) and dovecot (POP3, reading). */
+export function MailServerSection({ device }: { device: Device }) {
+  const [error, setError] = useState<string | null>(null);
+  if (!device.fs) return null;
+  const row = (kind: 'postfix' | 'dovecot', label: string) => {
+    const running = device[kind] !== null;
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="w-48">{label}</span>
+        <span className={running ? 'text-emerald-400' : 'text-(--nf-muted)'}>
+          {running ? 'running' : 'stopped'}
+        </span>
+        <button
+          type="button"
+          onClick={() => {
+            if (running) device.stopMail(kind);
+            else setError(device.startMail(kind));
+          }}
+          className={SECONDARY}
+          aria-label={`${running ? 'Stop' : 'Start'} ${kind}`}
+        >
+          {running ? 'Stop' : 'Start'}
+        </button>
+      </div>
+    );
+  };
+  return (
+    <Section title="Mail server">
+      <div className="space-y-1 text-xs">
+        {row('postfix', 'SMTP, port 25 (postfix)')}
+        {row('dovecot', 'POP3, port 110 (dovecot)')}
+        <p className="text-(--nf-muted)">Mailboxes are files in /var/mail.</p>
+      </div>
+      {error && (
+        <p role="alert" className="text-xs text-red-400">
+          {error}
+        </p>
+      )}
+    </Section>
+  );
+}

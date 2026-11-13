@@ -3,6 +3,7 @@ import { Bridge } from './bridge.ts';
 import { Dnsmasq } from './dnsmasq.ts';
 import { FileSystem } from './fs.ts';
 import { Httpd } from './http.ts';
+import { startPop3, startSmtp } from './mail.ts';
 import { IpStack } from './ip.ts';
 import type { EthernetFrame } from './packet.ts';
 import type { Port } from './port.ts';
@@ -27,6 +28,9 @@ export class Device {
   dnsmasq: Dnsmasq | null = null;
   /** The running web server, if started. */
   httpd: Httpd | null = null;
+  /** Stop functions of the running mail servers (postfix: SMTP, dovecot: POP3). */
+  postfix: (() => void) | null = null;
+  dovecot: (() => void) | null = null;
 
   constructor(
     readonly fabric: Fabric,
@@ -79,6 +83,30 @@ export class Device {
     if (!this.httpd) return false;
     this.httpd.stop();
     this.httpd = null;
+    this.fabric.changed();
+    return true;
+  }
+
+  /** Starts a mail server. Returns an error message, or null. */
+  startMail(kind: 'postfix' | 'dovecot'): string | null {
+    if (!this.ip || !this.fs) return `${kind}: command not found`;
+    if (this[kind])
+      return kind === 'postfix'
+        ? 'postfix: fatal: the Postfix mail system is already running'
+        : 'dovecot: Fatal: Dovecot is already running';
+    const stop =
+      kind === 'postfix' ? startSmtp(this, this.ip, this.fs) : startPop3(this.ip, this.fs);
+    if (typeof stop === 'string') return stop;
+    this[kind] = stop;
+    this.fabric.changed();
+    return null;
+  }
+
+  stopMail(kind: 'postfix' | 'dovecot'): boolean {
+    const stop = this[kind];
+    if (!stop) return false;
+    stop();
+    this[kind] = null;
     this.fabric.changed();
     return true;
   }

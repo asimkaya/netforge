@@ -3,8 +3,15 @@ import type { Device } from '../../engine/device.ts';
 import { PORT_TYPE_LABEL, hasCarrier, peerOf, type Port } from '../../engine/port.ts';
 import { Browser } from '../apps/Browser.tsx';
 import { IpConfig, PortForm } from '../apps/IpConfig.tsx';
+import { Mail } from '../apps/Mail.tsx';
 import { TextEditor } from '../apps/TextEditor.tsx';
-import { RoutingSection, Section, ServicesSection, WebServerSection } from './network-sections.tsx';
+import {
+  MailServerSection,
+  RoutingSection,
+  Section,
+  ServicesSection,
+  WebServerSection,
+} from './network-sections.tsx';
 import { Terminal } from '../apps/Terminal.tsx';
 import { cable, hasDesktop, removeDevice, setWindowView, useLab, type AppId } from '../lab.ts';
 
@@ -182,6 +189,7 @@ export function ConfigTab({ device }: { device: Device }) {
       <RoutingSection device={device} />
       <ServicesSection device={device} />
       <WebServerSection device={device} />
+      <MailServerSection device={device} />
       <button
         type="button"
         onClick={() => removeDevice(device.id)}
@@ -198,6 +206,7 @@ const APPS: { id: AppId; label: string; icon: string; hint: string }[] = [
   { id: 'ipconfig', label: 'IP Configuration', icon: '⚙', hint: 'Set addresses without commands' },
   { id: 'browser', label: 'Web Browser', icon: '◎', hint: 'Open web pages over HTTP' },
   { id: 'editor', label: 'Text Editor', icon: '✎', hint: 'Edit files, like web pages' },
+  { id: 'mail', label: 'Mail', icon: '✉', hint: 'Send and read email (SMTP, POP3)' },
 ];
 
 function AppView({ device, app }: { device: Device; app: AppId }) {
@@ -210,6 +219,8 @@ function AppView({ device, app }: { device: Device; app: AppId }) {
       return <Browser device={device} />;
     case 'editor':
       return <TextEditor device={device} />;
+    case 'mail':
+      return <Mail device={device} />;
   }
 }
 
