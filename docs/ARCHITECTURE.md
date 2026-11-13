@@ -44,11 +44,18 @@ comes next.
   `port.ts` (typed ports and cables), `bridge.ts` (L2 switching, VLAN filtering), `stp.ts`
   (Spanning Tree), `ip.ts` (IPv4, ARP, routing, forwarding, ICMP errors, UDP sockets),
   `addr6.ts` and `ip6.ts` (IPv6, NDP, SLAAC), `netfilter.ts` (nftables hooks, conntrack,
-  NAT) and `nft.ts` (its language), `bird.ts` (OSPF), `dnsmasq.ts` (DHCP and DNS server),
+  NAT) and `nft.ts` (its language), `bird.ts` (OSPF), `wireguard.ts` (VPN tunnels),
+  `ssh.ts` (sshd and client), `pcap.ts` (frames as bytes, pcap files), `dnsmasq.ts` (DHCP
+  and DNS server),
   `dhcp.ts` (dhclient), `dns.ts` (resolver), `tcp.ts` (TCP), `http.ts` (httpd, client),
   `mail.ts` (SMTP, POP3), `wifi.ts` (hostapd, association, range), `fs.ts` (device
   files), and the Linux-style commands in `shell.ts` with `shell-files.ts`,
-  `shell-services.ts`, `shell-firewall.ts`, `shell-routing.ts` and `shell-ip6.ts`. Specs may list `setup` commands that a new
+  `shell-services.ts`, `shell-firewall.ts`, `shell-routing.ts`, `shell-ip6.ts` and
+  `shell-wireguard.ts`. Commands may be interactive: a `Process` can take input lines and
+  show its own prompt (ssh), and pipelines pass output lines as `stdin`.
+- Interfaces beyond the physical ports are ordinary `Port` objects: VLAN interfaces have a
+  `parent`, WireGuard interfaces a `tunnel`, and a bridge's own interface (`br0` on the
+  home router) `bridgeSelf`. The IP stack routes over all of them alike. Specs may list `setup` commands that a new
   device runs once (the internet cloud configures itself this way).
 - Services and apps talk through the IP stack's sockets (`openUdp`, `openIcmp`), never by
   reaching into other devices. Errors come back to the socket that sent the packet. See [ADR 0006](adr/0006-device-specs-ports-and-apps.md).
@@ -77,10 +84,12 @@ comes next.
 
 - Pure TypeScript. A task is a list of steps; each step's `check` reads the live network
   and the commands the user ran. Steps complete in order and stay complete.
+- `custom.ts` turns tasks written in the task editor (data with declarative checks, saved
+  in the lab file) into playable tasks.
 
 ### Persistence
 
-- `src/ui/project.ts` defines the lab file (`format: netforge-lab`, `version: 8`) and
+- `src/ui/project.ts` defines the lab file (`format: netforge-lab`, `version: 11`) and
   validates untrusted files field by field before the engine sees them.
 - `src/ui/storage.ts` autosaves to IndexedDB and exports/imports files.
 - Bump `PROJECT_VERSION` on incompatible changes and migrate older files. Never break old
