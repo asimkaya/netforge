@@ -52,6 +52,15 @@ docs/         architecture, roadmap, features, ADRs
    `PROJECT_VERSION` in `src/ui/project.ts` and add a migration with a test.
 4. Engine tests for its behavior, an e2e test for cabling it, and a FEATURES.md row.
 
+## Adding a command or service
+
+- Copy the real Linux tool: its name, options, output lines and error messages (check the
+  man page). If something is simplified, say so in docs/FEATURES.md.
+- Services (like `dnsmasq.ts`) and clients (like `dhcp.ts`, `dns.ts`) use the IP stack's
+  sockets only. Long-running commands return a `Process` and call `io.exit()` when done;
+  cancel their timers so an idle network has no pending events (tests check this).
+- Engine tests drive commands through `run()` and assert on the exact output lines.
+
 ## Gotchas
 
 - TypeScript is pinned to 6.0.x because typescript-eslint does not support 7.x yet.

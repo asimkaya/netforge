@@ -42,7 +42,11 @@ comes next.
 - Key files: `scheduler.ts` (virtual clock), `network.ts` (devices, cables, trace,
   snapshots), `specs.ts` (device catalog), `device.ts` (a device built from a spec),
   `port.ts` (typed ports and cables), `bridge.ts` (L2 switching), `ip.ts` (IPv4, ARP,
-  ICMP), `shell.ts` (Linux-style commands). See [ADR 0006](adr/0006-device-specs-ports-and-apps.md).
+  routing, forwarding, ICMP errors, UDP sockets), `dnsmasq.ts` (DHCP and DNS server),
+  `dhcp.ts` (dhclient), `dns.ts` (resolver), `shell.ts` and `shell-services.ts`
+  (Linux-style commands).
+- Services and apps talk through the IP stack's sockets (`openUdp`, `openIcmp`), never by
+  reaching into other devices. Errors come back to the socket that sent the packet. See [ADR 0006](adr/0006-device-specs-ports-and-apps.md).
 
 ### `src/ui/`: user interface
 
@@ -53,8 +57,10 @@ comes next.
 - `lab.ts` is the single UI store: the live `Network` plus layout, selection, open
   device windows, mode, terminal sessions and task progress. Components read it with
   `useLab()`.
-- Device windows live in `window/` (frame, tabs) and their apps in `apps/` (Terminal,
-  IP Configuration). Apps call the same engine methods as the shell, so the GUI and the
+- Device windows live in `window/` (frame, tabs, routing and service sections) and their
+  apps in `apps/` (Terminal, IP Configuration).
+- `history.ts` keeps undo snapshots of the lab file format; `share.ts` packs a lab into a
+  `#lab=` link; `placement.ts` finds a free spot for new devices. Apps call the same engine methods as the shell, so the GUI and the
   CLI never disagree.
 - Realtime mode advances the scheduler every animation frame (`clock.ts`); simulation
   mode only advances it when the user steps.
