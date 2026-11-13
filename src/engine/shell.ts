@@ -8,10 +8,11 @@ import {
   type Ip,
 } from './addr.ts';
 import type { Device } from './device.ts';
+import { isHostname, resolve } from './dns.ts';
 import { DEFAULT_TTL } from './ip.ts';
 import type { Network } from './network.ts';
 import { hasCarrier, type Port } from './port.ts';
-import { dhclientCommand, dnsmasq, killall } from './shell-services.ts';
+import { dhclientCommand, dig, dnsmasq, killall, resolvectl } from './shell-services.ts';
 
 export interface ShellIO {
   /** Writes one line of output. */
@@ -52,6 +53,9 @@ const HELP = [
   '  dhclient [-r] IF                   get (or release) an address with DHCP',
   '  dnsmasq --dhcp-range=START,END ... start a DHCP/DNS server (see dnsmasq --help)',
   '  killall dnsmasq                    stop the DHCP/DNS server',
+  '  dig [@SERVER] [+short] NAME        ask a DNS server for the address of NAME',
+  '  resolvectl [status]                show the DNS servers this device asks',
+  '  resolvectl dns IF SERVER...        set the DNS servers',
   '  hostname [NAME]                    show or set the device name',
   '  clear                              clear the screen',
 ];
@@ -346,6 +350,45 @@ const sysctl: Command = (_net, device, args, io) => {
   }
 };
 
+/**
+ * Runs `start` with `target` resolved to an address: right away for an IP address, after a
+ * DNS lookup for a name. `failure` words the error for a name that can't be resolved.
+ */
+function withName(
+  device: Device,
+  target: string,
+  io: ShellIO,
+  failure: (kind: 'unknown' | 'temporary') => string[],
+  start: (dst: Ip, label: string) => Process | undefined,
+): Process | undefined {
+  const literal = parseIp(target);
+  if (literal !== null) return start(literal, formatIp(literal));
+  if (!isHostname(target)) {
+    failure('unknown').forEach((line) => io.out(line));
+    return undefined;
+  }
+  let sync = true;
+  let finished = false;
+  let proc: Process | undefined;
+  const cancel = resolve(device, target, (result) => {
+    finished = true;
+    if (result.ok) proc = start(result.ip, target);
+    else failure(result.error === 'nxdomain' ? 'unknown' : 'temporary').forEach((l) => io.out(l));
+    if (!sync && !proc) io.exit();
+  });
+  sync = false;
+  if (finished) return proc;
+  return {
+    interrupt: () => {
+      if (proc) proc.interrupt();
+      else {
+        cancel();
+        io.exit();
+      }
+    },
+  };
+}
+
 /** Linux traceroute's first UDP destination port. */
 const TRACE_PORT = 33434;
 const TRACE_PROBES = 3;
@@ -379,88 +422,88 @@ const traceroute: Command = (net, device, args, io) => {
     io.out('Usage: traceroute [-m max_ttl] host');
     return;
   }
-  const dst = parseIp(target);
-  if (dst === null) {
-    io.out(`${target}: Name or service not known`);
-    io.out(`Cannot handle "host" cmdline arg \`${target}' on position 1 (argc 1)`);
-    return;
-  }
+  const name = target;
+  const failure = (kind: 'unknown' | 'temporary') => [
+    `${name}: ${kind === 'unknown' ? 'Name or service not known' : 'Temporary failure in name resolution'}`,
+    `Cannot handle "host" cmdline arg \`${name}' on position 1 (argc 1)`,
+  ];
+  return withName(device, target, io, failure, (dst, label) => {
+    const { scheduler } = net;
+    type Probe = { port: number; sentAt: number; from?: Ip; rtt?: number; mark?: string };
+    let probes: Probe[] = [];
+    let ttl = 0;
+    let timer: number | null = null;
+    let done = false;
 
-  const { scheduler } = net;
-  type Probe = { port: number; sentAt: number; from?: Ip; rtt?: number; mark?: string };
-  let probes: Probe[] = [];
-  let ttl = 0;
-  let timer: number | null = null;
-  let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      if (timer !== null) scheduler.cancel(timer);
+      if (typeof socket !== 'string') socket.close();
+      io.exit();
+    };
 
-  const finish = () => {
-    if (done) return;
-    done = true;
-    if (timer !== null) scheduler.cancel(timer);
-    if (typeof socket !== 'string') socket.close();
-    io.exit();
-  };
-
-  const hopDone = () => {
-    if (done) return;
-    if (timer !== null) scheduler.cancel(timer);
-    let line = String(ttl).padStart(2);
-    let last: Ip | undefined;
-    for (const p of probes) {
-      if (p.from === undefined) {
-        line += line.endsWith('*') ? ' *' : '  *';
-        continue;
+    const hopDone = () => {
+      if (done) return;
+      if (timer !== null) scheduler.cancel(timer);
+      let line = String(ttl).padStart(2);
+      let last: Ip | undefined;
+      for (const p of probes) {
+        if (p.from === undefined) {
+          line += line.endsWith('*') ? ' *' : '  *';
+          continue;
+        }
+        if (p.from !== last) line += `  ${formatIp(p.from)} (${formatIp(p.from)})`;
+        last = p.from;
+        line += `  ${(p.rtt ?? 0).toFixed(3)} ms${p.mark ?? ''}`;
       }
-      if (p.from !== last) line += `  ${formatIp(p.from)} (${formatIp(p.from)})`;
-      last = p.from;
-      line += `  ${(p.rtt ?? 0).toFixed(3)} ms${p.mark ?? ''}`;
+      io.out(line);
+      const stop = probes.some((p) => p.from === dst || p.mark === ' !N' || p.mark === ' !H');
+      if (stop || ttl >= maxHops) finish();
+      else sendHop();
+    };
+
+    const socket = stack.openUdp(
+      () => {},
+      (error, original) => {
+        if (done || original.payload.kind !== 'udp') return;
+        const port = original.payload.dstPort;
+        const probe = probes.find((p) => p.port === port && p.from === undefined);
+        if (!probe) return;
+        probe.from = error.from;
+        probe.rtt = scheduler.now - probe.sentAt;
+        if (error.kind === 'unreachable' && error.code !== 'port') {
+          probe.mark = error.code === 'net' ? ' !N' : ' !H';
+        }
+        if (probes.every((p) => p.from !== undefined)) hopDone();
+      },
+    );
+    if (typeof socket === 'string') {
+      io.out(`traceroute: ${socket}`);
+      return;
     }
-    io.out(line);
-    const stop = probes.some((p) => p.from === dst || p.mark === ' !N' || p.mark === ' !H');
-    if (stop || ttl >= maxHops) finish();
-    else sendHop();
-  };
 
-  const socket = stack.openUdp(
-    () => {},
-    (error, original) => {
-      if (done || original.payload.kind !== 'udp') return;
-      const port = original.payload.dstPort;
-      const probe = probes.find((p) => p.port === port && p.from === undefined);
-      if (!probe) return;
-      probe.from = error.from;
-      probe.rtt = scheduler.now - probe.sentAt;
-      if (error.kind === 'unreachable' && error.code !== 'port') {
-        probe.mark = error.code === 'net' ? ' !N' : ' !H';
+    const sendHop = () => {
+      ttl++;
+      probes = [];
+      for (let i = 0; i < TRACE_PROBES; i++) {
+        const port = TRACE_PORT + (ttl - 1) * TRACE_PROBES + i;
+        probes.push({ port, sentAt: scheduler.now });
+        const error = socket.send(dst, port, { app: 'probe' }, ttl);
+        if (error) {
+          io.out(`connect: ${error}`);
+          finish();
+          return;
+        }
       }
-      if (probes.every((p) => p.from !== undefined)) hopDone();
-    },
-  );
-  if (typeof socket === 'string') {
-    io.out(`traceroute: ${socket}`);
-    return;
-  }
+      timer = scheduler.schedule(TRACE_WAIT_MS, hopDone);
+    };
 
-  const sendHop = () => {
-    ttl++;
-    probes = [];
-    for (let i = 0; i < TRACE_PROBES; i++) {
-      const port = TRACE_PORT + (ttl - 1) * TRACE_PROBES + i;
-      probes.push({ port, sentAt: scheduler.now });
-      const error = socket.send(dst, port, { app: 'probe' }, ttl);
-      if (error) {
-        io.out(`connect: ${error}`);
-        finish();
-        return;
-      }
-    }
-    timer = scheduler.schedule(TRACE_WAIT_MS, hopDone);
-  };
-
-  const shown = formatIp(dst);
-  io.out(`traceroute to ${shown} (${shown}), ${maxHops} hops max, 60 byte packets`);
-  sendHop();
-  return { interrupt: finish };
+    const shown = formatIp(dst);
+    io.out(`traceroute to ${label} (${shown}), ${maxHops} hops max, 60 byte packets`);
+    sendHop();
+    return { interrupt: finish };
+  });
 };
 
 const ping: Command = (net, device, args, io) => {
@@ -494,96 +537,99 @@ const ping: Command = (net, device, args, io) => {
     io.out('ping: usage error: Destination address required');
     return;
   }
-  const dst = parseIp(target);
-  if (dst === null) {
-    io.out(`ping: ${target}: Name or service not known`);
-    return;
-  }
-  if (stack.allAddrs().some((a) => a.prefix < 31 && broadcastOf(a) === dst)) {
-    io.out('Do you want to ping broadcast? Then -b. If not, check your local firewall rules');
-    return;
-  }
-
-  const { scheduler } = net;
-  const shown = formatIp(dst);
-  const start = scheduler.now;
-  const sentAt = new Map<number, number>();
-  const rtts: number[] = [];
-  let sent = 0;
-  let errors = 0;
-  let done = false;
-  let timer: number | null = null;
-
-  const id = stack.openIcmp((event) => {
-    if (done) return;
-    if (event.kind === 'reply') {
-      const rtt = scheduler.now - (sentAt.get(event.seq) ?? scheduler.now);
-      rtts.push(rtt);
-      io.out(
-        `64 bytes from ${formatIp(event.from)}: icmp_seq=${event.seq} ttl=${event.ttl} time=${rtt.toFixed(2)} ms`,
-      );
-    } else {
-      errors++;
-      const what =
-        event.kind === 'ttl-exceeded'
-          ? 'Time to live exceeded'
-          : `Destination ${UNREACHABLE[event.code]} Unreachable`;
-      io.out(`From ${formatIp(event.from)} icmp_seq=${event.seq} ${what}`);
-    }
-    // Like Linux, stop as soon as every request has been answered.
-    if (sent === count && rtts.length + errors >= count) finish();
-  });
-
-  const finish = () => {
-    if (done) return;
-    done = true;
-    stack.closeIcmp(id);
-    if (timer !== null) scheduler.cancel(timer);
-    const received = rtts.length;
-    const loss = sent === 0 ? 0 : Math.round(((sent - received) / sent) * 100);
-    const errorText = errors > 0 ? `, +${errors} errors` : '';
-    io.out('');
-    io.out(`--- ${shown} ping statistics ---`);
-    io.out(
-      `${sent} packets transmitted, ${received} received${errorText}, ${loss}% packet loss, time ${Math.round(scheduler.now - start)}ms`,
-    );
-    if (received > 0) {
-      const min = Math.min(...rtts);
-      const max = Math.max(...rtts);
-      const avg = rtts.reduce((a, b) => a + b, 0) / received;
-      const mdev = Math.sqrt(rtts.reduce((a, b) => a + (b - avg) ** 2, 0) / received);
-      io.out(
-        `rtt min/avg/max/mdev = ${[min, avg, max, mdev].map((v) => v.toFixed(3)).join('/')} ms`,
-      );
-    }
-    io.exit();
-  };
-
-  const sendNext = () => {
-    if (done) return;
-    const seq = ++sent;
-    sentAt.set(seq, scheduler.now);
-    const error = stack.sendIcmp(dst, { kind: 'icmp', type: 'echo-request', id, seq }, ttl);
-    if (error) {
-      done = true;
-      stack.closeIcmp(id);
-      io.out(`ping: connect: ${error}`);
-      io.exit();
+  const name = target;
+  const failure = (kind: 'unknown' | 'temporary') => [
+    `ping: ${name}: ${kind === 'unknown' ? 'Name or service not known' : 'Temporary failure in name resolution'}`,
+  ];
+  return withName(device, target, io, failure, (dst, label) => {
+    if (stack.allAddrs().some((a) => a.prefix < 31 && broadcastOf(a) === dst)) {
+      io.out('Do you want to ping broadcast? Then -b. If not, check your local firewall rules');
       return;
     }
-    // Unanswered requests are given up 10 s after the last one, like Linux's MAXWAIT.
-    timer = scheduler.schedule(sent < count ? 1000 : 10_000, sent < count ? sendNext : finish);
-  };
 
-  io.out(`PING ${shown} (${shown}) 56(84) bytes of data.`);
-  sendNext();
-  return { interrupt: finish };
+    const { scheduler } = net;
+    const shown = formatIp(dst);
+    const start = scheduler.now;
+    const sentAt = new Map<number, number>();
+    const rtts: number[] = [];
+    let sent = 0;
+    let errors = 0;
+    let done = false;
+    let timer: number | null = null;
+
+    const id = stack.openIcmp((event) => {
+      if (done) return;
+      if (event.kind === 'reply') {
+        const rtt = scheduler.now - (sentAt.get(event.seq) ?? scheduler.now);
+        rtts.push(rtt);
+        io.out(
+          `64 bytes from ${formatIp(event.from)}: icmp_seq=${event.seq} ttl=${event.ttl} time=${rtt.toFixed(2)} ms`,
+        );
+      } else {
+        errors++;
+        const what =
+          event.kind === 'ttl-exceeded'
+            ? 'Time to live exceeded'
+            : `Destination ${UNREACHABLE[event.code]} Unreachable`;
+        io.out(`From ${formatIp(event.from)} icmp_seq=${event.seq} ${what}`);
+      }
+      // Like Linux, stop as soon as every request has been answered.
+      if (sent === count && rtts.length + errors >= count) finish();
+    });
+
+    const finish = () => {
+      if (done) return;
+      done = true;
+      stack.closeIcmp(id);
+      if (timer !== null) scheduler.cancel(timer);
+      const received = rtts.length;
+      const loss = sent === 0 ? 0 : Math.round(((sent - received) / sent) * 100);
+      const errorText = errors > 0 ? `, +${errors} errors` : '';
+      io.out('');
+      io.out(`--- ${label} ping statistics ---`);
+      io.out(
+        `${sent} packets transmitted, ${received} received${errorText}, ${loss}% packet loss, time ${Math.round(scheduler.now - start)}ms`,
+      );
+      if (received > 0) {
+        const min = Math.min(...rtts);
+        const max = Math.max(...rtts);
+        const avg = rtts.reduce((a, b) => a + b, 0) / received;
+        const mdev = Math.sqrt(rtts.reduce((a, b) => a + (b - avg) ** 2, 0) / received);
+        io.out(
+          `rtt min/avg/max/mdev = ${[min, avg, max, mdev].map((v) => v.toFixed(3)).join('/')} ms`,
+        );
+      }
+      io.exit();
+    };
+
+    const sendNext = () => {
+      if (done) return;
+      const seq = ++sent;
+      sentAt.set(seq, scheduler.now);
+      const error = stack.sendIcmp(dst, { kind: 'icmp', type: 'echo-request', id, seq }, ttl);
+      if (error) {
+        done = true;
+        stack.closeIcmp(id);
+        io.out(`ping: connect: ${error}`);
+        io.exit();
+        return;
+      }
+      // Unanswered requests are given up 10 s after the last one, like Linux's MAXWAIT.
+      timer = scheduler.schedule(sent < count ? 1000 : 10_000, sent < count ? sendNext : finish);
+    };
+
+    io.out(`PING ${label} (${shown}) 56(84) bytes of data.`);
+    sendNext();
+    return { interrupt: finish };
+  });
 };
 
 const COMMANDS: Record<string, Command> = {
   ip,
   dhclient: dhclientCommand,
+  dig,
   dnsmasq,
+  resolvectl,
   killall,
   ping,
   traceroute,

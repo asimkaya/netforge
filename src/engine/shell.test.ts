@@ -98,8 +98,12 @@ describe('shell', () => {
       'PING 8.8.8.8 (8.8.8.8) 56(84) bytes of data.',
       'ping: connect: Network is unreachable',
     ]);
+    // No name server configured yet: Linux calls that a temporary failure.
     expect(sh(net, pc1, 'ping example.com').lines).toEqual([
-      'ping: example.com: Name or service not known',
+      'ping: example.com: Temporary failure in name resolution',
+    ]);
+    expect(sh(net, pc1, 'ping bad_name!').lines).toEqual([
+      'ping: bad_name!: Name or service not known',
     ]);
     expect(sh(net, pc1, 'ping -c 0 1.1.1.1').lines).toEqual(["ping: invalid argument: '0'"]);
   });

@@ -1,4 +1,6 @@
+import { formatIp, parseIp, type Ip } from './addr.ts';
 import { dhclient, dhcpRelease } from './dhcp.ts';
+import { isHostname, resolve } from './dns.ts';
 import type { Command } from './shell.ts';
 
 /** `dnsmasq [OPTIONS]`: starts the DHCP and DNS server in the background. */
@@ -52,4 +54,159 @@ export const dhclientCommand: Command = (_net, device, args, io) => {
     return;
   }
   return { interrupt: started };
+};
+
+/** `resolvectl [status | dns [IF [SERVER...]] | revert IF | query NAME]`. */
+export const resolvectl: Command = (_net, device, args, io) => {
+  const stack = device.ip;
+  if (!stack) {
+    io.out('resolvectl: command not found');
+    return;
+  }
+  const [verb = 'status', ifName, ...servers] = args;
+  const list = () => stack.dns.map(formatIp).join(' ');
+  if (verb === 'status') {
+    io.out('Global');
+    io.out(`  DNS Servers: ${list()}`);
+    return;
+  }
+  if (verb === 'dns' || verb === 'revert') {
+    if (ifName === undefined) {
+      io.out(`Global: ${list()}`);
+      return;
+    }
+    if (!device.port(ifName)) {
+      io.out(`Failed to resolve interface "${ifName}": No such device`);
+      return;
+    }
+    if (verb === 'revert') {
+      stack.setDns([]);
+      return;
+    }
+    if (servers.length === 0) {
+      io.out(`Link (${ifName}): ${list()}`);
+      return;
+    }
+    const parsed = servers.map((text) => parseIp(text));
+    const bad = servers.find((_, i) => parsed[i] === null);
+    if (bad !== undefined) {
+      io.out(`Failed to parse DNS server address: ${bad}`);
+      return;
+    }
+    stack.setDns(parsed.filter((ip): ip is Ip => ip !== null));
+    return;
+  }
+  if (verb === 'query') {
+    if (ifName === undefined) {
+      io.out('resolvectl: query: missing name');
+      return;
+    }
+    let sync = true;
+    let finished = false;
+    const cancel = resolve(device, ifName, (r) => {
+      finished = true;
+      if (r.ok) {
+        io.out(`${ifName}: ${formatIp(r.ip)}`);
+        io.out('');
+        io.out(`-- Information acquired via protocol DNS in ${r.rtt.toFixed(1)}ms.`);
+      } else {
+        io.out(
+          `${ifName}: ${r.error === 'nxdomain' ? `resolve call failed: '${ifName}' not found` : 'resolve call failed: All attempts to contact name servers or networks failed'}`,
+        );
+      }
+      if (!sync) io.exit();
+    });
+    sync = false;
+    if (finished) return;
+    return {
+      interrupt: () => {
+        cancel();
+        io.exit();
+      },
+    };
+  }
+  io.out(`Unknown command verb '${verb}'.`);
+};
+
+/** `dig [@SERVER] [+short] NAME`: asks a name server, prints its answer like dig. */
+export const dig: Command = (_net, device, args, io) => {
+  const stack = device.ip;
+  if (!stack) {
+    io.out('dig: command not found');
+    return;
+  }
+  let short = false;
+  let server: Ip | undefined;
+  let name: string | undefined;
+  for (const arg of args) {
+    if (arg === '+short') short = true;
+    else if (arg.startsWith('@')) {
+      const ip = parseIp(arg.slice(1));
+      if (ip === null) {
+        io.out(`dig: couldn't get address for '${arg.slice(1)}': not found`);
+        return;
+      }
+      server = ip;
+    } else if (arg.startsWith('+') || arg.startsWith('-')) {
+      io.out(`Invalid option: ${arg}`);
+      return;
+    } else name = arg;
+  }
+  if (name === undefined) {
+    io.out('Usage: dig [@server] [+short] name');
+    return;
+  }
+  if (!isHostname(name)) {
+    io.out(`dig: '${name}' is not a legal name (unexpected end of input)`);
+    return;
+  }
+  const fqdn = `${name.replace(/\.$/, '')}.`;
+  const target = server ?? stack.dns[0];
+  if (target === undefined) {
+    io.out(';; no servers could be reached');
+    return;
+  }
+  let sync = true;
+  let finished = false;
+  const cancel = resolve(
+    device,
+    fqdn.slice(0, -1),
+    (r) => {
+      finished = true;
+      const at = `${formatIp(target)}#53`;
+      if (!r.ok && (r.error === 'timeout' || r.error === 'refused')) {
+        const what = r.error === 'timeout' ? 'timed out' : 'connection refused';
+        io.out(`;; communications error to ${at}: ${what}`);
+        io.out(';; no servers could be reached');
+      } else if (short) {
+        if (r.ok) io.out(formatIp(r.ip));
+      } else {
+        const status = r.ok ? 'NOERROR' : 'NXDOMAIN';
+        io.out(`; <<>> DiG 9.18 <<>> ${args.join(' ')}`);
+        io.out(';; Got answer:');
+        io.out(`;; ->>HEADER<<- opcode: QUERY, status: ${status}`);
+        io.out('');
+        io.out(';; QUESTION SECTION:');
+        io.out(`;${fqdn}\t\t\tIN\tA`);
+        if (r.ok) {
+          io.out('');
+          io.out(';; ANSWER SECTION:');
+          io.out(`${fqdn}\t\t0\tIN\tA\t${formatIp(r.ip)}`);
+        }
+        io.out('');
+        io.out(`;; Query time: ${r.ok ? Math.round(r.rtt) : 0} msec`);
+        io.out(`;; SERVER: ${at}(${formatIp(target)}) (UDP)`);
+      }
+      if (!sync) io.exit();
+    },
+    target,
+  );
+  sync = false;
+  if (finished) return;
+  return {
+    interrupt: () => {
+      cancel();
+      io.exit();
+    },
+  };
 };

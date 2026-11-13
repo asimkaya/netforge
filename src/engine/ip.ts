@@ -103,6 +103,7 @@ export class IpStack {
   readonly #icmpListeners = new Map<number, IcmpListener>();
   readonly #udp = new Map<number, UdpBinding>();
   #nextIcmpId = 1;
+  #nextDnsId = 1;
   #nextPort = EPHEMERAL_PORT_START;
 
   constructor(
@@ -228,6 +229,11 @@ export class IpStack {
   }
 
   // ---------------------------------------------------------------- sockets
+
+  /** A fresh DNS query id, unique per device. */
+  nextDnsId(): number {
+    return this.#nextDnsId++;
+  }
 
   openIcmp(listener: IcmpListener): number {
     const id = this.#nextIcmpId++;
