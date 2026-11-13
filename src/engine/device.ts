@@ -39,7 +39,7 @@ export class Device {
     }));
     this.bridge = spec.bridge ? new Bridge(fabric, this.ports) : null;
     const routed = this.ports.filter((p) => !this.bridge?.owns(p));
-    this.ip = spec.ip ? new IpStack(fabric, routed) : null;
+    this.ip = spec.ip ? new IpStack(fabric, routed, spec.forwarding) : null;
   }
 
   port(name: string): Port | undefined {

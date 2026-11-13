@@ -5,7 +5,7 @@ import type { Point } from './lab.ts';
 
 export const PROJECT_FORMAT = 'netforge-lab';
 /** Bump on any incompatible change and add a migration for the previous version. */
-export const PROJECT_VERSION = 2;
+export const PROJECT_VERSION = 3;
 
 export interface TaskProgress {
   /** Id of the task being played, if any. */
@@ -86,6 +86,25 @@ function endpoint(value: unknown, what: string) {
   return { device: str(e.device, `${what} device`, ID), port: str(e.port, `${what} port`, PORT) };
 }
 
+const IP = /^[0-9.]{7,15}$/;
+
+function readIpSettings(value: unknown, what: string) {
+  const ip = obj(value, `${what} IP settings`);
+  if (typeof ip.forwarding !== 'boolean') fail(`${what} forwarding setting is invalid.`);
+  return {
+    forwarding: ip.forwarding,
+    dns: arr(ip.dns, `${what} DNS servers`).map((a) => str(a, `${what} DNS server`, IP)),
+    routes: arr(ip.routes, `${what} routes`).map((value) => {
+      const r = obj(value, `${what} route`);
+      return {
+        dst: str(r.dst, `${what} route destination`, CIDR),
+        ...(r.via === undefined ? {} : { via: str(r.via, `${what} route gateway`, IP) }),
+        dev: str(r.dev, `${what} route device`, PORT),
+      };
+    }),
+  };
+}
+
 /** Checks the shape of untrusted JSON before the engine sees it. */
 function readSnapshot(value: unknown): NetworkSnapshot {
   const n = obj(value, 'network');
@@ -108,6 +127,7 @@ function readSnapshot(value: unknown): NetworkSnapshot {
           ? port
           : { ...port, addrs: arr(p.addrs, 'port addresses').map((a) => str(a, 'address', CIDR)) };
       }),
+      ...(d.ip === undefined ? {} : { ip: readIpSettings(d.ip, `device #${i + 1}`) }),
     };
   });
   const links = arr(n.links, 'network.links').map((value, i) => {
@@ -159,6 +179,9 @@ function readTasks(value: unknown): TaskProgress {
  * reshapes what it recognizes and leaves anything odd for the validator to reject.
  */
 const MIGRATIONS: Record<number, (file: Json) => Json> = {
+  // v3 only adds optional per-device `ip` settings (routes, DNS, forwarding); the bump keeps
+  // older app versions from silently dropping them.
+  2: (file) => file,
   // v2: devices name a spec instead of a kind; switches gain two SFP uplinks (eth8, eth9);
   // per-kind name counters become per-prefix counters.
   1: (file) => {

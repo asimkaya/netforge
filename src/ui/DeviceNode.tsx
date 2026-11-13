@@ -131,14 +131,16 @@ function SwitchFace({ device, activity }: { device: Device; activity: Record<str
   const copper = device.ports.filter((p) => p.type === 'ethernet');
   const fiber = device.ports.filter((p) => p.type === 'sfp');
   const pitch = SOCKET.w + 6;
-  const width = 16 + copper.length * pitch + 12 + fiber.length * pitch + 10;
+  // Wide enough for the ports and for the name line, whichever is longer.
+  const width = Math.max(200, 16 + copper.length * pitch + 12 + fiber.length * pitch + 10);
   const y = 34;
   return (
     <div className="relative h-[74px]" style={{ width }}>
       <div className="flex items-baseline gap-2 px-3 pt-1.5">
         <span className="truncate text-xs font-semibold">{device.name}</span>
         <span className="text-[10px] text-(--nf-muted)">
-          {copper.length}× Ethernet · {fiber.length}× SFP
+          {device.spec.label} · {copper.length}× Ethernet
+          {fiber.length > 0 && ` · ${fiber.length}× SFP`}
         </span>
       </div>
       {copper.map((p, i) => (

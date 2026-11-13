@@ -155,6 +155,11 @@ export function select(id: string | null): void {
   if (state.selected !== id) update({ selected: id });
 }
 
+/** End hosts get a desktop with apps; network gear gets a CLI tab instead. */
+export function hasDesktop(spec: SpecId): boolean {
+  return spec === 'pc';
+}
+
 let topZ = 1;
 
 function patchWindow(id: string, patch: Partial<DeviceWindow>): void {
@@ -182,7 +187,7 @@ export function openWindow(
       x: at?.x ?? 24 + n * 40,
       y: at?.y ?? 24 + n * 40,
       z,
-      tab: device.ip ? 'desktop' : 'physical',
+      tab: hasDesktop(device.spec.id) ? 'desktop' : 'physical',
       app: null,
       minimized: false,
       ...view,
@@ -195,7 +200,10 @@ export function openWindow(
 /** Opens the device's terminal: the Desktop app on hosts, the CLI tab elsewhere. */
 export function openTerminal(id: string): void {
   const device = state.net.devices.get(id);
-  openWindow(id, device?.ip ? { tab: 'desktop', app: 'terminal' } : { tab: 'cli' });
+  openWindow(
+    id,
+    device && hasDesktop(device.spec.id) ? { tab: 'desktop', app: 'terminal' } : { tab: 'cli' },
+  );
 }
 
 export function closeWindow(id: string): void {

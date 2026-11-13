@@ -128,6 +128,26 @@ describe('lab files', () => {
       /damaged/,
     ],
     [
+      'a route through an unknown gateway',
+      (f) =>
+        Object.assign(f.network.devices[0] ?? {}, {
+          ip: {
+            forwarding: false,
+            dns: [],
+            routes: [{ dst: '0.0.0.0/0', via: '9.9.9.9', dev: 'eth0' }],
+          },
+        }),
+      /invalid gateway/,
+    ],
+    [
+      'a malformed DNS server',
+      (f) =>
+        Object.assign(f.network.devices[0] ?? {}, {
+          ip: { forwarding: false, dns: ['x'], routes: [] },
+        }),
+      /DNS server is invalid/,
+    ],
+    [
       'a dangling cable',
       (f) => Object.assign(f.network.links[0]?.b ?? {}, { device: 'd99' }),
       /damaged/,

@@ -1,4 +1,4 @@
-import { formatCidr, macFromIndex, parseCidr } from './addr.ts';
+import { formatCidr, formatIp, macFromIndex, parseCidr, parseIp } from './addr.ts';
 import { Device, type Fabric } from './device.ts';
 import type { EthernetFrame } from './packet.ts';
 import { MEDIUM_OF, cableError, hasCarrier, peerOf, type Link, type Port } from './port.ts';
@@ -25,6 +25,12 @@ export interface NetworkSnapshot {
     spec: SpecId;
     name: string;
     ports: { name: string; mac: string; up: boolean; addrs?: string[] }[];
+    /** IP settings beyond addresses; absent on devices without an IP stack. */
+    ip?: {
+      forwarding: boolean;
+      dns: string[];
+      routes: { dst: string; via?: string; dev: string }[];
+    };
   }[];
   links: { id: string; a: { device: string; port: string }; b: { device: string; port: string } }[];
   counters: { device: number; link: number; mac: number; names: Record<string, number> };
@@ -164,6 +170,19 @@ export class Network implements Fabric {
           up: p.adminUp,
           ...(d.ip?.ports.includes(p) ? { addrs: d.ip.addrsOn(p).map(formatCidr) } : {}),
         })),
+        ...(d.ip
+          ? {
+              ip: {
+                forwarding: d.ip.forwarding,
+                dns: d.ip.dns.map(formatIp),
+                routes: d.ip.staticRoutes.map((r) => ({
+                  dst: formatCidr(r.dst),
+                  ...(r.via === null ? {} : { via: formatIp(r.via) }),
+                  dev: r.dev.name,
+                })),
+              },
+            }
+          : {}),
       })),
       links: [...this.links.values()].map((l) => ({
         id: l.id,
@@ -203,6 +222,24 @@ export class Network implements Fabric {
           device.ip.addAddress(port, cidr);
         }
       });
+      if (d.ip && device.ip) {
+        device.ip.forwarding = d.ip.forwarding;
+        device.ip.dns = d.ip.dns.map((text) => {
+          const ip = parseIp(text);
+          if (ip === null) throw new Error(`Invalid DNS server ${text} on ${d.id}`);
+          return ip;
+        });
+        for (const r of d.ip.routes) {
+          const dst = parseCidr(r.dst);
+          const via = r.via === undefined ? null : parseIp(r.via);
+          const dev = device.port(r.dev);
+          if (!dst || via === undefined || (r.via !== undefined && via === null) || !dev) {
+            throw new Error(`Invalid route ${r.dst} on ${d.id}`);
+          }
+          const error = device.ip.addRoute(dst, via, dev);
+          if (error) throw new Error(`Route ${r.dst} on ${d.id}: ${error}`);
+        }
+      }
       net.devices.set(device.id, device);
     }
     for (const l of snapshot.links) {

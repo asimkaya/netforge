@@ -23,7 +23,7 @@ test('export then import restores the same lab', async ({ page }) => {
   await page.getByRole('button', { name: 'Export' }).click();
   const path = await (await download).path();
   const text = await readFile(path, 'utf8');
-  expect(JSON.parse(text)).toMatchObject({ format: 'netforge-lab', version: 2 });
+  expect(JSON.parse(text)).toMatchObject({ format: 'netforge-lab', version: 3 });
 
   page.once('dialog', (d) => void d.accept());
   await page.getByRole('button', { name: 'New lab' }).click();
@@ -42,7 +42,7 @@ test('importing a broken file shows an error and keeps the lab', async ({ page }
   await page.getByLabel('Import lab file').setInputFiles({
     name: 'bad.json',
     mimeType: 'application/json',
-    buffer: Buffer.from('{"format":"netforge-lab","version":2,"network":{}}'),
+    buffer: Buffer.from('{"format":"netforge-lab","version":3,"network":{}}'),
   });
   await expect(page.getByRole('status')).toContainText('network.devices');
   await expect(page.getByTestId('device-pc1')).toBeVisible();

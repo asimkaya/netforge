@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react';
 import { formatIp } from '../engine/addr.ts';
 import type { Network, TraceEntry } from '../engine/network.ts';
-import { describeFrame, protocolOf, type EthernetFrame } from '../engine/packet.ts';
+import {
+  describeFrame,
+  protocolOf,
+  type EthernetFrame,
+  type IcmpPacket,
+} from '../engine/packet.ts';
 import { stepToNextFrame } from './clock.ts';
 import { useLab } from './lab.ts';
 import { PROTOCOL_COLORS } from './theme.ts';
@@ -39,28 +44,89 @@ function layers(frame: EthernetFrame): { name: string; fields: Field[] }[] {
       },
     ];
   }
-  const icmp = p.payload;
-  return [
-    ethernet,
-    {
-      name: 'Internet Protocol version 4',
-      fields: [
-        ['Source', formatIp(p.src)],
-        ['Destination', formatIp(p.dst)],
-        ['Time to live', String(p.ttl)],
-        ['Protocol', 'ICMP (1)'],
-      ],
-    },
-    {
-      name: 'Internet Control Message Protocol',
-      fields: [
+  const inner = p.payload;
+  const ip = {
+    name: 'Internet Protocol version 4',
+    fields: [
+      ['Source', formatIp(p.src)],
+      ['Destination', formatIp(p.dst)],
+      ['Time to live', String(p.ttl)],
+      ['Protocol', inner.kind === 'icmp' ? 'ICMP (1)' : 'UDP (17)'],
+    ] satisfies Field[],
+  };
+  if (inner.kind === 'icmp') {
+    const fields = icmpFields(inner);
+    return [ethernet, ip, { name: 'Internet Control Message Protocol', fields }];
+  }
+  const udp = {
+    name: 'User Datagram Protocol',
+    fields: [
+      ['Source port', String(inner.srcPort)],
+      ['Destination port', String(inner.dstPort)],
+    ] satisfies Field[],
+  };
+  const d = inner.data;
+  if (d.app === 'dhcp') {
+    const fields: Field[] = [
+      ['Message type', `DHCP ${d.op}`],
+      ['Transaction ID', `0x${d.xid.toString(16)}`],
+      ['Client MAC', d.chaddr],
+      ['Your IP', formatIp(d.yiaddr)],
+      ['Server', formatIp(d.serverId)],
+    ];
+    if (d.requested !== undefined) fields.push(['Requested IP', formatIp(d.requested)]);
+    if (d.hostname) fields.push(['Hostname', d.hostname]);
+    if (d.lease) {
+      fields.push(['Subnet prefix', `/${d.lease.prefix}`]);
+      if (d.lease.router !== undefined) fields.push(['Router', formatIp(d.lease.router)]);
+      if (d.lease.dns !== undefined) fields.push(['DNS server', formatIp(d.lease.dns)]);
+      fields.push(['Lease time', `${d.lease.seconds} s`]);
+    }
+    return [ethernet, ip, udp, { name: 'Dynamic Host Configuration Protocol', fields }];
+  }
+  if (d.app === 'dns') {
+    const fields: Field[] = [
+      ['Transaction ID', `0x${d.id.toString(16)}`],
+      ['Flags', d.qr === 'query' ? 'Standard query' : 'Standard query response'],
+      ['Question', `${d.name} A`],
+    ];
+    if (d.qr === 'response') {
+      fields.push(['Answer', d.answer ? formatIp(d.answer) : 'No such name (NXDOMAIN)']);
+    }
+    return [ethernet, ip, udp, { name: 'Domain Name System', fields }];
+  }
+  return [ethernet, ip, udp];
+}
+
+function icmpFields(icmp: IcmpPacket): Field[] {
+  switch (icmp.type) {
+    case 'echo-request':
+    case 'echo-reply':
+      return [
         ['Type', icmp.type === 'echo-request' ? '8 (Echo request)' : '0 (Echo reply)'],
         ['Identifier', String(icmp.id)],
         ['Sequence', String(icmp.seq)],
-      ],
-    },
-  ];
+      ];
+    case 'time-exceeded':
+      return [
+        ['Type', '11 (Time exceeded)'],
+        ['Code', '0 (TTL expired in transit)'],
+        ['About packet', `${formatIp(icmp.original.src)} > ${formatIp(icmp.original.dst)}`],
+      ];
+    case 'dest-unreachable':
+      return [
+        ['Type', '3 (Destination unreachable)'],
+        ['Code', UNREACHABLE_CODE[icmp.code]],
+        ['About packet', `${formatIp(icmp.original.src)} > ${formatIp(icmp.original.dst)}`],
+      ];
+  }
 }
+
+const UNREACHABLE_CODE = {
+  net: '0 (Network unreachable)',
+  host: '1 (Host unreachable)',
+  port: '3 (Port unreachable)',
+} as const;
 
 function deviceName(net: Network, id: string): string {
   return net.devices.get(id)?.name ?? '(removed)';

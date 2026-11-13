@@ -1,6 +1,6 @@
 import type { PortType } from './port.ts';
 
-export type SpecId = 'pc' | 'switch';
+export type SpecId = 'pc' | 'switch' | 'router';
 
 /**
  * What a device is made of. Adding a device type means adding a spec here (and its
@@ -17,6 +17,8 @@ export interface DeviceSpec {
   bridge: boolean;
   /** Runs an IP stack on the ports that are not bridged. */
   ip: boolean;
+  /** Initial `net.ipv4.ip_forward`: forwards packets between its interfaces. */
+  forwarding: boolean;
 }
 
 function ports(type: PortType, from: number, count: number) {
@@ -32,6 +34,7 @@ export const SPECS: Record<SpecId, DeviceSpec> = {
     ports: ports('ethernet', 0, 1),
     bridge: false,
     ip: true,
+    forwarding: false,
   },
   switch: {
     id: 'switch',
@@ -41,6 +44,17 @@ export const SPECS: Record<SpecId, DeviceSpec> = {
     ports: [...ports('ethernet', 0, 8), ...ports('sfp', 8, 2)],
     bridge: true,
     ip: false,
+    forwarding: false,
+  },
+  router: {
+    id: 'router',
+    label: 'Router',
+    description: 'Linux router with 4 Ethernet ports; forwards packets between networks',
+    namePrefix: 'r',
+    ports: ports('ethernet', 0, 4),
+    bridge: false,
+    ip: true,
+    forwarding: true,
   },
 };
 

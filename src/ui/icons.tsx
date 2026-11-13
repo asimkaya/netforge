@@ -39,6 +39,21 @@ export function SwitchArt({ className }: { className?: string | undefined }) {
   );
 }
 
+export function RouterArt({ className }: { className?: string | undefined }) {
+  return (
+    <svg viewBox="0 0 48 40" className={className} aria-hidden>
+      <rect x="4" y="16" width="40" height="14" rx="3" fill="#1e293b" />
+      <path d="M12 16V8M36 16V8" stroke="#a78bfa" strokeWidth="2" strokeLinecap="round" />
+      {[0, 1, 2, 3].map((i) => (
+        <rect key={i} x={9 + i * 8} y={21} width="5" height="5" rx="0.8" fill="#05080f" />
+      ))}
+      <circle cx="40" cy="23" r="1.2" fill="#22c55e" />
+    </svg>
+  );
+}
+
 export function SpecArt({ spec, className }: { spec: SpecId; className?: string | undefined }) {
-  return spec === 'pc' ? <PcArt className={className} /> : <SwitchArt className={className} />;
+  if (spec === 'pc') return <PcArt className={className} />;
+  if (spec === 'router') return <RouterArt className={className} />;
+  return <SwitchArt className={className} />;
 }

@@ -4,6 +4,8 @@ export type Ip = number;
 export type Mac = string;
 
 export const BROADCAST_MAC: Mac = 'ff:ff:ff:ff:ff:ff';
+/** 255.255.255.255: "everyone on this link", used before a host has an address (DHCP). */
+export const LIMITED_BROADCAST: Ip = 0xffffffff;
 
 export function parseIp(text: string): Ip | null {
   const parts = text.split('.');

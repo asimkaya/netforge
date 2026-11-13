@@ -3,6 +3,7 @@ import { SpecArt } from '../icons.tsx';
 import {
   closeWindow,
   focusWindow,
+  hasDesktop,
   minimizeWindow,
   moveWindow,
   setWindowView,
@@ -28,7 +29,7 @@ function Window({ win, bounds }: { win: DeviceWindow; bounds: () => DOMRect | un
   const drag = useRef<{ dx: number; dy: number } | null>(null);
   const device = net.devices.get(win.device);
   if (!device || win.minimized) return null;
-  const tabs: WindowTab[] = device.ip
+  const tabs: WindowTab[] = hasDesktop(device.spec.id)
     ? ['physical', 'config', 'desktop']
     : ['physical', 'config', 'cli'];
 

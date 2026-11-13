@@ -1,5 +1,14 @@
-import { broadcastOf, formatCidr, formatIp, networkOf, parseCidr, parseIp } from './addr.ts';
+import {
+  broadcastOf,
+  formatCidr,
+  formatIp,
+  parseCidr,
+  parseIp,
+  type Cidr,
+  type Ip,
+} from './addr.ts';
 import type { Device } from './device.ts';
+import { DEFAULT_TTL } from './ip.ts';
 import type { Network } from './network.ts';
 import { hasCarrier, type Port } from './port.ts';
 
@@ -27,7 +36,11 @@ const HELP = [
   '  ip link set [dev] IF up|down       enable or disable an interface',
   '  ip neigh [show] | flush all|dev IF show or clear the ARP table',
   '  ip route [show]                    show the routing table',
-  '  ping [-c COUNT] ADDR               send ICMP echo requests (Ctrl+C stops)',
+  '  ip route add DST [via GW] [dev IF] add a route; DST is ADDR/LEN or default',
+  '  ip route del DST                   remove a route',
+  '  ip route get ADDR                  show which route a packet would take',
+  '  sysctl -w net.ipv4.ip_forward=1    let the device forward packets (router)',
+  '  ping [-c COUNT] [-t TTL] ADDR      send ICMP echo requests (Ctrl+C stops)',
   '  bridge fdb [show]                  show learned MAC addresses (switches)',
   '  hostname [NAME]                    show or set the device name',
   '  clear                              clear the screen',
@@ -170,16 +183,97 @@ function ipNeigh(_net: Network, device: Device, args: string[], io: ShellIO): un
   io.out(`Command "${verb}" is unknown, try "ip neigh help".`);
 }
 
+function routeLine(r: { dst: Cidr; via: Ip | null; port: Port; src?: Ip; proto: string }): string {
+  const dst = r.dst.prefix === 0 ? 'default' : formatCidr(r.dst);
+  const down = hasCarrier(r.port) ? '' : ' linkdown';
+  if (r.proto === 'kernel') {
+    return `${dst} dev ${r.port.name} proto kernel scope link src ${formatIp(r.src ?? 0)}${down}`;
+  }
+  return r.via === null
+    ? `${dst} dev ${r.port.name} scope link${down}`
+    : `${dst} via ${formatIp(r.via)} dev ${r.port.name}${down}`;
+}
+
+/** Parses `default` or `a.b.c.d[/n]` into a network. */
+function parseDst(text: string | undefined): Cidr | null {
+  if (text === 'default') return { ip: 0, prefix: 0 };
+  return text === undefined ? null : parseCidr(text);
+}
+
 function ipRoute(_net: Network, device: Device, args: string[], io: ShellIO): undefined {
-  const [verb] = args;
-  if (verb !== undefined && !matches(verb, 'show') && !matches(verb, 'list')) {
+  const [verb, ...rest] = args;
+  const stack = device.ip;
+  if (verb === undefined || matches(verb, 'show') || matches(verb, 'list')) {
+    if (!stack) return;
+    const kernel = stack.routes().filter((r) => r.proto === 'kernel');
+    const statics = stack.staticRoutes.map((r) => ({ ...r, port: r.dev, proto: 'static' }));
+    const all = [...kernel, ...statics].sort((a, b) =>
+      a.dst.prefix === 0
+        ? -1
+        : b.dst.prefix === 0
+          ? 1
+          : a.dst.ip - b.dst.ip || a.dst.prefix - b.dst.prefix,
+    );
+    all.forEach((r) => io.out(routeLine(r)));
+    return;
+  }
+  const isAdd = matches(verb, 'add');
+  const isDel = matches(verb, 'delete');
+  const isGet = matches(verb, 'get');
+  if (!isAdd && !isDel && !isGet) {
     io.out(`Command "${verb}" is unknown, try "ip route help".`);
     return;
   }
-  for (const r of device.ip?.routes() ?? []) {
-    const net = formatCidr({ ip: networkOf(r.subnet), prefix: r.subnet.prefix });
-    io.out(`${net} dev ${r.port.name} proto kernel scope link src ${formatIp(r.src)}`);
+  if (!stack) {
+    io.out('RTNETLINK answers: Operation not supported');
+    return;
   }
+  if (isGet) {
+    const dst = rest[0] === undefined ? null : parseIp(rest[0]);
+    if (dst === null) {
+      io.out(`Error: any valid address is expected rather than "${rest[0] ?? ''}".`);
+      return;
+    }
+    const r = stack.ownsIp(dst) ? null : stack.routeTo(dst);
+    if (stack.ownsIp(dst)) io.out(`local ${formatIp(dst)} dev lo src ${formatIp(dst)}`);
+    else if (!r) io.out('RTNETLINK answers: Network is unreachable');
+    else {
+      const via = r.via === null ? '' : ` via ${formatIp(r.via)}`;
+      io.out(`${formatIp(dst)}${via} dev ${r.port.name} src ${formatIp(r.src)}`);
+    }
+    return;
+  }
+  const dst = parseDst(rest[0]);
+  if (!dst) {
+    io.out(`Error: any valid prefix is expected rather than "${rest[0] ?? ''}".`);
+    return;
+  }
+  if (isDel) {
+    const error = stack.removeRoute(dst);
+    if (error) io.out(error);
+    return;
+  }
+  let via: Ip | null = null;
+  let dev: Port | null = null;
+  for (let i = 1; i < rest.length; i += 2) {
+    const key = rest[i];
+    const value = rest[i + 1];
+    if (key === 'via') {
+      via = value === undefined ? null : parseIp(value);
+      if (via === null) {
+        io.out(`Error: inet address is expected rather than "${value ?? ''}".`);
+        return;
+      }
+    } else if (key === 'dev') {
+      dev = findPort(device, value, io);
+      if (!dev) return;
+    } else {
+      io.out(`Error: either "to" is duplicate, or "${key ?? ''}" is a garbage.`);
+      return;
+    }
+  }
+  const error = stack.addRoute(dst, via, dev);
+  if (error) io.out(error);
 }
 
 const ip: Command = (net, device, args, io) => {
@@ -215,6 +309,33 @@ const hostname: Command = (net, device, args, io) => {
   else io.out('hostname: the specified hostname is invalid');
 };
 
+const UNREACHABLE = { net: 'Net', host: 'Host', port: 'Port' } as const;
+
+const sysctl: Command = (_net, device, args, io) => {
+  const words = args.filter((a) => a !== '-w');
+  if (words.length === 0) {
+    io.out('sysctl: no variables specified');
+    return;
+  }
+  for (const word of words) {
+    const [key, value] = word.split('=');
+    if (key !== 'net.ipv4.ip_forward' || !device.ip) {
+      io.out(
+        `sysctl: cannot stat /proc/sys/${(key ?? '').replaceAll('.', '/')}: No such file or directory`,
+      );
+      continue;
+    }
+    if (value !== undefined) {
+      if (value !== '0' && value !== '1') {
+        io.out(`sysctl: setting key "${key}": Invalid argument`);
+        continue;
+      }
+      device.ip.setForwarding(value === '1');
+    }
+    io.out(`${key} = ${device.ip.forwarding ? 1 : 0}`);
+  }
+};
+
 const ping: Command = (net, device, args, io) => {
   const stack = device.ip;
   if (!stack) {
@@ -222,16 +343,19 @@ const ping: Command = (net, device, args, io) => {
     return;
   }
   let count = 4;
+  let ttl = DEFAULT_TTL;
   let target: string | undefined;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (arg === '-c') {
+    if (arg === '-c' || arg === '-t') {
       const value = Number(args[++i]);
-      if (!Number.isInteger(value) || value < 1) {
+      const max = arg === '-c' ? Infinity : 255;
+      if (!Number.isInteger(value) || value < 1 || value > max) {
         io.out(`ping: invalid argument: '${args[i] ?? ''}'`);
         return;
       }
-      count = value;
+      if (arg === '-c') count = value;
+      else ttl = value;
     } else if (arg?.startsWith('-')) {
       io.out(`ping: invalid option -- '${arg.slice(1)}'`);
       return;
@@ -273,7 +397,11 @@ const ping: Command = (net, device, args, io) => {
       );
     } else {
       errors++;
-      io.out(`From ${formatIp(event.from)} icmp_seq=${event.seq} Destination Host Unreachable`);
+      const what =
+        event.kind === 'ttl-exceeded'
+          ? 'Time to live exceeded'
+          : `Destination ${UNREACHABLE[event.code]} Unreachable`;
+      io.out(`From ${formatIp(event.from)} icmp_seq=${event.seq} ${what}`);
     }
     // Like Linux, stop as soon as every request has been answered.
     if (sent === count && rtts.length + errors >= count) finish();
@@ -308,7 +436,7 @@ const ping: Command = (net, device, args, io) => {
     if (done) return;
     const seq = ++sent;
     sentAt.set(seq, scheduler.now);
-    const error = stack.sendIcmp(dst, { kind: 'icmp', type: 'echo-request', id, seq });
+    const error = stack.sendIcmp(dst, { kind: 'icmp', type: 'echo-request', id, seq }, ttl);
     if (error) {
       done = true;
       stack.closeIcmp(id);
@@ -328,6 +456,7 @@ const ping: Command = (net, device, args, io) => {
 const COMMANDS: Record<string, Command> = {
   ip,
   ping,
+  sysctl,
   bridge,
   hostname,
   help: (_net, _device, _args, io) => {

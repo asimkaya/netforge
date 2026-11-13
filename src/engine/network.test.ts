@@ -109,7 +109,7 @@ describe('Network', () => {
     const sw = net.addDevice('switch');
     net.connect(pc1, sw);
     const events = ping(net, pc1, '10.0.0.99');
-    expect(events).toEqual([{ kind: 'unreachable', from: ip('10.0.0.1'), seq: 1 }]);
+    expect(events).toEqual([{ kind: 'unreachable', from: ip('10.0.0.1'), seq: 1, code: 'host' }]);
     expect(net.trace.filter((t) => t.frame.payload.kind === 'arp')).toHaveLength(3);
     expect(net.scheduler.now).toBeGreaterThanOrEqual(3000);
     expect(ipOf(pc1).neighbors.get(ip('10.0.0.99'))?.state).toBe('FAILED');
