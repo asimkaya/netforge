@@ -19,6 +19,7 @@ import {
 import { Terminal } from '../apps/Terminal.tsx';
 import { FirewallSection } from './firewall-section.tsx';
 import { OspfSection } from './ospf-section.tsx';
+import { WireguardSection } from './wireguard-section.tsx';
 import { StpSection, SwitchVlanSection, VlanInterfacesSection } from './vlan-sections.tsx';
 import { cable, hasDesktop, removeDevice, setWindowView, useLab, type AppId } from '../lab.ts';
 
@@ -202,6 +203,7 @@ export function ConfigTab({ device }: { device: Device }) {
       <OspfSection device={device} />
       <RadvdSection device={device} />
       <FirewallSection device={device} />
+      <WireguardSection device={device} />
       <ServicesSection device={device} />
       <WebServerSection device={device} />
       <MailServerSection device={device} />
