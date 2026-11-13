@@ -214,6 +214,12 @@ function ospfPairs(net: Network): [Device, Device][] {
   );
 }
 
+/** The WireGuard tunnel of a router, once it has a key. */
+function tunnelOf(router: Device) {
+  const wg = router.vlanPorts.map((p) => router.wireguard(p)).find((t) => t?.privateKey);
+  return wg ?? null;
+}
+
 export const TASKS: Task[] = [
   {
     id: 'first-ping',
@@ -653,6 +659,70 @@ export const TASKS: Task[] = [
       },
     ],
     done: 'Your PC used the router’s public address: NAT rewrote each packet on the way out and remembered the connection (conntrack) to rewrite the replies. The firewall now drops anything that starts outside, while replies to your own connections still come back.',
+  },
+  {
+    id: 'vpn',
+    title: 'Join two offices with a VPN',
+    summary: 'Connect two private networks across the Internet with WireGuard.',
+    steps: [
+      {
+        title: 'Two offices on the Internet',
+        detail:
+          'Add the Internet cloud and two routers, each with `eth1` cabled to the cloud and a PC on `eth0`. Run `dhclient eth1` on both routers.',
+        check: ({ net }) =>
+          natRouters(net).filter(({ router, wan }) => (router.ip?.addrsOn(wan).length ?? 0) > 0)
+            .length >= 2,
+      },
+      {
+        title: 'Give each office its own network',
+        detail:
+          'Office 1: router `192.168.1.1/24`, PC `192.168.1.10/24`. Office 2: router `192.168.2.1/24`, PC `192.168.2.10/24`. Each PC uses its router as gateway.',
+        check: ({ net }) =>
+          natRouters(net).filter(({ router }) =>
+            pcsOnRouter(router).some(
+              (l) => pcInPortNetwork(router, l) && gatewayIsRouter(router, l),
+            ),
+          ).length >= 2,
+      },
+      {
+        title: 'Create a WireGuard interface on both routers',
+        detail:
+          'Router → Config → WireGuard VPN → Create wg0, with `10.8.0.1/24` on one router and `10.8.0.2/24` on the other.',
+        hint: 'In the CLI: `wg genkey | tee key | wg pubkey`, then write /etc/wireguard/wg0.conf and run `wg-quick up wg0`.',
+        check: ({ net }) => natRouters(net).filter(({ router }) => tunnelOf(router)).length >= 2,
+      },
+      {
+        title: 'Make them peers',
+        detail:
+          'On each router add the other as a peer: its public key, its public address with port 51820 as endpoint, and its tunnel address and LAN as allowed IPs (e.g. `10.8.0.2/32, 192.168.2.0/24`).',
+        check: ({ net }) => {
+          const tunnels = natRouters(net).flatMap(({ router }) => {
+            const wg = tunnelOf(router);
+            return wg ? [wg] : [];
+          });
+          return tunnels.some((a) =>
+            tunnels.some(
+              (b) =>
+                a !== b &&
+                a.peers.some((p) => p.publicKey === b.publicKey) &&
+                b.peers.some((p) => p.publicKey === a.publicKey),
+            ),
+          );
+        },
+      },
+      {
+        title: 'Ping across the tunnel',
+        detail:
+          'Ping the PC in the other office. Then open the Internet cloud’s capture: only WireGuard packets cross it.',
+        check: ({ net }) => {
+          const pcs = natRouters(net).flatMap(({ router }) =>
+            tunnelOf(router) ? pcsOnRouter(router).map((l) => l.pc) : [],
+          );
+          return pcs.some((pc) => pinged(pc, pcs));
+        },
+      },
+    ],
+    done: 'Your ping travelled inside an encrypted UDP packet from one router’s public address to the other. The Internet only saw WireGuard traffic; each router accepted the inner packet only because it came from the other office’s allowed IPs.',
   },
 ];
 

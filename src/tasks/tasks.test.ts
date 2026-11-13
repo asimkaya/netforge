@@ -308,4 +308,50 @@ describe('tasks', () => {
     sh(r1, 'killall bird');
     sh(r2, 'killall bird');
   });
+  it('vpn joins two offices with WireGuard', () => {
+    const t = task('vpn');
+    const net = new Network();
+    const { ctx, sh } = play(net);
+    const progress = () => advance(t, ctx, 0);
+    const inet = net.addDevice('internet');
+    const [r1, r2] = [net.addDevice('router'), net.addDevice('router')];
+    const [pc1, pc2] = [net.addDevice('pc'), net.addDevice('pc')];
+    const port = (d: typeof r1, name: string) => d.port(name) ?? (undefined as never);
+    net.connect(port(r1, 'eth1'), port(inet, 'eth0'));
+    net.connect(port(r2, 'eth1'), port(inet, 'eth1'));
+    net.connect(port(pc1, 'eth0'), port(r1, 'eth0'));
+    net.connect(port(pc2, 'eth0'), port(r2, 'eth0'));
+    sh(r1, 'dhclient eth1');
+    sh(r2, 'dhclient eth1');
+    expect(progress()).toBe(1);
+    sh(r1, 'ip addr add 192.168.1.1/24 dev eth0');
+    sh(r2, 'ip addr add 192.168.2.1/24 dev eth0');
+    sh(pc1, 'ip addr add 192.168.1.10/24 dev eth0');
+    sh(pc2, 'ip addr add 192.168.2.10/24 dev eth0');
+    sh(pc1, 'ip route add default via 192.168.1.1');
+    sh(pc2, 'ip route add default via 192.168.2.1');
+    expect(progress()).toBe(2);
+    const keys = [r1, r2].map((r, i) => {
+      sh(r, 'ip link add wg0 type wireguard');
+      sh(r, 'wg genkey > /etc/wireguard/key');
+      sh(r, 'wg set wg0 private-key /etc/wireguard/key listen-port 51820');
+      sh(r, `ip addr add 10.8.0.${i + 1}/24 dev wg0`);
+      sh(r, 'ip link set wg0 up');
+      return r.wireguard(r.port('wg0'))?.publicKey ?? '';
+    });
+    expect(progress()).toBe(3);
+    sh(
+      r1,
+      `wg set wg0 peer ${keys[1]} endpoint 198.51.100.100:51820 allowed-ips 10.8.0.2/32,192.168.2.0/24`,
+    );
+    sh(
+      r2,
+      `wg set wg0 peer ${keys[0]} endpoint 192.0.2.100:51820 allowed-ips 10.8.0.1/32,192.168.1.0/24`,
+    );
+    expect(progress()).toBe(4);
+    sh(r1, 'ip route add 192.168.2.0/24 dev wg0');
+    sh(r2, 'ip route add 192.168.1.0/24 dev wg0');
+    sh(pc1, 'ping -c 1 192.168.2.10');
+    expect(progress()).toBe(5);
+  });
 });
