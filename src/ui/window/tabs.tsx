@@ -1,22 +1,12 @@
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import type { Device } from '../../engine/device.ts';
 import { PORT_TYPE_LABEL, hasCarrier, peerOf, type Port } from '../../engine/port.ts';
-import { IpConfig } from '../apps/IpConfig.tsx';
+import { IpConfig, PortForm } from '../apps/IpConfig.tsx';
+import { RoutingSection, Section, ServicesSection } from './network-sections.tsx';
 import { Terminal } from '../apps/Terminal.tsx';
-import { cable, removeDevice, setWindowView, useLab, type AppId } from '../lab.ts';
+import { cable, hasDesktop, removeDevice, setWindowView, useLab, type AppId } from '../lab.ts';
 
 const HOSTNAME = /^[A-Za-z0-9][A-Za-z0-9-]{0,62}$/;
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="space-y-2">
-      <h3 className="text-[10px] font-semibold tracking-wider text-(--nf-muted) uppercase">
-        {title}
-      </h3>
-      {children}
-    </section>
-  );
-}
 
 function led(port: Port): { color: string; label: string } {
   if (hasCarrier(port)) return { color: 'bg-emerald-400', label: 'link up' };
@@ -180,6 +170,15 @@ export function ConfigTab({ device }: { device: Device }) {
           ))}
         </ul>
       </Section>
+      {device.ip && !hasDesktop(device.spec.id) && (
+        <Section title="Addresses">
+          {device.ip.ports.map((port) => (
+            <PortForm key={port.name} device={device} port={port} />
+          ))}
+        </Section>
+      )}
+      <RoutingSection device={device} />
+      <ServicesSection device={device} />
       <button
         type="button"
         onClick={() => removeDevice(device.id)}
