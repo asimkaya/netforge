@@ -4,6 +4,7 @@ import type { Network, TraceEntry } from '../engine/network.ts';
 import {
   describeFrame,
   protocolOf,
+  TCP_SERVICES,
   type EthernetFrame,
   type IcmpPacket,
 } from '../engine/packet.ts';
@@ -51,12 +52,37 @@ function layers(frame: EthernetFrame): { name: string; fields: Field[] }[] {
       ['Source', formatIp(p.src)],
       ['Destination', formatIp(p.dst)],
       ['Time to live', String(p.ttl)],
-      ['Protocol', inner.kind === 'icmp' ? 'ICMP (1)' : 'UDP (17)'],
+      ['Protocol', { icmp: 'ICMP (1)', tcp: 'TCP (6)', udp: 'UDP (17)' }[inner.kind]],
     ] satisfies Field[],
   };
   if (inner.kind === 'icmp') {
     const fields = icmpFields(inner);
     return [ethernet, ip, { name: 'Internet Control Message Protocol', fields }];
+  }
+  if (inner.kind === 'tcp') {
+    const tcp = {
+      name: 'Transmission Control Protocol',
+      fields: [
+        ['Source port', String(inner.srcPort)],
+        ['Destination port', String(inner.dstPort)],
+        ['Flags', inner.flags.join(', ')],
+        ['Sequence number', String(inner.seq)],
+        ['Acknowledgment', inner.flags.includes('ACK') ? String(inner.ack) : '—'],
+        ['Data length', String(inner.data?.length ?? 0)],
+      ] satisfies Field[],
+    };
+    if (!inner.data) return [ethernet, ip, tcp];
+    const service = TCP_SERVICES[inner.dstPort] ?? TCP_SERVICES[inner.srcPort];
+    const lines = inner.data.split(/\r?\n/).slice(0, 12);
+    return [
+      ethernet,
+      ip,
+      tcp,
+      {
+        name: service ? `${service.toUpperCase()} data` : 'Data',
+        fields: lines.map((line, i): Field => [i === 0 ? 'Text' : '', line]),
+      },
+    ];
   }
   const udp = {
     name: 'User Datagram Protocol',
@@ -139,8 +165,8 @@ function Details({ entry }: { entry: TraceEntry }) {
         <section key={layer.name}>
           <h4 className="font-semibold">{layer.name}</h4>
           <dl className="grid grid-cols-[8rem_1fr] font-mono text-(--nf-muted)">
-            {layer.fields.map(([k, v]) => (
-              <div key={k} className="contents">
+            {layer.fields.map(([k, v], i) => (
+              <div key={i} className="contents">
                 <dt>{k}</dt>
                 <dd className="text-(--nf-text)">{v}</dd>
               </div>

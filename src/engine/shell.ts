@@ -12,7 +12,7 @@ import { isHostname, resolve } from './dns.ts';
 import { DEFAULT_TTL } from './ip.ts';
 import type { Network } from './network.ts';
 import { hasCarrier, type Port } from './port.ts';
-import { dhclientCommand, dig, dnsmasq, killall, resolvectl } from './shell-services.ts';
+import { dhclientCommand, dig, dnsmasq, killall, nc, resolvectl, ss } from './shell-services.ts';
 
 export interface ShellIO {
   /** Writes one line of output. */
@@ -56,6 +56,8 @@ const HELP = [
   '  dig [@SERVER] [+short] NAME        ask a DNS server for the address of NAME',
   '  resolvectl [status]                show the DNS servers this device asks',
   '  resolvectl dns IF SERVER...        set the DNS servers',
+  '  nc -z HOST PORT                    check whether a TCP port is open',
+  '  ss -t                              list TCP sockets',
   '  hostname [NAME]                    show or set the device name',
   '  clear                              clear the screen',
 ];
@@ -629,7 +631,9 @@ const COMMANDS: Record<string, Command> = {
   dhclient: dhclientCommand,
   dig,
   dnsmasq,
+  nc,
   resolvectl,
+  ss,
   killall,
   ping,
   traceroute,

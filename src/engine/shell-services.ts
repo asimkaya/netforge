@@ -1,6 +1,7 @@
 import { formatIp, parseIp, type Ip } from './addr.ts';
 import { dhclient, dhcpRelease } from './dhcp.ts';
 import { isHostname, resolve } from './dns.ts';
+import { TCP_ERROR_TEXT } from './tcp.ts';
 import type { Command } from './shell.ts';
 
 /** `dnsmasq [OPTIONS]`: starts the DHCP and DNS server in the background. */
@@ -209,4 +210,87 @@ export const dig: Command = (_net, device, args, io) => {
       io.exit();
     },
   };
+};
+
+const SERVICE_NAMES: Record<number, string> = { 22: 'ssh', 25: 'smtp', 80: 'http', 110: 'pop3' };
+
+/** `nc -z HOST PORT`: checks whether a TCP port accepts connections. */
+export const nc: Command = (_net, device, args, io) => {
+  const stack = device.ip;
+  if (!stack) {
+    io.out('nc: command not found');
+    return;
+  }
+  const words = args.filter((a) => !a.startsWith('-'));
+  const [host, portText] = words;
+  const port = Number(portText);
+  if (
+    !args.includes('-z') ||
+    host === undefined ||
+    !Number.isInteger(port) ||
+    port < 1 ||
+    port > 65535
+  ) {
+    io.out('usage: nc -z [-v] HOST PORT');
+    return;
+  }
+  let finished = false;
+  let sync = true;
+  let cancel = () => {};
+  const done = () => {
+    finished = true;
+    if (!sync) io.exit();
+  };
+  cancel = resolve(device, host, (r) => {
+    if (!r.ok) {
+      io.out(`nc: getaddrinfo for host "${host}" port ${port}: Name or service not known`);
+      done();
+      return;
+    }
+    const name = SERVICE_NAMES[port] ?? '*';
+    const conn = stack.tcp.connect(r.ip, port, {
+      onOpen: (c) => {
+        io.out(`Connection to ${host} (${formatIp(r.ip)}) ${port} port [tcp/${name}] succeeded!`);
+        c.close();
+        done();
+      },
+      onData: () => {},
+      onError: (error) => {
+        io.out(
+          `nc: connect to ${host} (${formatIp(r.ip)}) port ${port} (tcp) failed: ${TCP_ERROR_TEXT[error]}`,
+        );
+        done();
+      },
+    });
+    if (typeof conn === 'string') {
+      io.out(`nc: connect to ${host} port ${port} (tcp) failed: ${conn}`);
+      done();
+      return;
+    }
+    cancel = () => conn.close();
+  });
+  sync = false;
+  if (finished) return;
+  return {
+    interrupt: () => {
+      cancel();
+      io.exit();
+    },
+  };
+};
+
+/** `ss -t[ln]`: TCP sockets, listening and connected. */
+export const ss: Command = (_net, device, _args, io) => {
+  const stack = device.ip;
+  if (!stack) return;
+  io.out('State      Local Address:Port      Peer Address:Port');
+  for (const port of stack.tcp.listeningPorts()) {
+    io.out(`LISTEN     ${`0.0.0.0:${port}`.padEnd(24)}0.0.0.0:*`);
+  }
+  for (const c of stack.tcp.connections()) {
+    const state =
+      c.state === 'established' ? 'ESTAB' : c.state === 'syn-sent' ? 'SYN-SENT' : 'FIN-WAIT';
+    const local = `${formatIp(c.localIp)}:${c.localPort}`;
+    io.out(`${state.padEnd(11)}${local.padEnd(24)}${formatIp(c.remoteIp)}:${c.remotePort}`);
+  }
 };

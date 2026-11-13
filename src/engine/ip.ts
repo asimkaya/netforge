@@ -14,10 +14,12 @@ import type {
   EthernetFrame,
   IcmpPacket,
   Ipv4Packet,
+  TcpSegment,
   UdpDatagram,
   UnreachableCode,
 } from './packet.ts';
 import { hasCarrier, type Port } from './port.ts';
+import { TcpLayer, type TcpHost } from './tcp.ts';
 
 export const DEFAULT_TTL = 64;
 /** Linux sends 3 ARP probes, one second apart, before giving up. */
@@ -89,7 +91,7 @@ interface UdpBinding {
 }
 
 /** IPv4 with ARP, routing, ICMP and UDP on the ports that are not bridged. */
-export class IpStack {
+export class IpStack implements TcpHost {
   /** Addresses per port name, in the order they were added. */
   readonly addrs = new Map<string, Cidr[]>();
   readonly neighbors = new Map<Ip, Neighbor>();
@@ -104,6 +106,7 @@ export class IpStack {
   readonly #udp = new Map<number, UdpBinding>();
   #nextIcmpId = 1;
   #nextDnsId = 1;
+  readonly tcp: TcpLayer = new TcpLayer(this);
   #nextPort = EPHEMERAL_PORT_START;
 
   constructor(
@@ -321,16 +324,25 @@ export class IpStack {
 
   // ------------------------------------------------------------ packet path
 
-  #send(dst: Ip, payload: Ipv4Packet['payload'], ttl = DEFAULT_TTL): string | null {
+  sourceFor(dst: Ip): Ip | null {
+    if (this.ownsIp(dst)) return dst;
+    return this.routeTo(dst)?.src ?? null;
+  }
+
+  sendPacket(dst: Ip, payload: TcpSegment, src: Ip): string | null {
+    return this.#send(dst, payload, DEFAULT_TTL, src);
+  }
+
+  #send(dst: Ip, payload: Ipv4Packet['payload'], ttl = DEFAULT_TTL, src?: Ip): string | null {
     if (this.ownsIp(dst)) {
-      const packet: Ipv4Packet = { kind: 'ipv4', src: dst, dst, ttl, payload };
+      const packet: Ipv4Packet = { kind: 'ipv4', src: src ?? dst, dst, ttl, payload };
       const port = this.ports.find((p) => this.addrsOn(p).some((a) => a.ip === dst));
       if (port) this.fabric.scheduler.schedule(0, () => this.#deliver(packet, port));
       return null;
     }
     const route = this.routeTo(dst);
     if (!route) return 'Network is unreachable';
-    this.#output(route, { kind: 'ipv4', src: route.src, dst, ttl, payload });
+    this.#output(route, { kind: 'ipv4', src: src ?? route.src, dst, ttl, payload });
     return null;
   }
 
@@ -427,6 +439,8 @@ export class IpStack {
       );
     } else if (p.kind === 'udp') {
       this.#udp.get(p.srcPort)?.onError?.(error, original);
+    } else if (p.kind === 'tcp') {
+      this.tcp.icmpError(original, error.kind === 'unreachable' ? error.code : 'ttl');
     }
   }
 
@@ -465,6 +479,10 @@ export class IpStack {
 
   #deliver(packet: Ipv4Packet, port: Port): void {
     const p = packet.payload;
+    if (p.kind === 'tcp') {
+      this.tcp.receive(packet);
+      return;
+    }
     if (p.kind === 'udp') {
       const binding = this.#udp.get(p.dstPort);
       if (binding) binding.onData(p, packet.src, port);

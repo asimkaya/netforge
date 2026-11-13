@@ -58,12 +58,51 @@ export interface UdpDatagram {
   data: DhcpMessage | DnsMessage | ProbeData;
 }
 
+export type TcpFlag = 'SYN' | 'ACK' | 'FIN' | 'RST' | 'PSH';
+
+/** A TCP segment. Application protocols here are text (HTTP, SMTP, POP3), carried in `data`. */
+export interface TcpSegment {
+  kind: 'tcp';
+  srcPort: number;
+  dstPort: number;
+  flags: TcpFlag[];
+  seq: number;
+  ack: number;
+  data?: string;
+}
+
 export interface Ipv4Packet {
   kind: 'ipv4';
   src: Ip;
   dst: Ip;
   ttl: number;
-  payload: IcmpPacket | UdpDatagram;
+  payload: IcmpPacket | UdpDatagram | TcpSegment;
+}
+
+/** Well-known TCP ports and the protocol name shown for them. */
+export const TCP_SERVICES: Record<number, 'http' | 'smtp' | 'pop3' | 'ssh'> = {
+  80: 'http',
+  25: 'smtp',
+  110: 'pop3',
+  22: 'ssh',
+};
+
+function tcpFlags(flags: TcpFlag[]): string {
+  const letters = flags
+    .filter((f) => f !== 'ACK')
+    .map((f) => ({ SYN: 'S', FIN: 'F', RST: 'R', PSH: 'P' })[f as 'SYN'])
+    .join('');
+  return `[${letters}${flags.includes('ACK') ? '.' : ''}]`;
+}
+
+function describeTcp(t: TcpSegment): string {
+  const length = t.data?.length ?? 0;
+  const seq = length > 0 ? `seq ${t.seq}:${t.seq + length}` : `seq ${t.seq}`;
+  const ack = t.flags.includes('ACK') ? `, ack ${t.ack}` : '';
+  const service = TCP_SERVICES[t.dstPort] ?? TCP_SERVICES[t.srcPort];
+  const first = t.data?.split(/\r?\n/)[0]?.slice(0, 60);
+  const app = length > 0 && service ? `: ${service.toUpperCase()}: ${first}` : '';
+  return `Flags ${tcpFlags(t.flags)}, ${seq}${ack}, length ${length}${app}`;
 }
 
 export interface EthernetFrame {
@@ -117,16 +156,22 @@ export function describeFrame(frame: EthernetFrame): string {
     return `IP ${formatIp(p.src)} > ${formatIp(p.dst)}: ${describeIcmp(p, p.payload)}`;
   }
   const u = p.payload;
-  return `IP ${formatIp(p.src)}.${u.srcPort} > ${formatIp(p.dst)}.${u.dstPort}: ${describeUdp(u)}`;
+  const what = u.kind === 'udp' ? describeUdp(u) : describeTcp(u);
+  return `IP ${formatIp(p.src)}.${u.srcPort} > ${formatIp(p.dst)}.${u.dstPort}: ${what}`;
 }
 
-export type Protocol = 'arp' | 'icmp' | 'udp' | 'dhcp' | 'dns';
+export type Protocol =
+  'arp' | 'icmp' | 'udp' | 'dhcp' | 'dns' | 'tcp' | 'http' | 'smtp' | 'pop3' | 'ssh';
 
 /** Protocol label used to color packets in the UI. */
 export function protocolOf(frame: EthernetFrame): Protocol {
   const p = frame.payload;
   if (p.kind === 'arp') return 'arp';
   if (p.payload.kind === 'icmp') return 'icmp';
+  if (p.payload.kind === 'tcp') {
+    const t = p.payload;
+    return TCP_SERVICES[t.dstPort] ?? TCP_SERVICES[t.srcPort] ?? 'tcp';
+  }
   const app = p.payload.data.app;
   return app === 'probe' ? 'udp' : app;
 }
