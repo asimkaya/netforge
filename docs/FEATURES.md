@@ -7,13 +7,13 @@ Legend: ✅ supported · 🟡 partial · ❌ not yet
 
 ## Devices
 
-| Device   | Status | Notes                                                                                                                                                                                                                                  |
-| -------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PC       | ✅     | One Ethernet port (`eth0`). No loopback interface. Can forward packets if `ip_forward` is turned on.                                                                                                                                   |
-| Switch   | ✅     | 8 Ethernet ports (`eth0`–`eth7`) and 2 SFP fiber uplinks (`eth8`, `eth9`); Linux learning bridge `br0` with VLAN filtering (access ports and 802.1Q trunks). Spanning Tree (802.1D). No IP address.                                    |
-| Server   | ✅     | One Ethernet port, desktop apps, a sample site in `/var/www/html`; runs httpd, postfix, dovecot, dnsmasq.                                                                                                                              |
-| Internet | ✅     | Four provider networks (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`, `100.64.0.0/24`) with DHCP and DNS; hosts `www.example.com` at `198.18.0.10`. No real Internet access.                                                    |
-| Router   | ✅     | Linux router with 4 Ethernet ports (`eth0`–`eth3`), `ip_forward` on. CLI tab instead of a desktop. Config tab: addresses, routes, VLAN interfaces, DHCP/DNS server, firewall and NAT (one-click NAT, port forwarding, ruleset editor). |
+| Device   | Status | Notes                                                                                                                                                                                                                                               |
+| -------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PC       | ✅     | One Ethernet port (`eth0`). No loopback interface. Can forward packets if `ip_forward` is turned on.                                                                                                                                                |
+| Switch   | ✅     | 8 Ethernet ports (`eth0`–`eth7`) and 2 SFP fiber uplinks (`eth8`, `eth9`); Linux learning bridge `br0` with VLAN filtering (access ports and 802.1Q trunks). Spanning Tree (802.1D). No IP address.                                                 |
+| Server   | ✅     | One Ethernet port, desktop apps, a sample site in `/var/www/html`; runs httpd, postfix, dovecot, dnsmasq.                                                                                                                                           |
+| Internet | ✅     | Four provider networks (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`, `100.64.0.0/24`) with DHCP and DNS; hosts `www.example.com` at `198.18.0.10`. No real Internet access.                                                                 |
+| Router   | ✅     | Linux router with 4 Ethernet ports (`eth0`–`eth3`), `ip_forward` on. CLI tab instead of a desktop. Config tab: addresses, routes, VLAN interfaces, DHCP/DNS server, OSPF (BIRD), firewall and NAT (one-click NAT, port forwarding, ruleset editor). |
 
 ## Network behavior
 

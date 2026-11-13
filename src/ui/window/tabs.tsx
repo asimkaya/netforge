@@ -17,6 +17,7 @@ import {
 } from './network-sections.tsx';
 import { Terminal } from '../apps/Terminal.tsx';
 import { FirewallSection } from './firewall-section.tsx';
+import { OspfSection } from './ospf-section.tsx';
 import { StpSection, SwitchVlanSection, VlanInterfacesSection } from './vlan-sections.tsx';
 import { cable, hasDesktop, removeDevice, setWindowView, useLab, type AppId } from '../lab.ts';
 
@@ -196,6 +197,7 @@ export function ConfigTab({ device }: { device: Device }) {
       <StpSection device={device} />
       <VlanInterfacesSection device={device} />
       {(device.ip?.ports.length ?? 0) > 0 && <RoutingSection device={device} />}
+      <OspfSection device={device} />
       <FirewallSection device={device} />
       <ServicesSection device={device} />
       <WebServerSection device={device} />
