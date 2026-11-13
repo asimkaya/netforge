@@ -5,7 +5,7 @@ import type { Point } from './lab.ts';
 
 export const PROJECT_FORMAT = 'netforge-lab';
 /** Bump on any incompatible change and add a migration for the previous version. */
-export const PROJECT_VERSION = 8;
+export const PROJECT_VERSION = 9;
 
 export interface TaskProgress {
   /** Id of the task being played, if any. */
@@ -201,6 +201,38 @@ function readIp6(value: unknown, what: string) {
   };
 }
 
+const KEY = /^[A-Za-z0-9+/]{43}=$/;
+const ENDPOINT = /^[0-9.]{7,15}:[0-9]{1,5}$/;
+
+function readWireguard(value: unknown, what: string) {
+  return arr(value, `${what} WireGuard interfaces`).map((raw) => {
+    const w = obj(raw, `${what} WireGuard interface`);
+    if (typeof w.up !== 'boolean') fail(`${what} WireGuard state is invalid.`);
+    return {
+      name: str(w.name, `${what} WireGuard name`, IFNAME),
+      up: w.up,
+      addrs: arr(w.addrs, `${what} WireGuard addresses`).map((a) => str(a, 'address', CIDR)),
+      privateKey: w.privateKey === null ? null : str(w.privateKey, `${what} WireGuard key`, KEY),
+      listenPort: w.listenPort === null ? null : count(w.listenPort, `${what} WireGuard port`),
+      peers: arr(w.peers, `${what} WireGuard peers`).map((rawPeer) => {
+        const p = obj(rawPeer, `${what} WireGuard peer`);
+        return {
+          publicKey: str(p.publicKey, `${what} WireGuard peer key`, KEY),
+          ...(p.endpoint === undefined
+            ? {}
+            : { endpoint: str(p.endpoint, `${what} WireGuard endpoint`, ENDPOINT) }),
+          allowedIps: arr(p.allowedIps, `${what} WireGuard allowed IPs`).map((a) =>
+            str(a, `${what} WireGuard allowed IP`, CIDR),
+          ),
+          ...(p.keepalive === undefined
+            ? {}
+            : { keepalive: count(p.keepalive, `${what} WireGuard keepalive`) }),
+        };
+      }),
+    };
+  });
+}
+
 /** Device files: sizes are checked again when the engine writes them. */
 function readFiles(value: unknown, what: string): Record<string, string> {
   const files: Record<string, string> = {};
@@ -242,6 +274,9 @@ function readSnapshot(value: unknown): NetworkSnapshot {
         : { vlanPorts: readVlanPorts(d.vlanPorts, `device #${i + 1}`) }),
       ...(d.bridge === undefined ? {} : { bridge: readBridge(d.bridge, `device #${i + 1}`) }),
       ...(d.ip6 === undefined ? {} : { ip6: readIp6(d.ip6, `device #${i + 1}`) }),
+      ...(d.wireguard === undefined
+        ? {}
+        : { wireguard: readWireguard(d.wireguard, `device #${i + 1}`) }),
       // The engine parses the ruleset; this only bounds its size.
       ...(d.firewall === undefined
         ? {}
@@ -311,6 +346,8 @@ const MIGRATIONS: Record<number, (file: Json) => Json> = {
   6: (file) => file,
   // v8 adds IPv6 settings (`ip6`) and the radvd service.
   7: (file) => file,
+  // v9 adds WireGuard interfaces (`wireguard`).
+  8: (file) => file,
   // v2: devices name a spec instead of a kind; switches gain two SFP uplinks (eth8, eth9);
   // per-kind name counters become per-prefix counters.
   1: (file) => {

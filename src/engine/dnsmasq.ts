@@ -1,7 +1,7 @@
 import { formatIp, inSubnet, parseIp, type Cidr, type Ip, type Mac } from './addr.ts';
 import type { Fabric } from './device.ts';
 import type { IpStack, UdpSocket } from './ip.ts';
-import type { DhcpMessage, DnsMessage } from './packet.ts';
+import type { DhcpMessage, DnsMessage, UdpDatagram } from './packet.ts';
 import type { Port } from './port.ts';
 
 export const DHCP_SERVER_PORT = 67;
@@ -205,7 +205,7 @@ export class Dnsmasq {
   }
 
   /** Handles a datagram that arrived on UDP 67. */
-  onDhcp(msg: DhcpMessage | DnsMessage | { app: 'probe' }, ingress: Port): void {
+  onDhcp(msg: UdpDatagram['data'], ingress: Port): void {
     if (msg.app !== 'dhcp') return;
     const scope = this.#scope(ingress);
     if (!scope) return;
@@ -284,7 +284,7 @@ export class Dnsmasq {
   }
 
   /** Handles a datagram that arrived on UDP 53. */
-  onDns(msg: DhcpMessage | DnsMessage | { app: 'probe' }, from: Ip, port: number): void {
+  onDns(msg: UdpDatagram['data'], from: Ip, port: number): void {
     if (msg.app !== 'dns' || msg.qr !== 'query') return;
     const answer: DnsMessage = {
       app: 'dns',

@@ -27,6 +27,7 @@ import {
   touch,
 } from './shell-files.ts';
 import { conntrack, nft } from './shell-firewall.ts';
+import { wg, wgQuick } from './shell-wireguard.ts';
 import { inet6Lines, ip6AddrChange, ip6Neigh, ip6Route, ping6, radvd } from './shell-ip6.ts';
 import { bird, birdc } from './shell-routing.ts';
 import { pathCost } from './stp.ts';
@@ -114,6 +115,8 @@ const HELP = [
   '  birdc show route|show protocols|configure|down   inspect or control BIRD',
   '  nft list ruleset | nft add ...     firewall and NAT (see nft with no arguments)',
   '  conntrack -L                       list tracked connections (firewall, NAT)',
+  '  wg genkey | tee key | wg pubkey    WireGuard keys; wg show, wg set wg0 ...',
+  '  wg-quick up|down wg0               VPN from /etc/wireguard/wg0.conf',
   '  ss -t                              list TCP sockets',
   '  hostname [NAME]                    show or set the device name',
   '  ls, cat, echo TEXT > FILE, rm, touch, mkdir, pwd   work with files',
@@ -149,6 +152,13 @@ function linkLines(device: Device, port: Port, index: number): string[] {
   const noCarrier = port.adminUp && !carrier ? 'NO-CARRIER,' : '';
   const state = carrier ? 'UP' : 'DOWN';
   const master = device.bridge?.owns(port) ? ' master br0' : '';
+  if (port.tunnel) {
+    const up = port.adminUp ? 'UP,LOWER_UP' : '';
+    return [
+      `${index + 1}: ${port.name}: <POINTOPOINT,NOARP${up ? `,${up}` : ''}> mtu 1420 state ${port.adminUp ? 'UNKNOWN' : 'DOWN'}`,
+      '    link/none',
+    ];
+  }
   const name = port.parent ? `${port.name}@${port.parent.name}` : port.name;
   const vlan = port.parent ? [`    vlan protocol 802.1Q id ${port.vid ?? 0}`] : [];
   return [
@@ -228,8 +238,15 @@ function setBridge(net: Network, device: Device, args: string[], io: ShellIO): v
   if (stp !== undefined) br.stp.setEnabled(stp === '1');
 }
 
-/** `ip link add link IF name NAME type vlan id VID`. */
+/** `ip link add link IF name NAME type vlan id VID`, or `ip link add [dev] NAME type wireguard`. */
 function addLink(device: Device, args: string[], io: ShellIO): void {
+  if (option(args, 'type') === 'wireguard') {
+    const name = option(args, 'dev') ?? option(args, 'name') ?? args[0];
+    const error =
+      name === undefined ? 'Usage: ip link add wg0 type wireguard' : device.addWireguard(name);
+    if (error) io.out(error);
+    return;
+  }
   const parentName = option(args, 'link');
   const name = option(args, 'name');
   const idText = option(args, 'id');
@@ -291,7 +308,7 @@ function ipLink(
   if (matches(verb, 'delete')) {
     const port = findPort(device, devArg(rest), io);
     if (!port) return;
-    if (port.parent) device.removeVlanPort(port);
+    if (port.parent || port.tunnel) device.removeVlanPort(port);
     else io.out('RTNETLINK answers: Operation not supported');
     return;
   }
@@ -927,8 +944,8 @@ const ping: Command = (net, device, args, io) => {
       const seq = ++sent;
       sentAt.set(seq, scheduler.now);
       const error = stack.sendIcmp(dst, { kind: 'icmp', type: 'echo-request', id, seq }, ttl);
-      if (error === 'Operation not permitted') {
-        // Dropped by the firewall's output chain: Linux ping reports it and keeps going.
+      if (error === 'Operation not permitted' || error === 'Required key not available') {
+        // Refused by the firewall or a tunnel: Linux ping reports it and keeps going.
         io.out(`ping: sendmsg: ${error}`);
       } else if (error) {
         done = true;
@@ -949,6 +966,8 @@ const ping: Command = (net, device, args, io) => {
 
 const COMMANDS: Record<string, Command> = {
   ip,
+  wg,
+  'wg-quick': wgQuick,
   grep,
   tee,
   radvd,

@@ -3,6 +3,7 @@ import { defaultVlans, type Bridge } from './bridge.ts';
 import { Device, type Fabric } from './device.ts';
 import { formatCidr6, formatIp6, parseCidr6, parseIp6 } from './addr6.ts';
 import type { Ip6Stack } from './ip6.ts';
+import { isKey } from './wireguard.ts';
 import { formatRuleset, runNft } from './nft.ts';
 import { DEFAULT_PRIORITY } from './stp.ts';
 import type { EthernetFrame } from './packet.ts';
@@ -51,6 +52,15 @@ export interface NetworkSnapshot {
     };
     /** The nftables ruleset, as `nft list ruleset` prints it. */
     firewall?: string;
+    /** WireGuard interfaces with their keys and peers. */
+    wireguard?: {
+      name: string;
+      up: boolean;
+      addrs: string[];
+      privateKey: string | null;
+      listenPort: number | null;
+      peers: { publicKey: string; endpoint?: string; allowedIps: string[]; keepalive?: number }[];
+    }[];
     /** VLAN interfaces (`eth0.10`), in creation order. */
     vlanPorts?: { name: string; parent: string; vid: number; up: boolean; addrs: string[] }[];
     /** Switch VLAN settings, when they differ from the defaults. */
@@ -74,6 +84,65 @@ export interface NetworkSnapshot {
 
 type BridgeSnapshot = NonNullable<NetworkSnapshot['devices'][number]['bridge']>;
 type Ip6Snapshot = NonNullable<NetworkSnapshot['devices'][number]['ip6']>;
+type WgSnapshot = NonNullable<NetworkSnapshot['devices'][number]['wireguard']>[number];
+
+function wireguardJSON(device: Device): WgSnapshot[] {
+  return device.vlanPorts.flatMap((port) => {
+    const wg = device.wireguard(port);
+    if (!wg) return [];
+    return [
+      {
+        name: port.name,
+        up: port.adminUp,
+        addrs: device.ip?.addrsOn(port).map(formatCidr) ?? [],
+        privateKey: wg.privateKey,
+        listenPort: wg.listenPort,
+        peers: wg.peers.map((p) => ({
+          publicKey: p.publicKey,
+          ...(p.endpoint ? { endpoint: `${formatIp(p.endpoint.ip)}:${p.endpoint.port}` } : {}),
+          allowedIps: p.allowedIps.map(formatCidr),
+          ...(p.keepalive ? { keepalive: p.keepalive } : {}),
+        })),
+      },
+    ];
+  });
+}
+
+function loadWireguard(device: Device, saved: WgSnapshot): void {
+  const bad = (what: string) => new Error(`Invalid WireGuard ${what} on ${device.id}`);
+  if (device.addWireguard(saved.name)) throw bad('interface');
+  const port = device.port(saved.name);
+  const wg = device.wireguard(port);
+  if (!port || !wg || !device.ip) throw bad('interface');
+  if (saved.listenPort !== null && wg.setListenPort(saved.listenPort)) throw bad('port');
+  if (saved.privateKey !== null) {
+    if (!isKey(saved.privateKey)) throw bad('key');
+    wg.setPrivateKey(saved.privateKey);
+  }
+  for (const p of saved.peers) {
+    if (!isKey(p.publicKey)) throw bad('peer');
+    const peer = wg.peer(p.publicKey);
+    if (p.endpoint !== undefined) {
+      const [host, portText] = p.endpoint.split(':');
+      const ip = host === undefined ? null : parseIp(host);
+      const n = Number(portText);
+      if (ip === null || !Number.isInteger(n) || n < 1 || n > 65535) throw bad('endpoint');
+      peer.endpoint = { ip, port: n };
+    }
+    peer.allowedIps = p.allowedIps.map((text) => {
+      const cidr = parseCidr(text);
+      if (!cidr) throw bad('allowed IP');
+      return cidr;
+    });
+    peer.keepalive = p.keepalive ?? null;
+  }
+  for (const text of saved.addrs) {
+    const cidr = parseCidr(text);
+    if (!cidr) throw bad('address');
+    device.ip.addAddress(port, cidr);
+  }
+  port.adminUp = saved.up;
+}
 
 /** Static IPv6 settings; link-local and autoconfigured addresses come back by themselves. */
 function ip6JSON(v6: Ip6Stack): Ip6Snapshot {
@@ -365,20 +434,23 @@ export class Network implements Fabric {
             }
           : {}),
         ...(d.fs ? { files: d.fs.toJSON() } : {}),
-        ...(d.vlanPorts.length > 0
+        ...(d.vlanPorts.some((p) => p.parent)
           ? {
-              vlanPorts: d.vlanPorts.map((p) => ({
-                name: p.name,
-                parent: p.parent?.name ?? '',
-                vid: p.vid ?? 0,
-                up: p.adminUp,
-                addrs: d.ip?.addrsOn(p).map(formatCidr) ?? [],
-              })),
+              vlanPorts: d.vlanPorts
+                .filter((p) => p.parent)
+                .map((p) => ({
+                  name: p.name,
+                  parent: p.parent?.name ?? '',
+                  vid: p.vid ?? 0,
+                  up: p.adminUp,
+                  addrs: d.ip?.addrsOn(p).map(formatCidr) ?? [],
+                })),
             }
           : {}),
         ...(d.bridge && !isDefaultBridge(d.bridge) ? { bridge: bridgeJSON(d.bridge) } : {}),
         ...(d.ip?.nf.active ? { firewall: formatRuleset(d.ip.nf.tables).join('\n') } : {}),
         ...(d.ip ? { ip6: ip6JSON(d.ip.v6) } : {}),
+        ...(d.vlanPorts.some((p) => p.tunnel) ? { wireguard: wireguardJSON(d) } : {}),
       })),
       links: [...this.links.values()].map((l) => ({
         id: l.id,
@@ -431,6 +503,7 @@ export class Network implements Fabric {
           device.ip.addAddress(port, cidr);
         }
       }
+      for (const w of d.wireguard ?? []) loadWireguard(device, w);
       if (d.ip && device.ip) {
         device.ip.forwarding = d.ip.forwarding;
         device.ip.dns = d.ip.dns.map((text) => {

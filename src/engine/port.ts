@@ -1,5 +1,13 @@
-import type { Mac } from './addr.ts';
+import type { Ip, Mac } from './addr.ts';
 import type { Device } from './device.ts';
+import type { Ipv4Packet } from './packet.ts';
+
+/** A layer 3 tunnel behind an interface (WireGuard): no cable, no ARP. */
+export interface Tunnel {
+  send(packet: Ipv4Packet): void;
+  /** Why a packet to `dst` can't be sent (socket error wording), or null. */
+  check(dst: Ip): string | null;
+}
 
 /** Physical socket type. Decides which cable fits. */
 export type PortType = 'ethernet' | 'sfp' | 'wifi';
@@ -28,6 +36,7 @@ export interface Port {
   /** VLAN interfaces (`eth0.10`) sit on a parent port and tag what they send with `vid`. */
   readonly parent?: Port;
   readonly vid?: number;
+  readonly tunnel?: Tunnel;
 }
 
 export interface Link {
@@ -46,6 +55,7 @@ export function peerOf(port: Port): Port | null {
 /** Carrier is up when both ends are cabled and administratively up. */
 export function hasCarrier(port: Port): boolean {
   if (port.parent) return port.adminUp && hasCarrier(port.parent);
+  if (port.tunnel) return port.adminUp;
   const peer = peerOf(port);
   return port.adminUp && peer !== null && peer.adminUp;
 }

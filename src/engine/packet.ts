@@ -52,11 +52,23 @@ export interface ProbeData {
   app: 'probe';
 }
 
+/**
+ * A WireGuard message. Keys stand in for the session indexes real messages carry; the
+ * inner packet of `data` is what the encryption hides.
+ */
+export interface WireguardMessage {
+  app: 'wireguard';
+  type: 'initiation' | 'response' | 'data';
+  sender: string;
+  receiver: string;
+  inner?: Ipv4Packet;
+}
+
 export interface UdpDatagram {
   kind: 'udp';
   srcPort: number;
   dstPort: number;
-  data: DhcpMessage | DnsMessage | ProbeData;
+  data: DhcpMessage | DnsMessage | ProbeData | WireguardMessage;
 }
 
 export type TcpFlag = 'SYN' | 'ACK' | 'FIN' | 'RST' | 'PSH';
@@ -194,6 +206,14 @@ function describeUdp(u: UdpDatagram): string {
     const addr = d.yiaddr ? `, your-ip ${formatIp(d.yiaddr)}` : '';
     return `DHCP ${op}, xid 0x${d.xid.toString(16)}${addr}`;
   }
+  if (d.app === 'wireguard') {
+    const what = {
+      initiation: 'handshake initiation',
+      response: 'handshake response',
+      data: 'transport data',
+    }[d.type];
+    return `WireGuard ${what}`;
+  }
   if (d.app === 'dns') {
     if (d.qr === 'query') return `DNS A? ${d.name}.`;
     return d.answer ? `DNS ${d.name}. A ${formatIp(d.answer)}` : `DNS ${d.name}. NXDomain`;
@@ -269,6 +289,7 @@ export type Protocol =
   | 'icmp'
   | 'icmp6'
   | 'ospf'
+  | 'wireguard'
   | 'udp'
   | 'dhcp'
   | 'dns'

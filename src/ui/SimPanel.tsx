@@ -167,6 +167,21 @@ function layers(frame: EthernetFrame): { name: string; fields: Field[] }[] {
     ] satisfies Field[],
   };
   const d = inner.data;
+  if (d.app === 'wireguard') {
+    const kind = {
+      initiation: 'Handshake initiation',
+      response: 'Handshake response',
+      data: 'Transport data',
+    }[d.type];
+    const fields: Field[] = [
+      ['Message type', kind],
+      ['Sender key', d.sender],
+      ['Receiver key', d.receiver],
+    ];
+    if (d.type === 'data')
+      fields.push(['Encrypted payload', 'an IP packet, unreadable without the keys']);
+    return [ethernet, ip, udp, { name: 'WireGuard', fields }];
+  }
   if (d.app === 'dhcp') {
     const fields: Field[] = [
       ['Message type', `DHCP ${d.op}`],

@@ -12,6 +12,7 @@ import type {
   OspfPacket,
   TcpSegment,
   UdpDatagram,
+  WireguardMessage,
 } from './packet.ts';
 
 /**
@@ -179,10 +180,32 @@ function dns(m: DnsMessage): number[] {
   return b.data;
 }
 
+/**
+ * WireGuard messages with their real sizes. The sealed parts are not real ciphertext: the
+ * inner packet is scrambled so it can't be read, like on the wire.
+ */
+function wireguard(m: WireguardMessage): number[] {
+  const b = new Bytes().u8({ initiation: 1, response: 2, data: 4 }[m.type]).zeros(3);
+  if (m.type === 'initiation') return b.u32(1).zeros(140).data;
+  if (m.type === 'response') return b.u32(1).u32(1).zeros(80).data;
+  const inner = m.inner ? ipv4(m.inner) : [];
+  return b
+    .u32(1)
+    .zeros(8)
+    .bytes(inner.map((x, i) => x ^ ((i * 151 + 89) & 0xff)))
+    .zeros(16).data;
+}
+
 function udp(p: Ipv4Packet, u: UdpDatagram): number[] {
   const d = u.data;
   const payload =
-    d.app === 'dhcp' ? dhcp(d) : d.app === 'dns' ? dns(d) : new Array<number>(32).fill(0);
+    d.app === 'dhcp'
+      ? dhcp(d)
+      : d.app === 'dns'
+        ? dns(d)
+        : d.app === 'wireguard'
+          ? wireguard(d)
+          : new Array<number>(32).fill(0);
   const b = new Bytes()
     .u16(u.srcPort)
     .u16(u.dstPort)

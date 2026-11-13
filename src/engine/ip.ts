@@ -357,6 +357,16 @@ export class IpStack implements TcpHost {
       return;
     }
     if (p.kind === 'bpdu') return;
+    this.#receivePacket(port, p, frame.dst === port.mac);
+  }
+
+  /** A packet that came out of a tunnel (WireGuard) on `port`. */
+  receiveTunneled(port: Port, packet: Ipv4Packet): void {
+    this.#receivePacket(port, packet, true);
+  }
+
+  /** The IP layer of receive: for us, or forwarded when it was sent to us as a router. */
+  #receivePacket(port: Port, p: Ipv4Packet, unicast: boolean): void {
     const isLocal = (q: Ipv4Packet) =>
       this.ownsIp(q.dst) ||
       q.dst === LIMITED_BROADCAST ||
@@ -364,7 +374,7 @@ export class IpStack implements TcpHost {
       this.addrsOn(port).some((a) => broadcastOf(a) === q.dst);
     if (!this.nf.active) {
       if (isLocal(p)) this.#deliver(p, port);
-      else if (this.forwarding && frame.dst === port.mac) this.#forward(p, port, null);
+      else if (this.forwarding && unicast) this.#forward(p, port, null);
       return;
     }
     // Netfilter: prerouting (DNAT), then input for us or forward + postrouting for others.
@@ -374,7 +384,7 @@ export class IpStack implements TcpHost {
       const v = this.nf.leave(t, { hook: 'input', in: port, out: null });
       if (v === 'accept') this.#deliver(t.packet, port);
       else if (v === 'reject') this.#reject(t.packet);
-    } else if (this.forwarding && frame.dst === port.mac) this.#forward(t.packet, port, t);
+    } else if (this.forwarding && unicast) this.#forward(t.packet, port, t);
   }
 
   /** `reject`: ICMP port unreachable to the sender, the nftables default for IPv4. */
@@ -433,6 +443,8 @@ export class IpStack implements TcpHost {
     }
     const route = this.routeTo(dst);
     if (!route) return 'Network is unreachable';
+    const refused = route.port.tunnel?.check(dst);
+    if (refused) return refused;
     const packet: Ipv4Packet = { kind: 'ipv4', src: src ?? route.src, dst, ttl, payload };
     if (!this.nf.active) {
       this.#output(route, packet);
@@ -478,6 +490,10 @@ export class IpStack implements TcpHost {
 
   #output(route: Route, packet: Ipv4Packet): void {
     const { port } = route;
+    if (port.tunnel) {
+      port.tunnel.send(packet);
+      return;
+    }
     if (!route.via && packet.dst === broadcastOf(route.dst)) {
       this.#frame(port, BROADCAST_MAC, packet);
       return;

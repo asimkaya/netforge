@@ -2,6 +2,7 @@ import type { Mac } from './addr.ts';
 import { BIRD_CONF, Bird, parseBirdConf } from './bird.ts';
 import { RADVD_CONF, parseRadvd } from './ip6.ts';
 import { Bridge } from './bridge.ts';
+import { WireGuard } from './wireguard.ts';
 import { Dnsmasq } from './dnsmasq.ts';
 import { FileSystem } from './fs.ts';
 import { Httpd } from './http.ts';
@@ -241,10 +242,40 @@ export class Device {
     return null;
   }
 
-  /** Deletes a VLAN interface with its addresses and routes. */
+  /** Adds a WireGuard interface (`ip link add wg0 type wireguard`). It starts down. */
+  addWireguard(name: string): string | null {
+    if (!this.ip) return 'RTNETLINK answers: Operation not supported';
+    if (!/^[A-Za-z][\w.-]{0,14}$/.test(name)) {
+      return `Error: argument "${name}" is wrong: "name" not a valid ifname`;
+    }
+    if (this.port(name)) return 'RTNETLINK answers: File exists';
+    const wg = new WireGuard(this.fabric, this.ip);
+    const port: Port = {
+      name,
+      type: 'ethernet',
+      mac: '00:00:00:00:00:00',
+      device: this,
+      link: null,
+      adminUp: false,
+      tunnel: wg,
+    };
+    wg.port = port;
+    this.vlanPorts.push(port);
+    this.ip.addPort(port);
+    this.fabric.changed();
+    return null;
+  }
+
+  /** The WireGuard tunnel behind an interface, if it is one. */
+  wireguard(port: Port | undefined): WireGuard | null {
+    return port?.tunnel instanceof WireGuard ? port.tunnel : null;
+  }
+
+  /** Deletes a VLAN or WireGuard interface with its addresses and routes. */
   removeVlanPort(port: Port): void {
     const i = this.vlanPorts.indexOf(port);
     if (i < 0) return;
+    this.wireguard(port)?.stop();
     this.vlanPorts.splice(i, 1);
     this.ip?.removePort(port);
     this.fabric.changed();
