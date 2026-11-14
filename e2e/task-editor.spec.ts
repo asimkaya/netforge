@@ -1,11 +1,12 @@
 import { expect, test } from '@playwright/test';
-import { add, connect, run } from './helpers.ts';
+import { add, connect, run, taskCenter } from './helpers.ts';
 
 test('a teacher writes a task for the lab and a learner plays it', async ({ page }) => {
   await page.goto('/');
   await add(page, 'PC', 2);
 
   // The teacher writes a two-step task about the network on the canvas.
+  await taskCenter(page);
   await page.getByRole('button', { name: 'Create a task' }).click();
   const editor = page.getByRole('region', { name: 'Task editor' });
   await editor.getByLabel('Title', { exact: true }).fill('Link the PCs');

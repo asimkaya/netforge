@@ -1,19 +1,23 @@
 import { expect, test } from '@playwright/test';
-import { add, run } from './helpers.ts';
+import { add, run, taskCenter } from './helpers.ts';
 
 test('ready networks open with one click and work at once', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('tab', { name: 'Networks' }).click();
+  await taskCenter(page, 'Networks');
 
   await page.getByRole('button', { name: 'Open Home network' }).click();
   await expect(page.getByRole('status')).toContainText('Opened "Home network"');
   await expect(page.getByTestId('device-home1')).toContainText('2 clients');
+  // The Task center closed itself; its "what to try" list is still there.
+  await taskCenter(page, 'Networks');
   await expect(page.getByRole('listitem', { name: 'Home network' })).toContainText(
     'ping 198.18.0.10',
   );
+  await page.keyboard.press('Escape');
   const term = await run(page, 'pc1', 'ping -c 1 198.18.0.10');
   await expect(term.getByRole('log')).toContainText('1 received');
   await term.getByRole('button', { name: 'Close pc1' }).click();
+  await taskCenter(page, 'Networks');
 
   // Opening another one replaces the lab, after asking.
   await page.getByRole('button', { name: 'Open Small office' }).click();
@@ -25,7 +29,7 @@ test('ready networks open with one click and work at once', async ({ page }) => 
 
 test('the company router forwards Internet names to the Internet DNS server', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('tab', { name: 'Networks' }).click();
+  await taskCenter(page, 'Networks');
   await page.getByRole('button', { name: 'Open Company with VLANs and a branch' }).click();
   await expect(page.getByRole('status')).toContainText('Opened');
   const term = await run(page, 'pc1', 'ping -c 1 www.example.com');
@@ -33,8 +37,9 @@ test('the company router forwards Internet names to the Internet DNS server', as
   await expect(term.getByRole('log')).toContainText('1 received');
 });
 
-test('the three side panel tabs share one row', async ({ page }) => {
+test('the three Task center tabs share one row', async ({ page }) => {
   await page.goto('/');
+  await taskCenter(page);
   const tabs = page.getByRole('tab');
   const ys = [];
   for (const name of ['Tasks', 'Networks', 'Troubleshoot']) {
@@ -46,7 +51,7 @@ test('the three side panel tabs share one row', async ({ page }) => {
 test('Undo brings back the lab that a ready network replaced', async ({ page }) => {
   await page.goto('/');
   await add(page, 'PC', 1);
-  await page.getByRole('tab', { name: 'Networks' }).click();
+  await taskCenter(page, 'Networks');
   await page.getByRole('button', { name: 'Open Small office' }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Replace' }).click();
   await expect(page.getByTestId('device-srv1')).toBeVisible();

@@ -1,11 +1,12 @@
 import { expect, test } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
-import { add, connect, labMenu, run } from './helpers.ts';
+import { add, connect, labMenu, run, taskCenter } from './helpers.ts';
 
 test('a finished task makes a report that "Check a report" confirms, and edits are caught', async ({
   page,
 }) => {
   await page.goto('/');
+  await taskCenter(page);
   await page.getByRole('button', { name: 'Start: Two computers, one cable' }).click();
   await add(page, 'PC', 2);
   await connect(page, 'pc1', 'pc2');

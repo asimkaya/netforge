@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { add, run } from './helpers.ts';
+import { add, run, taskCenter } from './helpers.ts';
 
 test('a learner fixes the wrong gateway and proves it', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('tab', { name: 'Troubleshoot' }).click();
+  await taskCenter(page, 'Troubleshoot');
   await page.getByRole('button', { name: 'Start: No way out for pc3' }).click();
   // An empty canvas loads the broken network without asking.
   await expect(page.getByRole('alertdialog')).toHaveCount(0);
@@ -46,7 +46,7 @@ test('starting a challenge on a busy canvas offers only to replace or cancel', a
   await page.goto('/');
   await add(page, 'PC');
   await expect(page.getByTestId('device-pc1')).toBeVisible();
-  await page.getByRole('tab', { name: 'Troubleshoot' }).click();
+  await taskCenter(page, 'Troubleshoot');
   await page.getByRole('button', { name: 'Start: No way out for pc3' }).click();
 
   const ask = page.getByRole('alertdialog');

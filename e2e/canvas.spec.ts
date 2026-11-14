@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { add, connect } from './helpers.ts';
+import { add, connect, taskCenter } from './helpers.ts';
 
 /** Shift+drag on the empty canvas around the given devices. */
 async function boxSelect(page: Page, devices: string[]) {
@@ -116,7 +116,7 @@ test('the palette is grouped and fits a 1440x900 window without scrolling', asyn
 
 test('a new note and zone land clear of the devices of a ready network', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('tab', { name: 'Networks' }).click();
+  await taskCenter(page, 'Networks');
   await page.getByRole('button', { name: 'Open Small office' }).click();
   await expect(page.getByTestId('device-sw1')).toBeVisible();
   await page.getByRole('button', { name: 'Add Zone' }).click();

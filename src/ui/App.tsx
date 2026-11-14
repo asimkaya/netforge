@@ -8,6 +8,9 @@ import { Palette } from './Palette.tsx';
 import { ReportPanel } from './ReportUi.tsx';
 import { UpdateToast } from './UpdateToast.tsx';
 import { Coach, Sidebar, type Tab } from './TaskPanel.tsx';
+import { TaskCenter } from './TaskCenter.tsx';
+import type { CustomTask } from '../tasks/custom.ts';
+import { findTask } from '../tasks/tasks.ts';
 import { SimPanel } from './lazyViews.ts';
 import { Windows } from './window/Windows.tsx';
 import { useTaskProgress } from './taskProgress.ts';
@@ -46,13 +49,22 @@ function ModeSwitch({ mode }: { mode: Mode }) {
 }
 
 export function App() {
-  const { net, mode, notice } = useLab();
+  const { net, mode, notice, tasks } = useLab();
   useRealtimeClock(net, mode);
   useTaskProgress();
   // The side panel starts closed on narrow screens, where it would cover the canvas.
   const [panel, setPanel] = useState(() => window.matchMedia('(min-width: 768px)').matches);
 
   const [tab, setTab] = useState<Tab>('tasks');
+  const [center, setCenter] = useState(false);
+  const [editing, setEditing] = useState<CustomTask | 'new' | null>(null);
+  // The side panel only has something to show while a task runs or is being written.
+  const showPanel =
+    panel && (editing !== null || findTask(tasks.active, tasks.custom) !== undefined);
+  const openCenter = (to?: Tab) => {
+    if (to) setTab(to);
+    setCenter(true);
+  };
 
   return (
     <ReactFlowProvider>
@@ -67,29 +79,40 @@ export function App() {
             <LabMenu />
             <button
               type="button"
-              aria-pressed={panel}
-              onClick={() => setPanel(!panel)}
-              title={panel ? 'Hide the task panel' : 'Show the task panel'}
-              className="h-7 shrink-0 rounded border border-(--nf-border) px-3 text-xs whitespace-nowrap hover:bg-(--nf-raised) max-sm:px-2 aria-pressed:bg-(--nf-raised)"
+              aria-haspopup="dialog"
+              onClick={() => openCenter()}
+              title="Open the Task center"
+              className="h-7 shrink-0 rounded border border-(--nf-border) px-3 text-xs whitespace-nowrap hover:bg-(--nf-raised) max-sm:px-2"
             >
               Tasks
             </button>
           </div>
         </header>
+        {center && (
+          <TaskCenter
+            tab={tab}
+            setTab={setTab}
+            onClose={() => setCenter(false)}
+            onStarted={() => {
+              setCenter(false);
+              setPanel(true);
+            }}
+            onEdit={(task) => {
+              setEditing(task);
+              setCenter(false);
+              setPanel(true);
+            }}
+          />
+        )}
         <ReportPanel />
         <UpdateToast />
         <div className="relative flex min-h-0 flex-1">
           <Palette />
           <main className="flex min-w-0 flex-1 flex-col">
             <div className="relative min-h-0 flex-1">
-              <Canvas
-                onShowPanel={(to) => {
-                  if (to) setTab(to);
-                  setPanel(true);
-                }}
-              />
+              <Canvas onShowPanel={(to) => (to ? openCenter(to) : setPanel(true))} />
               <Windows />
-              {!panel && <Coach onOpen={() => setPanel(true)} />}
+              {!showPanel && <Coach onOpen={() => setPanel(true)} />}
               {notice && (
                 <div
                   role="status"
@@ -105,10 +128,18 @@ export function App() {
               </Suspense>
             )}
           </main>
-          {panel && (
+          {showPanel && (
             // On narrow screens the panel floats over the canvas instead of squeezing it.
             <aside className="w-72 max-w-full shrink-0 overflow-y-auto border-l border-(--nf-border) bg-(--nf-surface) max-md:absolute max-md:inset-y-0 max-md:right-0 max-md:z-30 max-md:shadow-lg">
-              <Sidebar tab={tab} setTab={setTab} />
+              <Sidebar
+                editing={editing}
+                setEditing={(task) => {
+                  setEditing(task);
+                  if (!task) setCenter(true);
+                }}
+                onLeave={() => setCenter(true)}
+                onHide={() => setPanel(false)}
+              />
             </aside>
           )}
         </div>

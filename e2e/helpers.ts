@@ -92,3 +92,10 @@ export async function labMenu(page: Page, item: string) {
   await page.getByRole('button', { name: 'Lab menu' }).click();
   await page.getByRole('menuitem', { name: item, exact: true }).click();
 }
+
+/** Opens the Task center from the top bar, optionally on another tab. */
+export async function taskCenter(page: Page, tab?: 'Networks' | 'Troubleshoot') {
+  await page.getByRole('button', { name: 'Tasks' }).click();
+  await expect(page.getByRole('dialog', { name: 'Task center' })).toBeVisible();
+  if (tab) await page.getByRole('tab', { name: tab }).click();
+}
