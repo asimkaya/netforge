@@ -83,9 +83,16 @@ export function Terminal({ deviceId }: { deviceId: string }) {
         role="log"
         aria-live="polite"
       >
-        {s.lines.map((line, i) => (
-          <div key={i}>{line || ' '}</div>
-        ))}
+        {s.lines.map((line, i) => {
+          // shortcut: only the shell prompt shape is coloured, not password prompts
+          const m = /^root@[\w.-]+:~# /.exec(line);
+          return (
+            <div key={i}>
+              {m ? <span className="text-emerald-400">{m[0]}</span> : null}
+              {(m ? line.slice(m[0].length) : line) || ' '}
+            </div>
+          );
+        })}
         <label className="flex">
           {typing && (
             <span className="text-emerald-400">{programPrompt ?? prompt(device.name)}</span>

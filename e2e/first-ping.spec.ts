@@ -43,6 +43,10 @@ test('the terminal keeps working after a command that fails at once, and Tab com
   await run(page, 'pc1', 'ping -c 1 127.0.0.1; echo done');
   await expect(log).toContainText('1 packets transmitted, 1 received');
   await expect(log).toContainText('done');
+  // The prompt of an already-executed command line stays green.
+  await expect(
+    log.locator('div > span.text-emerald-400', { hasText: 'root@pc1:~#' }).first(),
+  ).toBeVisible();
   const input = win(page, 'pc1').getByRole('textbox', { name: 'Command' });
   await input.fill('tracer');
   await input.press('Tab');
