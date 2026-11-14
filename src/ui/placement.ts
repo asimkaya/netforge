@@ -25,6 +25,18 @@ function overlaps(a: Point, aSpec: SpecId, b: Placed): boolean {
   return a.x < b.at.x + sb.w && b.at.x < a.x + sa.w && a.y < b.at.y + sb.h && b.at.y < a.y + sa.h;
 }
 
+/** The rectangle that holds all the given devices, for fitting the view to them. */
+export function boundsOf(placed: readonly Placed[]) {
+  const x = Math.min(...placed.map((p) => p.at.x));
+  const y = Math.min(...placed.map((p) => p.at.y));
+  return {
+    x,
+    y,
+    width: Math.max(...placed.map((p) => p.at.x + FOOTPRINT[p.spec].w)) - x,
+    height: Math.max(...placed.map((p) => p.at.y + FOOTPRINT[p.spec].h)) - y,
+  };
+}
+
 /**
  * A free spot for a new device near `center`: network gear on a row above the center, PCs
  * and servers on a row below, trying positions outward from the middle so devices never overlap.

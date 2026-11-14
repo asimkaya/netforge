@@ -7,7 +7,13 @@ import { PORT_TYPE_LABEL, hasCarrier, peerOf, type Port } from '../engine/port.t
 import { getLab } from './lab.ts';
 
 export type DeviceNodeType = Node<
-  { deviceId: string; version: number; activity: Record<string, number> },
+  {
+    deviceId: string;
+    version: number;
+    activity: Record<string, number>;
+    /** The current task step is about this device. */
+    focused: boolean;
+  },
   'device'
 >;
 
@@ -393,7 +399,7 @@ export function DeviceNode({ id, data, selected }: NodeProps<DeviceNodeType>) {
     <div
       className={`relative rounded-xl border bg-(--nf-surface) shadow-sm transition-colors ${
         selected ? 'border-(--nf-accent)' : 'border-(--nf-border)'
-      }`}
+      } ${data.focused ? 'nf-focus' : ''}`}
       data-testid={`device-${device.name}`}
     >
       {/*

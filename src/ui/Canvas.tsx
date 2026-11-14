@@ -26,6 +26,7 @@ import {
   select,
   useLab,
 } from './lab.ts';
+import { useTaskFocus } from './taskProgress.ts';
 import { DeviceMenu, PortMenu, type DeviceMenuState, type PortMenuState } from './PortMenu.tsx';
 
 const nodeTypes = { device: DeviceNode };
@@ -47,6 +48,7 @@ export function Canvas() {
   const [deviceMenu, setDeviceMenu] = useState<DeviceMenuState | null>(null);
   const wrapper = useRef<HTMLDivElement>(null);
   const flow = useReactFlow();
+  const focus = useTaskFocus();
   // Nodes are rebuilt from the store on every render, so keep React Flow's measurements.
   const [sizes, setSizes] = useState<Record<string, { width: number; height: number }>>({});
 
@@ -69,7 +71,12 @@ export function Canvas() {
       type: 'device',
       position: layout[d.id] ?? { x: 0, y: 0 },
       selected: d.id === selected,
-      data: { deviceId: d.id, version: net.version, activity: activity[d.id] ?? {} },
+      data: {
+        deviceId: d.id,
+        version: net.version,
+        activity: activity[d.id] ?? {},
+        focused: focus?.devices.includes(d.id) ?? false,
+      },
       ...(size ? { measured: size } : {}),
     };
   });

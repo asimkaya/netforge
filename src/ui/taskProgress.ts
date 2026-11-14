@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { focusOf, type Focus } from '../tasks/focus.ts';
 import { advance, findTask } from '../tasks/tasks.ts';
 import { notify, setTasks, useLab } from './lab.ts';
 
@@ -11,6 +12,16 @@ export function useTaskProgress(): void {
   useEffect(() => {
     if (!task || next === completed) return;
     setTasks({ ...tasks, steps: { ...tasks.steps, [task.id]: next } });
-    if (next === task.steps.length) notify(`🎉 Task complete: ${task.title}`);
+    const upNext = task.steps[next];
+    if (!upNext) notify(`🎉 Task complete: ${task.title}`);
+    else notify(`✓ Step ${next} done. Next: ${upNext.title}`);
   });
+}
+
+/** What the current step of the active task points at, or null without a task. */
+export function useTaskFocus(): Focus | null {
+  const { net, tasks } = useLab();
+  const task = findTask(tasks.active, tasks.custom);
+  const step = task?.steps[tasks.steps[task.id] ?? 0];
+  return step ? focusOf(step, net) : null;
 }

@@ -1,9 +1,18 @@
-import { useState } from 'react';
+import { getViewportForBounds, useReactFlow } from '@xyflow/react';
+import { useState, type ReactNode } from 'react';
 import { Network } from '../engine/network.ts';
 import type { CustomTask } from '../tasks/custom.ts';
-import { TASKS, findTask } from '../tasks/tasks.ts';
+import { TASKS, findTask, type Task } from '../tasks/tasks.ts';
 import { TaskEditor } from './TaskEditor.tsx';
-import { getLab, loadLab, setTasks, useLab } from './lab.ts';
+import { getLab, loadLab, notify, setTasks, useLab } from './lab.ts';
+import { boundsOf } from './placement.ts';
+import { SCENARIOS, type Scenario } from './scenarios.ts';
+
+const PRIMARY =
+  'rounded bg-(--nf-accent) px-3 py-1 text-xs font-semibold text-slate-950 hover:opacity-90';
+const SECONDARY =
+  'rounded border border-(--nf-border) px-3 py-1 text-xs hover:border-(--nf-accent)';
+const CARD = 'rounded-lg border bg-(--nf-bg)/40 p-3';
 
 /** Renders `code` spans inside task text. */
 function Rich({ text }: { text: string }) {
@@ -25,18 +34,65 @@ function Rich({ text }: { text: string }) {
   );
 }
 
-function startTask(id: string): void {
-  const lab = getLab();
-  const replace =
-    lab.net.devices.size === 0 ||
-    window.confirm(
-      'Starting a task clears the canvas. Export your lab first if you want to keep it. Continue?',
+/**
+ * A button for actions that replace the lab. With devices on the canvas it first asks,
+ * right where it was clicked, instead of opening a browser dialog.
+ */
+function ReplaceButton({
+  onConfirm,
+  label,
+  children,
+}: {
+  onConfirm: () => void;
+  /** Accessible name, when the visible text alone does not say what it starts. */
+  label?: string;
+  children: ReactNode;
+}) {
+  const [asking, setAsking] = useState(false);
+  if (!asking) {
+    return (
+      <button
+        type="button"
+        className={PRIMARY}
+        aria-label={label}
+        onClick={() => (getLab().net.devices.size === 0 ? onConfirm() : setAsking(true))}
+      >
+        {children}
+      </button>
     );
-  if (!replace) return;
+  }
+  return (
+    <div
+      role="alertdialog"
+      aria-label="Replace the network on the canvas?"
+      className="w-full space-y-2 rounded border border-amber-500/50 bg-amber-500/10 p-2 text-xs"
+    >
+      <p>This replaces the network on the canvas. Export it first (Lab menu) to keep it.</p>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          className={PRIMARY}
+          onClick={() => {
+            setAsking(false);
+            onConfirm();
+          }}
+        >
+          Replace
+        </button>
+        <button type="button" className={SECONDARY} onClick={() => setAsking(false)}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function startTask(id: string): void {
+  const { tasks } = getLab();
   loadLab({
     net: new Network(),
     layout: {},
-    tasks: { active: id, steps: { ...lab.tasks.steps, [id]: 0 } },
+    tasks: { active: id, steps: { ...tasks.steps, [id]: 0 } },
   });
 }
 
@@ -56,6 +112,35 @@ function removeCustom(task: CustomTask): void {
   });
 }
 
+/** A round step or lesson number that turns into a check mark when done. */
+function Badge({ n, state }: { n: number; state: 'done' | 'current' | 'todo' }) {
+  const look =
+    state === 'done'
+      ? 'bg-emerald-500 text-slate-950'
+      : state === 'current'
+        ? 'bg-(--nf-accent) text-slate-950'
+        : 'border border-(--nf-border) text-(--nf-muted)';
+  return (
+    <span
+      aria-hidden
+      className={`grid h-5 w-5 shrink-0 place-items-center rounded-full text-[11px] font-bold ${look}`}
+    >
+      {state === 'done' ? '✓' : n}
+    </span>
+  );
+}
+
+function Progress({ value, max }: { value: number; max: number }) {
+  return (
+    <div className="h-1.5 overflow-hidden rounded bg-(--nf-bg)" aria-hidden>
+      <div
+        className="h-full bg-emerald-400 transition-all"
+        style={{ width: `${(Math.min(value, max) / max) * 100}%` }}
+      />
+    </div>
+  );
+}
+
 function CustomTasks({ onEdit }: { onEdit: (task: CustomTask | 'new') => void }) {
   const { tasks } = useLab();
   const custom = tasks.custom ?? [];
@@ -72,7 +157,7 @@ function CustomTasks({ onEdit }: { onEdit: (task: CustomTask | 'new') => void })
       )}
       <ul className="space-y-2">
         {custom.map((t) => (
-          <li key={t.id} className="rounded-lg border border-(--nf-border) p-3">
+          <li key={t.id} className={`${CARD} border-(--nf-border)`}>
             <h4 className="font-semibold">
               {(tasks.steps[t.id] ?? 0) >= t.steps.length && (
                 <span aria-label="completed">✅ </span>
@@ -80,12 +165,8 @@ function CustomTasks({ onEdit }: { onEdit: (task: CustomTask | 'new') => void })
               {t.title}
             </h4>
             {t.summary && <p className="mt-1 text-xs text-(--nf-muted)">{t.summary}</p>}
-            <div className="mt-2 flex gap-2 text-xs">
-              <button
-                type="button"
-                onClick={() => startCustom(t.id)}
-                className="rounded bg-(--nf-accent) px-3 py-1 font-semibold text-slate-950 hover:opacity-90"
-              >
+            <div className="mt-2 flex items-center gap-3 text-xs">
+              <button type="button" onClick={() => startCustom(t.id)} className={PRIMARY}>
                 Start {t.title}
               </button>
               <button type="button" onClick={() => onEdit(t)} className="underline">
@@ -98,52 +179,164 @@ function CustomTasks({ onEdit }: { onEdit: (task: CustomTask | 'new') => void })
           </li>
         ))}
       </ul>
-      <button
-        type="button"
-        onClick={() => onEdit('new')}
-        className="rounded border border-(--nf-border) px-3 py-1 text-xs hover:border-(--nf-accent)"
-      >
+      <button type="button" onClick={() => onEdit('new')} className={SECONDARY}>
         Create a task
       </button>
     </section>
   );
 }
 
-function TaskList({ onEdit }: { onEdit: (task: CustomTask | 'new') => void }) {
+function GuidedTasks({ onEdit }: { onEdit: (task: CustomTask | 'new') => void }) {
   const { tasks } = useLab();
+  const isDone = (t: Task) => (tasks.steps[t.id] ?? 0) >= t.steps.length;
+  const doneCount = TASKS.filter(isDone).length;
+  const next = TASKS.find((t) => !isDone(t));
   return (
-    <div className="space-y-4 p-4 text-sm">
-      <div className="space-y-2">
-        <h2 className="text-base font-semibold">Welcome to NetForge 👋</h2>
-        <p className="text-(--nf-muted)">
-          Build networks, wire them up and watch packets move. Start with a guided task, or just
-          drag devices onto the canvas and click one to open it.
+    <div className="space-y-4">
+      <div className="space-y-1">
+        <p className="text-xs text-(--nf-muted)">
+          Each task builds a network step by step and checks your work.
         </p>
+        <div className="flex items-center gap-2 text-xs text-(--nf-muted)">
+          <div className="flex-1">
+            <Progress value={doneCount} max={TASKS.length} />
+          </div>
+          {doneCount}/{TASKS.length} done
+        </div>
       </div>
-      <ul className="space-y-2">
-        {TASKS.map((t) => {
-          const done = (tasks.steps[t.id] ?? 0) >= t.steps.length;
+      <ol className="space-y-2">
+        {TASKS.map((t, i) => {
+          const done = isDone(t);
+          const upNext = t === next;
           return (
-            <li key={t.id} className="rounded-lg border border-(--nf-border) p-3">
-              <div className="flex items-start justify-between gap-2">
-                <h3 className="font-semibold">
-                  {done && <span aria-label="completed">✅ </span>}
-                  {t.title}
-                </h3>
+            <li
+              key={t.id}
+              className={`${CARD} ${upNext ? 'border-(--nf-accent)/60' : 'border-(--nf-border)'}`}
+            >
+              <div className="flex items-start gap-2">
+                <Badge n={i + 1} state={done ? 'done' : upNext ? 'current' : 'todo'} />
+                <div className="min-w-0 flex-1">
+                  <h3 className="leading-5 font-semibold">
+                    {done && <span className="sr-only">Completed: </span>}
+                    {t.title}
+                  </h3>
+                  <p className="mt-0.5 text-xs text-(--nf-muted)">{t.summary}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <ReplaceButton
+                      onConfirm={() => startTask(t.id)}
+                      label={`${done ? 'Play again' : 'Start'}: ${t.title}`}
+                    >
+                      {done ? 'Play again' : 'Start'}
+                    </ReplaceButton>
+                    <span className="text-[11px] text-(--nf-muted)">{t.steps.length} steps</span>
+                  </div>
+                </div>
               </div>
-              <p className="mt-1 text-xs text-(--nf-muted)">{t.summary}</p>
-              <button
-                type="button"
-                onClick={() => startTask(t.id)}
-                className="mt-2 rounded bg-(--nf-accent) px-3 py-1 text-xs font-semibold text-slate-950 hover:opacity-90"
-              >
-                {done ? 'Play again' : 'Start'}
-              </button>
             </li>
           );
         })}
-      </ul>
+      </ol>
       <CustomTasks onEdit={onEdit} />
+    </div>
+  );
+}
+
+const LEVEL_LOOK: Record<Scenario['level'], string> = {
+  Basic: 'bg-emerald-500/15 text-emerald-300',
+  Intermediate: 'bg-amber-500/15 text-amber-300',
+  Advanced: 'bg-rose-500/15 text-rose-300',
+};
+
+function Scenarios() {
+  // The network opened last keeps its "what to try" list unfolded.
+  const [opened, setOpened] = useState<string | null>(null);
+  const flow = useReactFlow();
+  const open = (scenario: Scenario) => {
+    const project = scenario.build();
+    loadLab({ ...project, tasks: { active: null, steps: getLab().tasks.steps } });
+    setOpened(scenario.id);
+    notify(`Opened "${scenario.title}". Everything is set up: click a device to look inside.`);
+    // Show the whole network, whatever the view was looking at before.
+    const pane = document.querySelector('.react-flow')?.getBoundingClientRect();
+    const placed = [...project.net.devices.values()].flatMap((d) => {
+      const at = project.layout[d.id];
+      return at ? [{ spec: d.spec.id, at }] : [];
+    });
+    if (!pane || placed.length === 0) return;
+    void flow.setViewport(
+      getViewportForBounds(boundsOf(placed), pane.width, pane.height, 0.2, 1, 0.08),
+    );
+  };
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-(--nf-muted)">
+        Finished networks to explore, break and extend. Nothing to set up: open one and start poking
+        around.
+      </p>
+      <ul className="space-y-2">
+        {SCENARIOS.map((s) => (
+          <li key={s.id} className={`${CARD} border-(--nf-border)`} aria-label={s.title}>
+            <span
+              className={`rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase ${LEVEL_LOOK[s.level]}`}
+            >
+              {s.level}
+            </span>
+            <h3 className="mt-1.5 font-semibold">{s.title}</h3>
+            <p className="mt-0.5 text-xs text-(--nf-muted)">{s.summary}</p>
+            <details className="mt-2 text-xs" open={opened === s.id}>
+              <summary className="cursor-pointer text-(--nf-accent)">What to try</summary>
+              <ul className="mt-1 list-disc space-y-1 pl-4">
+                {s.tryIt.map((line) => (
+                  <li key={line}>
+                    <Rich text={line} />
+                  </li>
+                ))}
+              </ul>
+            </details>
+            <div className="mt-2">
+              <ReplaceButton onConfirm={() => open(s)}>Open {s.title}</ReplaceButton>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+type Tab = 'tasks' | 'networks';
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'tasks', label: 'Guided tasks' },
+  { id: 'networks', label: 'Ready networks' },
+];
+
+function Home({ onEdit }: { onEdit: (task: CustomTask | 'new') => void }) {
+  const [tab, setTab] = useState<Tab>('tasks');
+  return (
+    <div className="space-y-4 p-4 text-sm">
+      <div className="space-y-1">
+        <h2 className="text-base font-semibold">Welcome to NetForge 👋</h2>
+        <p className="text-xs text-(--nf-muted)">
+          Build networks, wire them up and watch packets move. Learn with a guided task, open a
+          ready network, or just drag devices onto the canvas.
+        </p>
+      </div>
+      <div role="tablist" className="flex rounded-lg border border-(--nf-border) p-0.5 text-xs">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => setTab(t.id)}
+            className={`flex-1 rounded-md px-2 py-1 ${
+              tab === t.id ? 'bg-(--nf-accent) font-semibold text-slate-950' : 'text-(--nf-muted)'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {tab === 'tasks' ? <GuidedTasks onEdit={onEdit} /> : <Scenarios />}
     </div>
   );
 }
@@ -156,53 +349,47 @@ function ActiveTask() {
   const completed = tasks.steps[task.id] ?? 0;
   const finished = completed >= task.steps.length;
   const quit = () => setTasks({ ...tasks, active: null });
+  const following = TASKS[TASKS.findIndex((t) => t.id === task.id) + 1];
 
   return (
-    <section
-      className="space-y-3 border-b border-(--nf-border) p-4 text-sm"
-      aria-label="Current task"
-    >
+    <section className="space-y-3 p-4 text-sm" aria-label="Current task">
+      <button type="button" onClick={quit} className="text-xs text-(--nf-muted) hover:underline">
+        ← {finished ? 'Back to all tasks' : 'Leave task (keep the lab)'}
+      </button>
       <div className="flex items-center justify-between gap-2">
-        <h2 className="font-semibold">{task.title}</h2>
-        <span className="text-xs text-(--nf-muted)">
+        <h2 className="text-base font-semibold">{task.title}</h2>
+        <span className="shrink-0 rounded bg-(--nf-bg) px-1.5 py-0.5 font-mono text-xs">
           {Math.min(completed, task.steps.length)}/{task.steps.length}
         </span>
       </div>
-      <div className="h-1.5 overflow-hidden rounded bg-(--nf-bg)" aria-hidden>
-        <div
-          className="h-full bg-emerald-400 transition-all"
-          style={{ width: `${(completed / task.steps.length) * 100}%` }}
-        />
-      </div>
-      <ol className="space-y-2">
+      <Progress value={completed} max={task.steps.length} />
+      <ol className="space-y-1">
         {task.steps.map((step, i) => {
           const state = i < completed ? 'done' : i === completed ? 'current' : 'todo';
           return (
             <li
               key={step.title}
               aria-current={state === 'current' ? 'step' : undefined}
-              className={`rounded p-2 ${state === 'current' ? 'bg-(--nf-bg)' : ''} ${
-                state === 'todo' ? 'opacity-50' : ''
-              }`}
+              className={`rounded-lg p-2 ${
+                state === 'current' ? 'border border-(--nf-accent)/60 bg-(--nf-bg)' : ''
+              } ${state === 'todo' ? 'opacity-50' : ''}`}
             >
               <div className="flex gap-2">
-                <span aria-hidden>
-                  {state === 'done' ? '✅' : state === 'current' ? '👉' : '⬜'}
-                </span>
+                <Badge n={i + 1} state={state} />
                 <span
-                  className={state === 'done' ? 'text-(--nf-muted) line-through' : 'font-medium'}
+                  className={`leading-5 ${state === 'done' ? 'text-(--nf-muted) line-through' : 'font-medium'}`}
                 >
                   {step.title}
                 </span>
               </div>
               {state === 'current' && (
-                <div className="mt-1 ml-6 space-y-1 text-xs">
+                <div className="mt-1 ml-7 space-y-1.5 text-xs">
                   <p>
                     <Rich text={step.detail} />
                   </p>
                   {step.hint &&
                     (hintFor === i ? (
-                      <p className="text-(--nf-muted)">
+                      <p className="rounded bg-(--nf-surface) p-2 text-(--nf-muted)">
                         💡 <Rich text={step.hint} />
                       </p>
                     ) : (
@@ -214,6 +401,10 @@ function ActiveTask() {
                         Show a hint
                       </button>
                     ))}
+                  <p className="text-[11px] text-(--nf-muted)">
+                    The glowing parts of the screen show where to work. This step ticks itself off
+                    when it is done.
+                  </p>
                 </div>
               )}
             </li>
@@ -221,21 +412,50 @@ function ActiveTask() {
         })}
       </ol>
       {finished && (
-        <p
-          className="rounded border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs"
-          role="status"
-        >
-          <Rich text={task.done} />
-        </p>
+        <div className="space-y-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs">
+          <p role="status">
+            <Rich text={task.done} />
+          </p>
+          {following && (
+            <ReplaceButton onConfirm={() => startTask(following.id)}>
+              Next task: {following.title}
+            </ReplaceButton>
+          )}
+        </div>
       )}
-      <button type="button" onClick={quit} className="text-xs text-(--nf-muted) underline">
-        {finished ? 'Back to all tasks' : 'Leave task (keep the lab)'}
-      </button>
     </section>
   );
 }
 
-/** Right sidebar: the current task, the task editor, or the welcome text and task list. */
+/**
+ * The current step in one line, floating over the canvas. Shown while the side panel is
+ * hidden (always the case on phones), so a running task never disappears from view.
+ */
+export function Coach({ onOpen }: { onOpen: () => void }) {
+  const { tasks } = useLab();
+  const task = findTask(tasks.active, tasks.custom);
+  const completed = task ? (tasks.steps[task.id] ?? 0) : 0;
+  const step = task?.steps[completed];
+  if (!task || !step) return null;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={`Current task step: ${step.title}. Show the task panel.`}
+      className="absolute bottom-3 left-1/2 z-20 flex max-w-[90%] -translate-x-1/2 items-center gap-2 rounded-full border border-(--nf-accent)/60 bg-(--nf-surface) py-1.5 pr-4 pl-2 text-xs shadow-lg hover:border-(--nf-accent)"
+    >
+      <Badge n={completed + 1} state="current" />
+      <span className="truncate">
+        <span className="text-(--nf-muted)">
+          Step {completed + 1}/{task.steps.length}:
+        </span>{' '}
+        {step.title}
+      </span>
+    </button>
+  );
+}
+
+/** Right sidebar: the current task, the task editor, or the welcome text and lists. */
 export function Sidebar() {
   const { tasks } = useLab();
   const [editing, setEditing] = useState<CustomTask | 'new' | null>(null);
@@ -256,5 +476,5 @@ export function Sidebar() {
       />
     );
   }
-  return findTask(tasks.active, tasks.custom) ? <ActiveTask /> : <TaskList onEdit={setEditing} />;
+  return findTask(tasks.active, tasks.custom) ? <ActiveTask /> : <Home onEdit={setEditing} />;
 }

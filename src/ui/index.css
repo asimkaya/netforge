@@ -60,9 +60,23 @@ body {
   animation: nf-cursor 1s steps(1) infinite;
 }
 
+/* What the current task step points at: a soft pulsing ring. */
+@keyframes nf-focus {
+  50% {
+    box-shadow:
+      0 0 0 2px var(--nf-accent),
+      0 0 18px 4px color-mix(in srgb, var(--nf-accent) 55%, transparent);
+  }
+}
+.nf-focus {
+  box-shadow: 0 0 0 2px var(--nf-accent);
+  animation: nf-focus 1.6s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .nf-led-blink,
-  .nf-cursor {
+  .nf-cursor,
+  .nf-focus {
     animation: none;
   }
 }

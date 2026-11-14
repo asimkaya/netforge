@@ -3,11 +3,13 @@ import { SPECS, type SpecId } from '../engine/specs.ts';
 import { DRAG_MIME } from './Canvas.tsx';
 import { SpecArt } from './icons.tsx';
 import { addDevice, getLab } from './lab.ts';
-import { FOOTPRINT, freeSpot } from './placement.ts';
+import { FOOTPRINT, boundsOf, freeSpot } from './placement.ts';
+import { useTaskFocus } from './taskProgress.ts';
 
 /** Device palette: drag onto the canvas, or click to add near the center. */
 export function Palette() {
   const flow = useReactFlow();
+  const focus = useTaskFocus();
 
   const addAtCenter = (spec: SpecId) => {
     const pane = document.querySelector('.react-flow')?.getBoundingClientRect();
@@ -27,15 +29,7 @@ export function Palette() {
     const from = flow.screenToFlowPosition({ x: pane.x, y: pane.y });
     const to = flow.screenToFlowPosition({ x: pane.right, y: pane.bottom });
     if (at.x >= from.x && at.y >= from.y && at.x + size.w <= to.x && at.y + size.h <= to.y) return;
-    const all = [...placed, { spec, at }];
-    const x = Math.min(...all.map((p) => p.at.x));
-    const y = Math.min(...all.map((p) => p.at.y));
-    const bounds = {
-      x,
-      y,
-      width: Math.max(...all.map((p) => p.at.x + FOOTPRINT[p.spec].w)) - x,
-      height: Math.max(...all.map((p) => p.at.y + FOOTPRINT[p.spec].h)) - y,
-    };
+    const bounds = boundsOf([...placed, { spec, at }]);
     // No animation: a cable drag may start right after the click.
     void flow.setViewport(getViewportForBounds(bounds, pane.width, pane.height, 0.2, 1, 0.1));
   };
@@ -56,7 +50,7 @@ export function Palette() {
           }}
           onClick={() => addAtCenter(spec.id)}
           title={`${spec.description}. Drag onto the canvas or click to add.`}
-          className="flex cursor-grab flex-col items-center gap-1 rounded-lg border border-(--nf-border) p-2 text-xs hover:border-(--nf-accent) focus-visible:outline-2 focus-visible:outline-(--nf-accent)"
+          className={`flex cursor-grab flex-col items-center gap-1 rounded-lg border border-(--nf-border) p-2 text-xs hover:border-(--nf-accent) focus-visible:outline-2 focus-visible:outline-(--nf-accent) ${focus?.palette.includes(spec.id) ? 'nf-focus' : ''}`}
         >
           <SpecArt spec={spec.id} className="h-8 w-10" />
           Add {spec.label}

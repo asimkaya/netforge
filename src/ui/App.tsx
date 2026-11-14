@@ -6,7 +6,7 @@ import { LabMenu } from './LabMenu.tsx';
 import { setMode, useLab, type Mode } from './lab.ts';
 import { Palette } from './Palette.tsx';
 import { SimPanel } from './SimPanel.tsx';
-import { Sidebar } from './TaskPanel.tsx';
+import { Coach, Sidebar } from './TaskPanel.tsx';
 import { Windows } from './window/Windows.tsx';
 import { useTaskProgress } from './taskProgress.ts';
 
@@ -34,7 +34,7 @@ function ModeSwitch({ mode }: { mode: Mode }) {
             if (m.mode === 'simulation' && mode !== 'simulation') net.clearTrace();
             setMode(m.mode);
           }}
-          className={`rounded px-3 py-0.5 ${
+          className={`rounded px-3 py-0.5 max-sm:px-2 ${
             mode === m.mode ? 'bg-(--nf-accent) font-semibold text-slate-950' : 'text-(--nf-muted)'
           }`}
         >
@@ -55,7 +55,7 @@ export function App() {
   return (
     <ReactFlowProvider>
       <div className="flex h-full flex-col">
-        <header className="flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-b border-(--nf-border) bg-(--nf-surface) px-4">
+        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-(--nf-border) bg-(--nf-surface) px-4 max-sm:px-2">
           <img src="/favicon.svg" alt="" className="h-6 w-6 shrink-0" />
           <h1 className="text-base font-semibold tracking-tight max-sm:hidden">NetForge</h1>
           <div className="shrink-0 sm:ml-6">
@@ -68,7 +68,7 @@ export function App() {
               aria-pressed={panel}
               onClick={() => setPanel(!panel)}
               title={panel ? 'Hide the task panel' : 'Show the task panel'}
-              className="shrink-0 rounded border border-(--nf-border) px-3 py-1 text-xs whitespace-nowrap hover:border-(--nf-accent) focus-visible:outline-2 focus-visible:outline-(--nf-accent) aria-pressed:border-(--nf-accent)"
+              className="h-7 shrink-0 rounded border border-(--nf-border) px-3 text-xs max-sm:px-2 whitespace-nowrap hover:border-(--nf-accent) focus-visible:outline-2 focus-visible:outline-(--nf-accent) aria-pressed:border-(--nf-accent)"
             >
               Tasks
             </button>
@@ -80,6 +80,7 @@ export function App() {
             <div className="relative min-h-0 flex-1">
               <Canvas />
               <Windows />
+              {!panel && <Coach onOpen={() => setPanel(true)} />}
               {notice && (
                 <div
                   role="status"
