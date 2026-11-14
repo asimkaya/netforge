@@ -2,11 +2,12 @@ import { macFromIndex } from '../engine/addr.ts';
 import { Network, type NetworkSnapshot } from '../engine/network.ts';
 import { isSpecId, type SpecId } from '../engine/specs.ts';
 import { SERVICES, checkError, type CustomCheck, type CustomTask } from '../tasks/custom.ts';
+import { LIMITS, NOTE_ID, ZONE_ID, type Note, type Zone } from './annotations.ts';
 import type { Point } from './lab.ts';
 
 export const PROJECT_FORMAT = 'netforge-lab';
 /** Bump on any incompatible change and add a migration for the previous version. */
-export const PROJECT_VERSION = 12;
+export const PROJECT_VERSION = 13;
 
 export interface TaskProgress {
   /** Id of the task being played, if any. */
@@ -22,12 +23,17 @@ export interface ProjectFile {
   version: number;
   network: NetworkSnapshot;
   layout: Record<string, Point>;
+  notes: Note[];
+  zones: Zone[];
   tasks: TaskProgress;
 }
 
 export interface Project {
   net: Network;
   layout: Record<string, Point>;
+  /** Canvas notes and zones; a lab without any may leave them out. */
+  notes?: Note[];
+  zones?: Zone[];
   tasks: TaskProgress;
 }
 
@@ -35,12 +41,14 @@ export function emptyProgress(): TaskProgress {
   return { active: null, steps: {} };
 }
 
-export function serializeProject({ net, layout, tasks }: Project): string {
+export function serializeProject({ net, layout, notes = [], zones = [], tasks }: Project): string {
   const file: ProjectFile = {
     format: PROJECT_FORMAT,
     version: PROJECT_VERSION,
     network: net.toJSON(),
     layout,
+    notes,
+    zones,
     tasks,
   };
   return JSON.stringify(file, null, 2);
@@ -340,6 +348,69 @@ function readLayout(value: unknown): Record<string, Point> {
   return layout;
 }
 
+function coordinate(value: unknown, what: string): number {
+  return typeof value === 'number' && Math.abs(value) <= LIMITS.coordinate
+    ? value
+    : fail(`${what} is invalid.`);
+}
+
+function size(value: unknown, what: string, range: { min: number; max: number }): number {
+  return typeof value === 'number' && value >= range.min && value <= range.max
+    ? value
+    : fail(`${what} is invalid.`);
+}
+
+/** Free text: no control characters except line breaks, and a length limit. */
+function text(value: unknown, what: string, max: number): string {
+  // Built from a string, like TEXT below: the pattern lists control characters on purpose.
+  const allowed = new RegExp(`^[^\u0000-\u0008\u000b-\u001f]{0,${max}}$`);
+  return typeof value === 'string' && allowed.test(value) ? value : fail(`${what} is invalid.`);
+}
+
+function readNotes(value: unknown): Note[] {
+  const list = arr(value ?? [], 'notes');
+  if (list.length > LIMITS.notes) fail('There are too many notes.');
+  const seen = new Set<string>();
+  return list.map((raw) => {
+    const n = obj(raw, 'A note');
+    const id = str(n.id, 'note id', NOTE_ID);
+    if (seen.has(id)) fail(`Note ${id} appears twice.`);
+    seen.add(id);
+    return {
+      id,
+      x: coordinate(n.x, `position of ${id}`),
+      y: coordinate(n.y, `position of ${id}`),
+      w: size(n.w, `width of ${id}`, LIMITS.noteWidth),
+      text: text(n.text, `text of ${id}`, LIMITS.noteText),
+    };
+  });
+}
+
+function readZones(value: unknown): Zone[] {
+  const list = arr(value ?? [], 'zones');
+  if (list.length > LIMITS.zones) fail('There are too many zones.');
+  const seen = new Set<string>();
+  return list.map((raw) => {
+    const z = obj(raw, 'A zone');
+    const id = str(z.id, 'zone id', ZONE_ID);
+    if (seen.has(id)) fail(`Zone ${id} appears twice.`);
+    seen.add(id);
+    const tint = z.tint;
+    if (!Number.isInteger(tint) || (tint as number) < 0 || (tint as number) >= LIMITS.zoneTints) {
+      fail(`tint of ${id} is invalid.`);
+    }
+    return {
+      id,
+      x: coordinate(z.x, `position of ${id}`),
+      y: coordinate(z.y, `position of ${id}`),
+      w: size(z.w, `width of ${id}`, LIMITS.zoneWidth),
+      h: size(z.h, `height of ${id}`, LIMITS.zoneHeight),
+      title: text(z.title, `title of ${id}`, LIMITS.zoneTitle),
+      tint: tint as number,
+    };
+  });
+}
+
 const TEXT = (max: number) => new RegExp(`^[^\\u0000-\\u0008]{0,${max}}$`);
 const DEVICE = /^([A-Za-z0-9][A-Za-z0-9-]{0,62})?$/;
 
@@ -456,6 +527,8 @@ const MIGRATIONS: Record<number, (file: Json) => Json> = {
   10: (file) => file,
   // v12 adds the dhcrelay service and the Spanning Tree `forwardDelay` of a switch.
   11: (file) => file,
+  // v13 adds canvas notes and zones (`notes`, `zones`).
+  12: (file) => ({ notes: [], zones: [], ...file }),
   // v2: devices name a spec instead of a kind; switches gain two SFP uplinks (eth8, eth9);
   // per-kind name counters become per-prefix counters.
   1: (file) => {
@@ -479,7 +552,7 @@ const MIGRATIONS: Record<number, (file: Json) => Json> = {
 };
 
 /** Parses a lab file. Throws ProjectError with a user-facing message. */
-export function parseProject(text: string): Project {
+export function parseProject(text: string): Required<Project> {
   let data: unknown;
   try {
     data = JSON.parse(text);
@@ -505,5 +578,11 @@ export function parseProject(text: string): Project {
   } catch (error) {
     fail(`The lab is damaged: ${error instanceof Error ? error.message : String(error)}.`);
   }
-  return { net, layout: readLayout(file.layout), tasks: readTasks(file.tasks) };
+  return {
+    net,
+    layout: readLayout(file.layout),
+    notes: readNotes(file.notes),
+    zones: readZones(file.zones),
+    tasks: readTasks(file.tasks),
+  };
 }

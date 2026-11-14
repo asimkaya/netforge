@@ -1,15 +1,18 @@
 import { macFromIndex } from '../engine/addr.ts';
 import { Network, type NetworkSnapshot } from '../engine/network.ts';
 import { SPECS } from '../engine/specs.ts';
+import { freshId, type Note, type Zone } from './annotations.ts';
 import { replaceLab } from './history.ts';
-import { getLab, notify, setSelection, type Point } from './lab.ts';
+import { exists, getLab, notify, setSelection, type Point } from './lab.ts';
 import type { Project } from './project.ts';
 
-/** Copied devices, the cables between them, and where they sit. */
+/** Copied devices, the cables between them, where they sit, and copied notes and zones. */
 export interface Clip {
   devices: NetworkSnapshot['devices'];
   links: NetworkSnapshot['links'];
   layout: Record<string, Point>;
+  notes: Note[];
+  zones: Zone[];
 }
 
 /** Pasted copies move this far from the originals (per paste, so copies never hide each other). */
@@ -19,13 +22,18 @@ export const PASTE_OFFSET = 40;
  * Takes the selected devices from the network's own snapshot, so everything the save format
  * stores for a device is copied. Cables to devices outside the selection are left out.
  */
-export function copyOf(net: Network, layout: Record<string, Point>, ids: readonly string[]): Clip {
+export function copyOf(
+  { net, layout, notes = [], zones = [] }: Pick<Project, 'net' | 'layout' | 'notes' | 'zones'>,
+  ids: readonly string[],
+): Clip {
   const snapshot = structuredClone(net.toJSON());
   const chosen = new Set(ids);
   return {
     devices: snapshot.devices.filter((d) => chosen.has(d.id)),
     links: snapshot.links.filter((l) => chosen.has(l.a.device) && chosen.has(l.b.device)),
     layout: Object.fromEntries(Object.entries(layout).filter(([id]) => chosen.has(id))),
+    notes: structuredClone(notes.filter((n) => chosen.has(n.id))),
+    zones: structuredClone(zones.filter((z) => chosen.has(z.id))),
   };
 }
 
@@ -83,18 +91,33 @@ export function paste(
     const at = clip.layout[old] ?? { x: 0, y: 0 };
     layout[id] = { x: at.x + offset, y: at.y + offset };
   }
-  return { project: { ...current, net, layout }, ids: [...renamed.values()] };
+  // Notes and zones are plain layout data: new ids and a new position, nothing else changes.
+  const notes = [...(current.notes ?? [])];
+  const zones = [...(current.zones ?? [])];
+  const pastedNotes = clip.notes.map((n) => {
+    const copy = { ...n, id: freshId('n', notes), x: n.x + offset, y: n.y + offset };
+    notes.push(copy);
+    return copy.id;
+  });
+  const pastedZones = clip.zones.map((z) => {
+    const copy = { ...z, id: freshId('z', zones), x: z.x + offset, y: z.y + offset };
+    zones.push(copy);
+    return copy.id;
+  });
+  return {
+    project: { ...current, net, layout, notes, zones },
+    ids: [...pastedZones, ...renamed.values(), ...pastedNotes],
+  };
 }
 
 let clipboard: Clip | null = null;
 let pastes = 0;
 
-/** Copies the selected devices (the clipboard lives in memory, not in the system clipboard). */
+/** Copies the selected devices, notes and zones (the clipboard lives in memory, not in the system clipboard). */
 export function copySelection(ids = getLab().selection): boolean {
-  const { net, layout } = getLab();
-  const chosen = ids.filter((id) => net.devices.has(id));
+  const chosen = ids.filter(exists);
   if (chosen.length === 0) return false;
-  clipboard = copyOf(net, layout, chosen);
+  clipboard = copyOf(getLab(), chosen);
   pastes = 0;
   return true;
 }
@@ -102,9 +125,8 @@ export function copySelection(ids = getLab().selection): boolean {
 /** Pastes the clipboard as one undo step and selects the copies. */
 export function pasteClipboard(): boolean {
   if (!clipboard) return false;
-  const { net, layout, tasks } = getLab();
   try {
-    const result = paste({ net, layout, tasks }, clipboard, PASTE_OFFSET * ++pastes);
+    const result = paste(getLab(), clipboard, PASTE_OFFSET * ++pastes);
     replaceLab(result.project);
     setSelection(result.ids);
     return true;

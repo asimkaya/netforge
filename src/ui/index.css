@@ -30,6 +30,11 @@
   --nf-socket: #0c0e0d;
   --nf-cable-copper: #5b6662;
   --nf-cable-fiber: #e08a00;
+  /* Zone tints: quiet slate, sage, sand and mauve, far from the VLAN colours. */
+  --nf-zone-1: #6f7f94;
+  --nf-zone-2: #7d9a82;
+  --nf-zone-3: #a39378;
+  --nf-zone-4: #9a7f94;
   /* A terminal is always dark. */
   --nf-term-bg: #0c0f0e;
   --nf-term-text: #d7ddd8;
@@ -58,6 +63,10 @@
   --nf-socket: #0b0d0c;
   --nf-cable-copper: #8a9690;
   --nf-cable-fiber: #f2a93b;
+  --nf-zone-1: #8da0b8;
+  --nf-zone-2: #8fb394;
+  --nf-zone-3: #bba98a;
+  --nf-zone-4: #b698ae;
 }
 
 html,
@@ -119,6 +128,26 @@ body {
 }
 .react-flow__attribution a {
   color: var(--nf-muted);
+}
+
+/* A zone only takes the mouse on its title bar and resize edges, so devices, the box
+   selection and panning keep working inside it. */
+.react-flow__node.nf-zone {
+  pointer-events: none !important;
+}
+.nf-zone .nf-zone-title,
+.nf-zone .react-flow__resize-control {
+  pointer-events: all;
+}
+.react-flow__resize-control.handle {
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--nf-accent);
+  border-radius: 2px;
+  background: var(--nf-surface);
+}
+.react-flow__resize-control.line {
+  border-color: var(--nf-accent);
 }
 
 /* Port LED flash when a frame passes. */

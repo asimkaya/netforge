@@ -18,8 +18,8 @@ const listeners = new Set<() => void>();
 
 /** The parts of the lab undo covers: devices, cables, settings, layout (not task progress). */
 function snapshot(): string {
-  const { net, layout } = getLab();
-  return serializeProject({ net, layout, tasks: emptyProgress() });
+  const { net, layout, notes, zones } = getLab();
+  return serializeProject({ net, layout, notes, zones, tasks: emptyProgress() });
 }
 
 function notify(): void {
@@ -43,10 +43,10 @@ export function record(): void {
 }
 
 function apply(text: string): void {
-  const { net, layout } = parseProject(text);
+  const { net, layout, notes, zones } = parseProject(text);
   applying = true;
   try {
-    loadLab({ net, layout, tasks: getLab().tasks }, { keepWindows: true });
+    loadLab({ net, layout, notes, zones, tasks: getLab().tasks }, { keepWindows: true });
   } finally {
     applying = false;
   }
@@ -59,15 +59,15 @@ function apply(text: string): void {
  * Swaps in a rebuilt lab (a paste) as one undo step. Open windows and terminals stay,
  * like with undo itself.
  */
-export function replaceLab({ net, layout, tasks }: Project): void {
+export function replaceLab(project: Project): void {
   record();
   applying = true;
   try {
-    loadLab({ net, layout, tasks }, { keepWindows: true });
+    loadLab({ ...project, tasks: getLab().tasks }, { keepWindows: true });
   } finally {
     applying = false;
   }
-  tracked = net;
+  tracked = project.net;
   record();
 }
 

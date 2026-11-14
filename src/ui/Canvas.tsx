@@ -14,17 +14,24 @@ import { useEffect, useRef, useState, type DragEvent } from 'react';
 import type { Network } from '../engine/network.ts';
 import { hasCarrier, type Link } from '../engine/port.ts';
 import { isSpecId } from '../engine/specs.ts';
+import { NoteNode, ZoneNode, type NoteNodeType, type ZoneNodeType } from './AnnotationNodes.tsx';
+import { NOTE_ID, ZONE_ID } from './annotations.ts';
 import { CableEdge, type CableEdgeType } from './CableEdge.tsx';
 import { BODY_HANDLE, DeviceNode, type DeviceNodeType } from './DeviceNode.tsx';
 import {
   addDevice,
   cable,
+  exists,
   getLab,
+  moveAnnotation,
   moveDevice,
   notify,
   openWindow,
+  removeAnnotation,
   removeDevice,
   select,
+  updateNote,
+  updateZone,
   setSelection,
   useLab,
 } from './lab.ts';
@@ -36,7 +43,8 @@ import { useTaskFocus } from './taskProgress.ts';
 import { portRole, vlanColor, vlansInUse } from './vlanColors.ts';
 import { DeviceMenu, PortMenu, type DeviceMenuState, type PortMenuState } from './PortMenu.tsx';
 
-const nodeTypes = { device: DeviceNode };
+const nodeTypes = { device: DeviceNode, note: NoteNode, zone: ZoneNode };
+type CanvasNode = DeviceNodeType | NoteNodeType | ZoneNodeType;
 const edgeTypes = { cable: CableEdge };
 export const DRAG_MIME = 'application/x-netforge-device';
 /** Default device window size (matches Windows.tsx) and its distance from the device. */
@@ -59,7 +67,7 @@ function cableVlanColor(l: Link): string | null {
 }
 
 export function Canvas({ onShowPanel }: { onShowPanel: (tab?: Tab) => void }) {
-  const { net, layout, selection, mode, why } = useLab();
+  const { net, layout, notes, zones, selection, mode, why } = useLab();
   const [selectedCable, setSelectedCable] = useState<string | null>(null);
   const [menu, setMenu] = useState<PortMenuState | null>(null);
   const [deviceMenu, setDeviceMenu] = useState<DeviceMenuState | null>(null);
@@ -83,7 +91,7 @@ export function Canvas({ onShowPanel }: { onShowPanel: (tab?: Tab) => void }) {
 
   const vlans = vlansInUse([...net.devices.values()].map((d) => d.bridge));
 
-  const nodes: DeviceNodeType[] = [...net.devices.values()].map((d) => {
+  const deviceNodes: DeviceNodeType[] = [...net.devices.values()].map((d) => {
     const size = sizes[d.id];
     return {
       id: d.id,
@@ -101,6 +109,34 @@ export function Canvas({ onShowPanel }: { onShowPanel: (tab?: Tab) => void }) {
     };
   });
 
+  // Zones sit behind everything (only their title bar and edges take the mouse); notes on top.
+  const zoneNodes: ZoneNodeType[] = zones.map((zone) => ({
+    id: zone.id,
+    type: 'zone',
+    position: { x: zone.x, y: zone.y },
+    width: zone.w,
+    height: zone.h,
+    zIndex: -1,
+    className: 'nf-zone',
+    dragHandle: '.nf-zone-title',
+    selected: selection.includes(zone.id),
+    data: { zone },
+  }));
+  const noteNodes: NoteNodeType[] = notes.map((note) => {
+    const size = sizes[note.id];
+    return {
+      id: note.id,
+      type: 'note',
+      position: { x: note.x, y: note.y },
+      width: note.w,
+      zIndex: 2,
+      selected: selection.includes(note.id),
+      data: { note },
+      ...(size ? { measured: size } : {}),
+    };
+  });
+  const nodes: CanvasNode[] = [...zoneNodes, ...deviceNodes, ...noteNodes];
+
   const edges: CableEdgeType[] = [...net.links.values()].map((l) => ({
     id: l.id,
     source: l.a.device.id,
@@ -117,20 +153,30 @@ export function Canvas({ onShowPanel }: { onShowPanel: (tab?: Tab) => void }) {
     },
   }));
 
-  const onNodesChange = (changes: NodeChange<DeviceNodeType>[]) => {
+  const onNodesChange = (changes: NodeChange<CanvasNode>[]) => {
     // Picks and drops arrive one node at a time; apply them as one selection change.
     let picked = getLab().selection;
     for (const c of changes) {
+      if (c.type === 'add' || c.type === 'replace') continue;
+      const isDevice = !NOTE_ID.test(c.id) && !ZONE_ID.test(c.id);
       if (c.type === 'dimensions' && c.dimensions) {
-        const size = c.dimensions;
-        setSizes((prev) => ({ ...prev, [c.id]: size }));
-      } else if (c.type === 'position' && c.position) moveDevice(c.id, c.position);
-      else if (c.type === 'select') {
+        const { width, height } = c.dimensions;
+        if (c.setAttributes && NOTE_ID.test(c.id)) updateNote(c.id, { w: Math.round(width) });
+        else if (c.setAttributes && ZONE_ID.test(c.id)) {
+          updateZone(c.id, { w: Math.round(width), h: Math.round(height) });
+        } else setSizes((prev) => ({ ...prev, [c.id]: { width, height } }));
+      } else if (c.type === 'position' && c.position) {
+        if (isDevice) moveDevice(c.id, c.position);
+        else moveAnnotation(c.id, c.position);
+      } else if (c.type === 'select') {
         picked = picked.filter((id) => id !== c.id);
         if (c.selected) picked = [...picked, c.id];
-      } else if (c.type === 'remove') removeDevice(c.id);
+      } else if (c.type === 'remove') {
+        if (isDevice) removeDevice(c.id);
+        else removeAnnotation(c.id);
+      }
     }
-    setSelection(picked.filter((id) => getLab().net.devices.has(id)));
+    setSelection(picked.filter(exists));
   };
 
   const onEdgesChange = (changes: EdgeChange<CableEdgeType>[]) => {
@@ -202,8 +248,14 @@ export function Canvas({ onShowPanel }: { onShowPanel: (tab?: Tab) => void }) {
       if (target.closest?.('input, textarea, select, [contenteditable="true"], [role="dialog"]')) {
         return;
       }
-      if (key === 'a') setSelection([...getLab().net.devices.keys()]);
-      else if (key === 'c') {
+      if (key === 'a') {
+        const lab = getLab();
+        setSelection([
+          ...lab.zones.map((z) => z.id),
+          ...lab.net.devices.keys(),
+          ...lab.notes.map((n) => n.id),
+        ]);
+      } else if (key === 'c') {
         if (window.getSelection()?.toString()) return;
         copySelection();
       } else pasteClipboard();
@@ -241,7 +293,7 @@ export function Canvas({ onShowPanel }: { onShowPanel: (tab?: Tab) => void }) {
         onConnectEnd={onConnectEnd}
         onNodeClick={(event, node) => {
           // Ctrl/Cmd+click edits the selection; it does not open a window.
-          if (event.ctrlKey || event.metaKey || event.shiftKey) return;
+          if (event.ctrlKey || event.metaKey || event.shiftKey || node.type !== 'device') return;
           openWindow(node.id, {}, beside((event.target as Element).closest('.react-flow__node')));
         }}
         onNodeContextMenu={(event, node) => {
@@ -255,6 +307,7 @@ export function Canvas({ onShowPanel }: { onShowPanel: (tab?: Tab) => void }) {
           e.dataTransfer.dropEffect = 'copy';
         }}
         onDrop={onDrop}
+        elevateNodesOnSelect={false}
         selectionMode={SelectionMode.Full}
         connectionMode={ConnectionMode.Loose}
         connectionLineStyle={{ stroke: 'var(--nf-accent)', strokeWidth: 2.5 }}

@@ -24,7 +24,7 @@ describe('copy and paste', () => {
   it('adds copies with new names and MACs, their cables, and the same configuration', () => {
     const before = smallLab();
     const ids = ['d1', 'd3']; // pc1 and sw1; pc2 and the router stay out
-    const clip = copyOf(before.net, before.layout, ids);
+    const clip = copyOf(before, ids);
     expect(clip.links).toHaveLength(1); // only pc1 - sw1
 
     const { project, ids: created } = paste(before, clip, 40);
@@ -70,7 +70,7 @@ describe('copy and paste', () => {
 
   it('can be pasted twice', () => {
     const before = smallLab();
-    const clip = copyOf(before.net, before.layout, ['d1']);
+    const clip = copyOf(before, ['d1']);
     const once = paste(before, clip, 40).project;
     const twice = paste(once, clip, 80).project;
     expect([...twice.net.devices.values()].map((d) => d.name)).toEqual([

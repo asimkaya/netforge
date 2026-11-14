@@ -11,6 +11,7 @@ import { complete, run, type Process } from '../engine/shell.ts';
 import type { SpecId } from '../engine/specs.ts';
 import { checkWireless } from '../engine/wifi.ts';
 import { clearEvidence } from '../tasks/tasks.ts';
+import { LIMITS, NOTE_ID, ZONE_ID, freshId, type Note, type Zone } from './annotations.ts';
 import { FOOTPRINT } from './placement.ts';
 import { emptyProgress, type Project, type TaskProgress } from './project.ts';
 
@@ -58,9 +59,11 @@ export interface CommandRecord {
 export interface LabState {
   net: Network;
   layout: Record<string, Point>;
+  notes: Note[];
+  zones: Zone[];
   /** The device clicked last, or null: device windows and the like follow this one. */
   selected: string | null;
-  /** Everything selected on the canvas (devices today), in the order it was picked. */
+  /** Everything selected on the canvas (devices, notes and zones), in the order it was picked. */
   selection: string[];
   windows: DeviceWindow[];
   mode: Mode;
@@ -95,10 +98,12 @@ function attachLocate(net: Network): void {
   };
 }
 
-function freshState({ net, layout, tasks }: Project): LabState {
+function freshState({ net, layout, notes = [], zones = [], tasks }: Project): LabState {
   return {
     net,
     layout,
+    notes,
+    zones,
     tasks,
     selected: null,
     selection: [],
@@ -152,7 +157,11 @@ export function loadLab(project: Project, options: { keepWindows?: boolean } = {
   }
   // Undo/redo keep open windows and terminal history for devices that still exist.
   if (!options.keepWindows) sessions.clear();
-  const has = (id: string | null) => id !== null && project.net.devices.has(id);
+  const has = (id: string | null) =>
+    id !== null &&
+    (project.net.devices.has(id) ||
+      (project.notes ?? []).some((n) => n.id === id) ||
+      (project.zones ?? []).some((z) => z.id === id));
   const selection = state.selection.filter(has);
   unsubscribeNet();
   state = {
@@ -161,7 +170,7 @@ export function loadLab(project: Project, options: { keepWindows?: boolean } = {
     ...(options.keepWindows
       ? {
           windows: state.windows.filter((w) => has(w.device)),
-          selected: has(state.selected) ? state.selected : null,
+          selected: project.net.devices.has(state.selected ?? '') ? state.selected : null,
           selection,
         }
       : {}),
@@ -213,16 +222,69 @@ export function removeDevice(id: string): void {
   });
 }
 
-/** Selects exactly these devices; the last one becomes the clicked device. */
+/** Whether something with this id (a device, note or zone) is on the canvas. */
+export function exists(id: string): boolean {
+  return (
+    state.net.devices.has(id) ||
+    state.notes.some((n) => n.id === id) ||
+    state.zones.some((z) => z.id === id)
+  );
+}
+
+/** Selects exactly these items; the last one becomes the clicked device. */
 export function setSelection(ids: string[]): void {
   const same =
     ids.length === state.selection.length && ids.every((id, i) => id === state.selection[i]);
   if (same) return;
-  update({ selection: ids, selected: ids.at(-1) ?? null });
+  const device = [...ids].reverse().find((id) => state.net.devices.has(id));
+  update({ selection: ids, selected: device ?? null });
 }
 
 export function select(id: string | null): void {
   setSelection(id === null ? [] : [id]);
+}
+
+/** Adds an empty note whose top-left corner is at `at`. */
+export function addNote(at: Point): void {
+  if (state.notes.length >= LIMITS.notes) return notify('This lab has too many notes already.');
+  const note: Note = { id: freshId('n', state.notes), ...at, w: LIMITS.noteWidth.start, text: '' };
+  update({ notes: [...state.notes, note], selection: [note.id], selected: null });
+}
+
+/** Adds a zone titled "Zone" whose top-left corner is at `at`. */
+export function addZone(at: Point): void {
+  if (state.zones.length >= LIMITS.zones) return notify('This lab has too many zones already.');
+  const zone: Zone = {
+    id: freshId('z', state.zones),
+    ...at,
+    w: LIMITS.zoneWidth.start,
+    h: LIMITS.zoneHeight.start,
+    title: 'Zone',
+    tint: state.zones.length % LIMITS.zoneTints,
+  };
+  update({ zones: [...state.zones, zone], selection: [zone.id], selected: null });
+}
+
+export function updateNote(id: string, patch: Partial<Omit<Note, 'id'>>): void {
+  update({ notes: state.notes.map((n) => (n.id === id ? { ...n, ...patch } : n)) });
+}
+
+export function updateZone(id: string, patch: Partial<Omit<Zone, 'id'>>): void {
+  update({ zones: state.zones.map((z) => (z.id === id ? { ...z, ...patch } : z)) });
+}
+
+export function removeAnnotation(id: string): void {
+  update({
+    notes: state.notes.filter((n) => n.id !== id),
+    zones: state.zones.filter((z) => z.id !== id),
+    selection: state.selection.filter((s) => s !== id),
+  });
+}
+
+/** Moves a note or zone to a new top-left corner. */
+export function moveAnnotation(id: string, to: Point): void {
+  if (NOTE_ID.test(id)) updateNote(id, to);
+  else if (ZONE_ID.test(id)) updateZone(id, to);
 }
 
 /** End hosts get a desktop with apps; network gear gets a CLI tab instead. */
