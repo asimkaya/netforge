@@ -101,6 +101,42 @@ describe('what a step accepts', () => {
     expect(done).toBe(1);
   });
 
+  it('the camera stream is over when its chapter is done: nothing is left scheduled', () => {
+    const lab = new Lab(startOf('lobby-camera'));
+    lab.apply(SOLUTIONS['lobby-camera'] ?? []);
+    expect(lab.named('cam1').camera?.viewers).toBe(0);
+    expect(lab.net.scheduler.pending).toBe(0);
+  });
+
+  it('a printer with a static address in another network did not get one from DHCP', () => {
+    const { done } = progress('first-print', build('first-print', 0, 3), [
+      sh('printer1', 'ip addr flush dev eth0', 'ip addr add 10.9.9.5/24 dev eth0'),
+    ]);
+    expect(done).toBe(1);
+    expect(progress('first-print', build('first-print', 0, 3)).done).toBe(2);
+  });
+
+  it('a closed port or a bare connection is not a printed page', () => {
+    const { done, lab } = progress('first-print', build('first-print', 0, 3), [
+      sh('pc1', 'curl -s http://printer1/'),
+      { sh: 'pc1', lines: ['nc -w 1 printer1 8000 < /dev/null'], failing: true },
+      sh('pc1', 'nc -z printer1 9100'),
+    ]);
+    expect(done).toBe(3);
+    expect(lab.named('printer1').printer?.pages).toBe(0);
+  });
+
+  it('a camera connection without a viewer (nc -z) is not watching the stream', () => {
+    const { done } = progress('lobby-camera', build('lobby-camera', 0, 3), [
+      sh('pc1', 'nc -z cam1 554'),
+    ]);
+    expect(done).toBe(2);
+  });
+
+  it('a printer does not stand in for the camera, and the other way round', () => {
+    expect(progress('lobby-camera', [{ add: 'printer', at: [270, 900] }]).done).toBe(0);
+  });
+
   it('NAT on the wrong side does not count, and the firewall hint is valid nft', () => {
     const { done, lab } = progress('nat', build('nat', 0, 2), [
       sh(

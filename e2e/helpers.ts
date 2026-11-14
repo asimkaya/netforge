@@ -99,3 +99,24 @@ export async function taskCenter(page: Page, tab?: 'Networks' | 'Troubleshoot') 
   await expect(page.getByRole('dialog', { name: 'Task center' })).toBeVisible();
   if (tab) await page.getByRole('tab', { name: tab }).click();
 }
+
+/** Imports an empty lab whose progress marks these chapters as done, which unlocks the next. */
+export async function finish(page: Page, ids: string[]) {
+  await page.getByLabel('Import lab file').setInputFiles({
+    name: 'progress.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(
+      JSON.stringify({
+        format: 'netforge-lab',
+        version: 13,
+        network: {
+          devices: [],
+          links: [],
+          counters: { device: 0, link: 0, mac: 0, names: {} },
+        },
+        layout: {},
+        tasks: { active: null, steps: Object.fromEntries(ids.map((id) => [id, 99])) },
+      }),
+    ),
+  });
+}

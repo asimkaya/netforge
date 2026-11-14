@@ -255,8 +255,35 @@ function tunnelOf(router: Device) {
   return wg ?? null;
 }
 
+/** Printers (or IP cameras) cabled to a switch. */
+function appliancesOn(net: Network, kind: 'printer' | 'camera'): Device[] {
+  return [...net.devices.values()].filter((d) => d[kind] && neighborsOf(d).some(isSwitch));
+}
+
+/** The device has an address in the network of a router port on its switch. */
+function addressedByRouter(d: Device): boolean {
+  return neighborsOf(d)
+    .filter(isSwitch)
+    .some((sw) =>
+      neighborsOf(sw)
+        .filter(isRouter)
+        .some((r) =>
+          r.ports.some(
+            (p) =>
+              peerOf(p)?.device === sw &&
+              (r.ip?.addrsOn(p) ?? []).some((a) => addrsOf(d).some((b) => sameSubnet(a, b))),
+          ),
+        ),
+    );
+}
+
+/** A PC has opened a TCP connection to the device. */
+function reachedByPc(net: Network, target: Device): boolean {
+  return hosts(net).some((pc) => addrsOf(target).some((a) => pc.ip?.tcp.connectedTo.has(a.ip)));
+}
+
 /**
- * The nine tasks are chapters of one network that keeps growing: each task's steps ask only
+ * The eleven tasks are chapters of one network that keeps growing: each task's steps ask only
  * for what is new compared with the finished network of the one before (see solutions.ts,
  * which scripts every chapter). A step must not be true on that finished network, or the
  * chapter would complete the moment it starts.
@@ -476,7 +503,84 @@ export const TASKS: Task[] = [
           dhcpSegments(ctx.net).some((s) => s.pcs.some((pc) => pinged(pc, s.pcs))),
       },
     ],
-    done: 'Maya: “No more sticky notes, thank you!” No typing addresses by hand! The PCs broadcast a DHCP Discover, the server offered an address with a gateway and DNS server, and the PCs took it. The server remembered their names, so DNS could answer for them. Next task: split sw1 into separate networks.',
+    done: 'Maya: “No more sticky notes, thank you!” No typing addresses by hand! The PCs broadcast a DHCP Discover, the server offered an address with a gateway and DNS server, and the PCs took it. The server remembered their names, so DNS could answer for them. Next task: the office gets its first shared devices.',
+  },
+  {
+    id: 'first-print',
+    title: 'Print your first page',
+    summary:
+      'Plug a network printer into the office LAN, let DHCP configure it and send it a page.',
+    brief: {
+      from: 'Maya, office manager',
+      text: 'We keep walking papers to the one old printer upstairs. Could you put a network printer on the office network so all of us can print from our desks?',
+    },
+    steps: [
+      {
+        title: 'Plug a printer into sw1',
+        detail:
+          'Add a Printer from the left panel and drag a cable from its port to a free port of sw1, for example `eth3`.',
+        check: ({ net }) => appliancesOn(net, 'printer').length > 0,
+      },
+      {
+        title: 'Let the printer get an address',
+        detail:
+          'A printer asks for an address with DHCP as soon as it is cabled. Open it and look at its Config tab: the address must be in the office network (`192.168.1.x`). Wait a moment if it is empty.',
+        hint: 'No address? Check that r1 still runs its DHCP server and that the printer is cabled to sw1, not to a PC.',
+        check: ({ net }) => appliancesOn(net, 'printer').some(addressedByRouter),
+      },
+      {
+        title: 'Open the printer’s status page',
+        detail:
+          'On a PC run `curl http://printer1/` (the name works because the DHCP server registered it; the printer’s address works too). The Browser app opens the same page.',
+        check: ({ net }) => appliancesOn(net, 'printer').some((p) => reachedByPc(net, p)),
+      },
+      {
+        title: 'Print a page',
+        detail:
+          'On a PC write a file with `echo Hello > letter.txt`, then send it to the printer’s print port: `nc printer1 9100 < letter.txt`. The status page counts the pages.',
+        hint: 'Port 9100 is the raw print port most network printers listen on: whatever you send is printed.',
+        check: ({ net }) => appliancesOn(net, 'printer').some((p) => (p.printer?.pages ?? 0) >= 1),
+      },
+    ],
+    done: 'Maya: “It printed! Everyone can print from their desk now.” A printer is a small computer with a network card: it got its address with DHCP, shows a web page on port 80 and takes print jobs on TCP port 9100. Next task: the front door needs a camera.',
+  },
+  {
+    id: 'lobby-camera',
+    title: 'Watch the front door',
+    summary: 'Add an IP camera to the office LAN and watch its live stream from a PC.',
+    brief: {
+      from: 'Sam, founder',
+      text: 'Security wants a camera at the entrance, and I want to check the door from my desk. Can you connect an IP camera and show me its stream?',
+    },
+    steps: [
+      {
+        title: 'Plug an IP camera into sw1',
+        detail:
+          'Add an IP Camera from the left panel and cable it to a free port of sw1, for example `eth4`.',
+        check: ({ net }) => appliancesOn(net, 'camera').length > 0,
+      },
+      {
+        title: 'Let the camera get an address',
+        detail:
+          'Like the printer, the camera asks for an address with DHCP. Open it and look at its Config tab: the address must be in the office network (`192.168.1.x`).',
+        check: ({ net }) => appliancesOn(net, 'camera').some(addressedByRouter),
+      },
+      {
+        title: 'Watch the stream from a PC',
+        detail:
+          'On a PC run `nc cam1 554`. The camera connects the viewer and sends one frame per second: `frame 1`, `frame 2`... Stop it with Ctrl+C.',
+        hint: 'The connection uses TCP port 554 (the RTSP port); the pictures travel as UDP packets, so a firewall that drops them leaves you with a blank screen.',
+        check: (ctx) =>
+          appliancesOn(ctx.net, 'camera').some((cam) =>
+            hosts(ctx.net).some(
+              (pc) =>
+                ran(ctx, /^nc\s+(?!-z\b)\S+\s+554\s*$/, (d) => d === pc) &&
+                addrsOf(cam).some((a) => pc.ip?.tcp.connectedTo.has(a.ip)),
+            ),
+          ),
+      },
+    ],
+    done: 'Sam: “I can see the lobby from my desk, thank you!” The viewer opened a TCP connection to the camera and the camera answered with a stream of UDP packets, one per second, until you pressed Ctrl+C. Next task: split sw1 into separate networks.',
   },
   {
     id: 'vlans',

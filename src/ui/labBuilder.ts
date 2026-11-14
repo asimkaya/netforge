@@ -53,7 +53,8 @@ export class Lab {
     this.#run(device, lines, true);
   }
 
-  #run(device: Device, lines: string[], strict: boolean): void {
+  /** `watch`: a command that never ends on its own runs this many ms, then gets Ctrl+C. */
+  #run(device: Device, lines: string[], strict: boolean, watch?: number): void {
     for (const raw of lines) {
       const line = raw.replace(/\{pubkey:(\w+)\}/g, (_, name: string) => {
         const peer = this.named(name);
@@ -69,6 +70,11 @@ export class Lab {
         },
         exit: () => (done = true),
       });
+      if (proc && watch !== undefined) {
+        this.wait(watch);
+        proc.interrupt();
+        this.wait(5_000);
+      }
       for (let t = 0; proc && !done && t < 60_000; t += 100) this.wait(100);
       if (proc && !done) throw new Error(`scenario: ${device.name}: "${line}" did not finish`);
     }
@@ -96,7 +102,7 @@ export class Lab {
         const link = this.#port(a.uncable).link;
         if (!link) throw new Error(`scenario: ${a.uncable} has no cable`);
         this.net.disconnect(link);
-      } else if ('sh' in a) this.#run(this.named(a.sh), a.lines, !a.failing);
+      } else if ('sh' in a) this.#run(this.named(a.sh), a.lines, !a.failing, a.watch);
       else this.wait(a.wait);
     }
   }

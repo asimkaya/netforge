@@ -10,7 +10,7 @@ export type Action =
   | { cable: [port: string, port: string] }
   | { uncable: string }
   /** Shell commands on a device. `{pubkey:r3}` stands for the WireGuard public key of r3. */
-  | { sh: string; lines: string[]; failing?: boolean }
+  | { sh: string; lines: string[]; failing?: boolean; watch?: number }
   /** Simulated milliseconds pass (routing protocols settling). */
   | { wait: number };
 
@@ -85,6 +85,24 @@ export const SOLUTIONS: Record<string, readonly Action[]> = {
     sh('r1', 'dnsmasq --dhcp-range=192.168.1.100,192.168.1.199'),
     ...['pc1', 'pc2', 'pc3'].map((pc) => sh(pc, 'ip addr flush dev eth0', 'dhclient eth0')),
     sh('pc1', 'ping -c 1 pc2'),
+  ],
+  'first-print': [
+    add('printer', 270, 700),
+    cable('printer1/eth0', 'sw1/eth3'),
+    { wait: 10_000 },
+    sh(
+      'pc1',
+      'curl -s http://printer1/',
+      'echo Hello > letter.txt',
+      'nc printer1 9100 < letter.txt',
+    ),
+  ],
+  'lobby-camera': [
+    add('camera', 500, 700),
+    cable('cam1/eth0', 'sw1/eth4'),
+    { wait: 10_000 },
+    // The stream never ends by itself: watch five frames, then Ctrl+C.
+    { sh: 'pc1', lines: ['nc cam1 554'], watch: 5_500 },
   ],
   vlans: [
     sh('sw1', 'ip link set br0 type bridge vlan_filtering 1'),

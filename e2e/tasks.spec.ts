@@ -1,26 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
-import { add, connect, run, taskCenter } from './helpers.ts';
-
-/** Imports an empty lab whose progress marks these chapters as done, which unlocks the next. */
-async function finish(page: Page, ids: string[]) {
-  await page.getByLabel('Import lab file').setInputFiles({
-    name: 'progress.json',
-    mimeType: 'application/json',
-    buffer: Buffer.from(
-      JSON.stringify({
-        format: 'netforge-lab',
-        version: 13,
-        network: {
-          devices: [],
-          links: [],
-          counters: { device: 0, link: 0, mac: 0, names: {} },
-        },
-        layout: {},
-        tasks: { active: null, steps: Object.fromEntries(ids.map((id) => [id, 99])) },
-      }),
-    ),
-  });
-}
+import { expect, test } from '@playwright/test';
+import { add, connect, finish, run, taskCenter } from './helpers.ts';
 
 test('a newcomer completes the first guided task', async ({ page }) => {
   await page.goto('/');
@@ -85,6 +64,8 @@ test('starting a task on a busy canvas asks which network to use', async ({ page
     'meet-the-switch',
     'two-networks',
     'dhcp',
+    'first-print',
+    'lobby-camera',
     'vlans',
     'inter-vlan',
     'ospf',
@@ -128,7 +109,15 @@ test('starting a task on a busy canvas asks which network to use', async ({ page
 test('an empty canvas starts a later task from its prepared network', async ({ page }) => {
   await page.goto('/');
   // A lab file with the chapters before it done unlocks "Let the teams talk again".
-  await finish(page, ['first-ping', 'meet-the-switch', 'two-networks', 'dhcp', 'vlans']);
+  await finish(page, [
+    'first-ping',
+    'meet-the-switch',
+    'two-networks',
+    'dhcp',
+    'first-print',
+    'lobby-camera',
+    'vlans',
+  ]);
   await taskCenter(page);
   await page.getByRole('button', { name: 'Start: Let the teams talk again' }).click();
   await expect(page.getByRole('alertdialog')).toHaveCount(0);
@@ -167,7 +156,7 @@ test('the Task center is a campaign map where later chapters stay locked', async
   for (const act of ['Act 1: Your first day', 'Act 2: The office grows', 'Act 3: Beyond']) {
     await expect(center.getByRole('region', { name: new RegExp(act) })).toBeVisible();
   }
-  await expect(center).toContainText('0/9 chapters done');
+  await expect(center).toContainText('0/11 chapters done');
 
   // Chapter 2 is locked: it says what to finish first and has no Start button.
   const locked = center.getByRole('listitem', { name: 'Room for a third desk' });

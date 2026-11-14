@@ -12,7 +12,7 @@ export const ACTS: Act[] = [
   {
     id: 'growing-office',
     title: 'Act 2: The office grows',
-    taskIds: ['two-networks', 'dhcp', 'vlans', 'inter-vlan'],
+    taskIds: ['two-networks', 'dhcp', 'first-print', 'lobby-camera', 'vlans', 'inter-vlan'],
   },
   { id: 'branches', title: 'Act 3: Beyond the office', taskIds: ['ospf', 'nat', 'vpn'] },
 ];
