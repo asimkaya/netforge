@@ -68,6 +68,16 @@ export function downloadLab(): void {
   downloadFile(name, serializeProject(getLab()), 'application/json');
 }
 
+/** Asks before a lab that has devices is replaced. */
+export function confirmReplace(): boolean {
+  return (
+    getLab().net.devices.size === 0 ||
+    window.confirm(
+      'This replaces your current lab. Export it first if you want to keep it. Continue?',
+    )
+  );
+}
+
 /** The lab as one shell script for real Linux machines (see engine/script.ts). */
 export function downloadLinuxScript(): void {
   downloadFile('netforge-lab.sh', labScript(getLab().net), 'text/x-shellscript');

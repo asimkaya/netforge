@@ -4,7 +4,8 @@ import { redo, undo, useHistory } from './history.ts';
 import { getLab, loadLab, notify } from './lab.ts';
 import { ProjectError, parseProject, serializeProject } from './project.ts';
 import { LONG_LINK, encodeLab, shareUrl } from './share.ts';
-import { downloadLab, downloadLinuxScript } from './storage.ts';
+import { downloadLab, downloadLinuxScript, confirmReplace } from './storage.ts';
+import { checkReportFile, downloadReport } from './reportActions.ts';
 import { setTheme, useTheme } from './themeMode.ts';
 
 const icon =
@@ -31,15 +32,6 @@ function Arrow({ flip = false }: { flip?: boolean }) {
   );
 }
 
-function confirmReplace(): boolean {
-  return (
-    getLab().net.devices.size === 0 ||
-    window.confirm(
-      'This replaces your current lab. Export it first if you want to keep it. Continue?',
-    )
-  );
-}
-
 const EDITABLE = 'input, textarea, select, [contenteditable="true"]';
 
 async function copyShareLink(): Promise<void> {
@@ -59,6 +51,7 @@ async function copyShareLink(): Promise<void> {
 /** Undo and redo buttons, the Lab menu (share, export, import, new), plus the Ctrl+Z / Ctrl+Y shortcuts. */
 export function LabMenu() {
   const fileInput = useRef<HTMLInputElement>(null);
+  const reportInput = useRef<HTMLInputElement>(null);
   const { canUndo, canRedo } = useHistory();
   const theme = useTheme();
 
@@ -175,6 +168,21 @@ export function LabMenu() {
                 Import
               </button>
               <hr className="my-1 border-(--nf-border)" />
+              <button type="button" role="menuitem" className={item} onClick={pick(downloadReport)}>
+                Download progress report
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className={item}
+                onClick={() => {
+                  setOpen(false);
+                  reportInput.current?.click();
+                }}
+              >
+                Check a report
+              </button>
+              <hr className="my-1 border-(--nf-border)" />
               <button
                 type="button"
                 role="menuitem"
@@ -213,6 +221,18 @@ export function LabMenu() {
           const file = e.target.files?.[0];
           e.target.value = '';
           if (file) void importFile(file);
+        }}
+      />
+      <input
+        ref={reportInput}
+        type="file"
+        accept=".html,text/html"
+        className="hidden"
+        aria-label="Check a report file"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          if (file) void checkReportFile(file);
         }}
       />
     </div>

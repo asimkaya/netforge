@@ -8,6 +8,7 @@ import { continueTask, getLab, loadLab, notify, setTasks, useLab } from './lab.t
 import { loadChallenge } from './challengeStart.ts';
 import { SCENARIOS } from './scenarios.ts';
 import { loadStart, showAll } from './taskStart.ts';
+import { downloadReport } from './reportActions.ts';
 
 const PRIMARY =
   'rounded bg-(--nf-accent) px-3 py-1 text-xs font-semibold text-(--nf-on-accent) hover:opacity-90';
@@ -528,11 +529,16 @@ function ActiveTask() {
           <p role="status">
             <Rich text={task.done} />
           </p>
-          {following && (
-            <button type="button" className={PRIMARY} onClick={() => continueTask(following.id)}>
-              Next task: {following.title}
+          <div className="flex flex-wrap gap-2">
+            {following && (
+              <button type="button" className={PRIMARY} onClick={() => continueTask(following.id)}>
+                Next task: {following.title}
+              </button>
+            )}
+            <button type="button" className={SECONDARY} onClick={downloadReport}>
+              Download progress report
             </button>
-          )}
+          </div>
         </div>
       )}
     </section>

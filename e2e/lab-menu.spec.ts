@@ -10,6 +10,8 @@ test('the Lab menu closes on Escape and holds the file actions', async ({ page }
     'Export',
     'Export as Linux script',
     'Import',
+    'Download progress report',
+    'Check a report',
     'Dark theme',
     'New lab',
   ]);
