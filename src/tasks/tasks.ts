@@ -1,6 +1,7 @@
 import { formatIp, inSubnet, networkOf, type Cidr } from '../engine/addr.ts';
 import type { Device } from '../engine/device.ts';
 import type { Network } from '../engine/network.ts';
+import { CHALLENGE_TASKS } from './challenges.ts';
 import { compile, type CustomTask } from './custom.ts';
 import { peerOf, type Port } from '../engine/port.ts';
 
@@ -25,6 +26,9 @@ export interface Task {
   steps: TaskStep[];
   /** Shown when every step is done. */
   done: string;
+  /** Troubleshooting challenges: the complaint, and hints revealed one at a time. */
+  symptom?: string;
+  hints?: readonly string[];
 }
 
 const isPc = (d: Device) => d.spec.id === 'pc';
@@ -755,13 +759,14 @@ export function clearEvidence(net: Network): void {
   for (const d of net.devices.values()) {
     d.ip?.echoRepliesFrom.clear();
     d.ip?.v6.echoRepliesFrom.clear();
+    d.ip?.tcp.connectedTo.clear();
   }
 }
 
-/** A built-in task, or one of the lab's own tasks (from the task editor). */
+/** A built-in task or challenge, or one of the lab's own tasks (from the task editor). */
 export function findTask(id: string | null, custom: readonly CustomTask[] = []): Task | undefined {
   const own = custom.find((t) => t.id === id);
-  return own ? compile(own) : TASKS.find((t) => t.id === id);
+  return own ? compile(own) : [...TASKS, ...CHALLENGE_TASKS].find((t) => t.id === id);
 }
 
 /**
