@@ -3,6 +3,8 @@ import { dhclient, dhcpRelease } from './dhcp.ts';
 import { isHostname, resolve } from './dns.ts';
 import { httpGet } from './http.ts';
 import { describeFrame } from './packet.ts';
+import { CAMERA_PORT, STREAM_PORT } from './appliances.ts';
+import type { UdpSocket } from './ip.ts';
 import { TCP_ERROR_TEXT } from './tcp.ts';
 import { associatedAp, checkWireless, connectWifi, disconnectWifi, radioOf, scan } from './wifi.ts';
 import type { Command } from './shell.ts';
@@ -244,7 +246,12 @@ export const dig: Command = (_net, device, args, io) => {
 
 const SERVICE_NAMES: Record<number, string> = { 22: 'ssh', 25: 'smtp', 80: 'http', 110: 'pop3' };
 
-/** `nc -z HOST PORT`: checks whether a TCP port accepts connections. */
+/**
+ * `nc [-z] [-v] HOST PORT`: with -z checks whether a TCP port accepts connections. Without it,
+ * connects, sends its standard input (`nc HOST 9100 < FILE`) and prints what comes back.
+ * shortcut: no -l, -u or typing into a running nc. On port 554 (an IP camera) it also listens
+ * on UDP 5004 and prints the frames the camera streams there, as a real player would.
+ */
 export const nc: Command = (_net, device, args, io) => {
   const stack = device.ip;
   if (!stack) {
@@ -254,37 +261,67 @@ export const nc: Command = (_net, device, args, io) => {
   const words = args.filter((a) => !a.startsWith('-'));
   const [host, portText] = words;
   const port = Number(portText);
-  if (
-    !args.includes('-z') ||
-    host === undefined ||
-    !Number.isInteger(port) ||
-    port < 1 ||
-    port > 65535
-  ) {
-    io.out('usage: nc -z [-v] HOST PORT');
+  const probe = args.includes('-z');
+  if (host === undefined || !Number.isInteger(port) || port < 1 || port > 65535) {
+    io.out('usage: nc [-z] [-v] HOST PORT');
     return;
   }
   let finished = false;
   let sync = true;
-  let cancel = () => {};
+  let cancelLookup = () => {};
+  let hangUp = () => {};
+  const cancel = () => {
+    cancelLookup();
+    hangUp();
+  };
   const done = () => {
     finished = true;
+    hangUp();
     if (!sync) io.exit();
   };
-  cancel = resolve(device, host, (r) => {
+  cancelLookup = resolve(device, host, (r) => {
     if (!r.ok) {
       io.out(`nc: getaddrinfo for host "${host}" port ${port}: Name or service not known`);
       done();
       return;
     }
     const name = SERVICE_NAMES[port] ?? '*';
+    let stream: UdpSocket | string | null = null;
     const conn = stack.tcp.connect(r.ip, port, {
       onOpen: (c) => {
-        io.out(`Connection to ${host} (${formatIp(r.ip)}) ${port} port [tcp/${name}] succeeded!`);
-        c.close();
-        done();
+        if (probe) {
+          io.out(`Connection to ${host} (${formatIp(r.ip)}) ${port} port [tcp/${name}] succeeded!`);
+          c.close();
+          done();
+          return;
+        }
+        if (port === CAMERA_PORT) {
+          stream = stack.openUdp(
+            (d) => {
+              if (d.data.app === 'stream') io.out(`frame ${d.data.frame}`);
+            },
+            undefined,
+            STREAM_PORT,
+          );
+          if (typeof stream === 'string') {
+            io.out(`nc: bind: ${stream}`);
+            c.close();
+            done();
+            return;
+          }
+        }
+        if (io.stdin?.length) c.send(`${io.stdin.join('\n')}\n`);
       },
-      onData: () => {},
+      onData: (text) => {
+        if (!probe)
+          text
+            .replace(/\r?\n$/, '')
+            .split(/\r?\n/)
+            .forEach((l) => io.out(l));
+      },
+      onClose: () => {
+        if (!probe) done();
+      },
       onError: (error) => {
         io.out(
           `nc: connect to ${host} (${formatIp(r.ip)}) port ${port} (tcp) failed: ${TCP_ERROR_TEXT[error]}`,
@@ -297,7 +334,10 @@ export const nc: Command = (_net, device, args, io) => {
       done();
       return;
     }
-    cancel = () => conn.close();
+    hangUp = () => {
+      conn.close();
+      if (typeof stream === 'object' && stream) stream.close();
+    };
   });
   sync = false;
   if (finished) return;

@@ -396,15 +396,24 @@ function HomeRouterFace({
   );
 }
 
+/** Sockets per row on a switch faceplate; bigger switches get a second row. */
+const ROW = 12;
+
 function SwitchFace({ device, activity }: { device: Device; activity: Record<string, number> }) {
   const copper = device.ports.filter((p) => p.type === 'ethernet');
   const fiber = device.ports.filter((p) => p.type === 'sfp');
   const pitch = SOCKET.w + 6;
+  const rows = Math.ceil(copper.length / ROW);
+  const perRow = Math.min(copper.length, ROW);
+  const rowPitch = 38;
+  // Uplinks sit in a block of their own, two rows high when the switch has two rows.
+  const fiberCols = Math.ceil(fiber.length / rows);
   // Wide enough for the ports and for the name line, whichever is longer.
-  const width = Math.max(200, 16 + copper.length * pitch + 12 + fiber.length * pitch + 10);
+  const width = Math.max(200, 16 + perRow * pitch + 12 + fiberCols * pitch + 10);
   const y = 34;
+  const fiberX = 16 + perRow * pitch + 12;
   return (
-    <div className="relative h-[74px]" style={{ width }}>
+    <div className="relative" style={{ width, height: 74 + (rows - 1) * rowPitch }}>
       <div className="flex items-baseline gap-2 px-3 pt-1.5">
         <span className="truncate text-xs font-semibold text-(--nf-hw-text)">{device.name}</span>
         <span className="flex gap-1.5 text-[10px] text-(--nf-hw-muted)">
@@ -417,8 +426,8 @@ function SwitchFace({ device, activity }: { device: Device; activity: Record<str
         <Socket
           key={p.name}
           port={p}
-          x={16 + i * pitch}
-          y={y}
+          x={16 + (i % ROW) * pitch}
+          y={y + Math.floor(i / ROW) * rowPitch}
           position={Position.Bottom}
           activity={activity[p.name]}
           label={p.name.slice(3)}
@@ -428,13 +437,114 @@ function SwitchFace({ device, activity }: { device: Device; activity: Record<str
         <Socket
           key={p.name}
           port={p}
-          x={16 + copper.length * pitch + 12 + i * pitch}
-          y={y}
+          x={fiberX + (i % fiberCols) * pitch}
+          y={y + Math.floor(i / fiberCols) * rowPitch}
           position={Position.Bottom}
           activity={activity[p.name]}
           label={p.name.slice(3)}
         />
       ))}
+    </div>
+  );
+}
+
+/** A printer: a small status screen with its address and page counter, one Ethernet socket. */
+function PrinterFace({ device, activity }: { device: Device; activity: Record<string, number> }) {
+  const addr = device.ip?.allAddrs()[0];
+  const wired = device.ports[0];
+  const up = wired !== undefined && hasCarrier(wired);
+  return (
+    <div className="relative flex w-40 flex-col items-center px-3 pt-2 pb-2">
+      <svg viewBox="0 0 96 66" className="h-16 w-24" aria-hidden>
+        <rect x="26" y="1" width="44" height="14" rx="1" fill="var(--nf-term-text)" />
+        <rect x="1" y="12" width="94" height="36" rx="5" fill="var(--nf-hw-edge)" />
+        <rect x="6" y="17" width="66" height="26" rx="2" fill="var(--nf-term-bg)" />
+        <text
+          x="9"
+          y="28"
+          fill="var(--nf-term-prompt)"
+          fontSize="7"
+          className="font-mono"
+          data-testid={`address-${device.name}`}
+        >
+          {addr ? formatCidr(addr).split('/')[0] : 'no address'}
+        </text>
+        <text
+          x="9"
+          y="38"
+          fill="var(--nf-term-text)"
+          fontSize="7"
+          className="font-mono"
+          data-testid={`pages-${device.name}`}
+        >
+          {`${device.printer?.pages ?? 0} ${device.printer?.pages === 1 ? 'page' : 'pages'}`}
+        </text>
+        <circle cx="84" cy="24" r="2" fill={up ? 'var(--nf-ok)' : 'var(--nf-hw-muted)'} />
+        <rect x="14" y="48" width="68" height="5" rx="1" fill="var(--nf-hw-edge)" />
+        <rect x="24" y="50" width="48" height="15" fill="var(--nf-term-text)" />
+      </svg>
+      <span className="max-w-full truncate text-xs font-semibold text-(--nf-hw-text)">
+        {device.name}
+      </span>
+      {wired && (
+        <Socket
+          port={wired}
+          x={160 - SOCKET.w - 8}
+          y={12}
+          position={Position.Top}
+          activity={activity[wired.name]}
+        />
+      )}
+    </div>
+  );
+}
+
+/** An IP camera: lens, a light while someone watches, and one Ethernet socket. */
+function CameraFace({ device, activity }: { device: Device; activity: Record<string, number> }) {
+  const wired = device.ports[0];
+  const viewers = device.camera?.viewers ?? 0;
+  return (
+    <div className="relative flex w-40 flex-col items-center px-3 pt-2 pb-2">
+      <svg viewBox="0 0 96 66" className="h-16 w-24" aria-hidden>
+        <path
+          d="M12 6h14v14"
+          stroke="var(--nf-hw-muted)"
+          strokeWidth="4"
+          strokeLinecap="round"
+          fill="none"
+        />
+        <rect x="14" y="18" width="70" height="30" rx="8" fill="var(--nf-hw-edge)" />
+        <circle cx="62" cy="33" r="12" fill="var(--nf-socket)" />
+        <circle cx="62" cy="33" r="6" fill="var(--nf-term-bg)" />
+        <circle
+          cx="24"
+          cy="26"
+          r="2.5"
+          fill={viewers > 0 ? 'var(--nf-ok)' : 'var(--nf-hw-muted)'}
+        />
+        <path
+          d="M40 48v10H26"
+          stroke="var(--nf-hw-muted)"
+          strokeWidth="4"
+          strokeLinecap="round"
+          fill="none"
+        />
+      </svg>
+      <span className="max-w-full truncate text-xs font-semibold text-(--nf-hw-text)">
+        {device.name}
+      </span>
+      <span className="text-[10px] text-(--nf-hw-muted)">
+        {viewers > 0 ? `${viewers} viewer${viewers === 1 ? '' : 's'}` : 'no viewers'}
+      </span>
+      {wired && (
+        <Socket
+          port={wired}
+          x={160 - SOCKET.w - 8}
+          y={12}
+          position={Position.Top}
+          activity={activity[wired.name]}
+        />
+      )}
     </div>
   );
 }
@@ -452,7 +562,11 @@ export function DeviceNode({ id, data, selected }: NodeProps<DeviceNodeType>) {
         ? HomeRouterFace
         : kind === 'pc' || kind === 'server' || kind === 'laptop' || kind === 'phone'
           ? HostFace
-          : SwitchFace;
+          : kind === 'printer'
+            ? PrinterFace
+            : kind === 'camera'
+              ? CameraFace
+              : SwitchFace;
   return (
     <div
       className={`relative rounded-md border bg-(--nf-hw) font-(family-name:--font-label) text-(--nf-hw-text) transition-colors ${

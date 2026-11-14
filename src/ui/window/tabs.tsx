@@ -3,7 +3,7 @@ import type { Device } from '../../engine/device.ts';
 import { PORT_TYPE_LABEL, hasCarrier, peerOf, type Port } from '../../engine/port.ts';
 import { Browser } from '../apps/Browser.tsx';
 import { Capture } from '../apps/Capture.tsx';
-import { IpConfig, PortForm } from '../apps/IpConfig.tsx';
+import { DhcpBox, GatewayDns, IpConfig, PortForm } from '../apps/IpConfig.tsx';
 import { Mail } from '../apps/Mail.tsx';
 import { TextEditor } from '../apps/TextEditor.tsx';
 import { Ipv6Box, RadvdSection } from '../apps/Ipv6Config.tsx';
@@ -20,6 +20,7 @@ import { Terminal } from '../apps/Terminal.tsx';
 import { FirewallSection } from './firewall-section.tsx';
 import { OspfSection } from './ospf-section.tsx';
 import { WireguardSection } from './wireguard-section.tsx';
+import { ApplianceSection } from './appliance-section.tsx';
 import { StpSection, SwitchVlanSection, VlanInterfacesSection } from './vlan-sections.tsx';
 import { cable, hasDesktop, removeDevice, setWindowView, useLab, type AppId } from '../lab.ts';
 
@@ -164,6 +165,7 @@ function NameField({ device }: { device: Device }) {
 /** Settings: name and which interfaces are switched on. */
 export function ConfigTab({ device }: { device: Device }) {
   const { net } = useLab();
+  const appliance = device.printer !== null || device.camera !== null;
   return (
     <div className="space-y-4 p-4 text-sm">
       <NameField key={device.id} device={device} />
@@ -187,26 +189,41 @@ export function ConfigTab({ device }: { device: Device }) {
           ))}
         </ul>
       </Section>
-      {device.ip && !hasDesktop(device.spec.id) && (
-        <Section title="Addresses">
-          {device.ip.ports.map((port) => (
-            <PortForm key={port.name} device={device} port={port} />
-          ))}
-          <Ipv6Box device={device} />
-        </Section>
+      {appliance ? (
+        <>
+          <ApplianceSection device={device} />
+          <Section title="Address">
+            <DhcpBox device={device} />
+            {device.ip?.ports.map((port) => (
+              <PortForm key={port.name} device={device} port={port} />
+            ))}
+            <GatewayDns device={device} />
+          </Section>
+        </>
+      ) : (
+        <>
+          {device.ip && !hasDesktop(device.spec.id) && (
+            <Section title="Addresses">
+              {device.ip.ports.map((port) => (
+                <PortForm key={port.name} device={device} port={port} />
+              ))}
+              <Ipv6Box device={device} />
+            </Section>
+          )}
+          <WirelessSection device={device} />
+          <SwitchVlanSection device={device} />
+          <StpSection device={device} />
+          <VlanInterfacesSection device={device} />
+          {(device.ip?.ports.length ?? 0) > 0 && <RoutingSection device={device} />}
+          <OspfSection device={device} />
+          <RadvdSection device={device} />
+          <FirewallSection device={device} />
+          <WireguardSection device={device} />
+          <ServicesSection device={device} />
+          <WebServerSection device={device} />
+          <MailServerSection device={device} />
+        </>
       )}
-      <WirelessSection device={device} />
-      <SwitchVlanSection device={device} />
-      <StpSection device={device} />
-      <VlanInterfacesSection device={device} />
-      {(device.ip?.ports.length ?? 0) > 0 && <RoutingSection device={device} />}
-      <OspfSection device={device} />
-      <RadvdSection device={device} />
-      <FirewallSection device={device} />
-      <WireguardSection device={device} />
-      <ServicesSection device={device} />
-      <WebServerSection device={device} />
-      <MailServerSection device={device} />
       <button
         type="button"
         onClick={() => removeDevice(device.id)}

@@ -4,6 +4,7 @@ import type { Network } from '../engine/network.ts';
 import { CHALLENGE_TASKS } from './challenges.ts';
 import { compile, type CustomTask } from './custom.ts';
 import { peerOf, type Port } from '../engine/port.ts';
+import { isSwitchSpec } from '../engine/specs.ts';
 
 export interface TaskContext {
   net: Network;
@@ -32,7 +33,7 @@ export interface Task {
 }
 
 const isPc = (d: Device) => d.spec.id === 'pc';
-const isSwitch = (d: Device) => d.spec.id === 'switch';
+const isSwitch = (d: Device) => isSwitchSpec(d.spec.id);
 const isRouter = (d: Device) => d.spec.id === 'router';
 
 function routers(net: Network): Device[] {
@@ -348,7 +349,7 @@ export const TASKS: Task[] = [
           commands.some(
             (c) =>
               /^bridge\s+fdb(\s+show)?$/.test(c.line) &&
-              net.devices.get(c.device)?.spec.id === 'switch',
+              isSwitchSpec(net.devices.get(c.device)?.spec.id ?? 'pc'),
           ),
       },
     ],

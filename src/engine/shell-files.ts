@@ -5,6 +5,8 @@ export interface ParsedLine {
   words: string[];
   /** `> FILE` or `>> FILE`: where output goes instead of the terminal. */
   redirect?: { path: string; append: boolean };
+  /** `< FILE`: a file whose lines the command reads as its standard input. */
+  input?: string;
 }
 
 /**
@@ -78,10 +80,14 @@ export function parseLine(line: string): ParsedLine | string {
   let word = '';
   let inWord = false;
   let redirect: ParsedLine['redirect'];
-  let pending: { append: boolean } | null = null;
+  let input: string | undefined;
+  let pending: { append: boolean } | 'input' | null = null;
   const end = () => {
     if (!inWord) return;
-    if (pending) {
+    if (pending === 'input') {
+      input = word;
+      pending = null;
+    } else if (pending) {
       redirect = { path: word, append: pending.append };
       pending = null;
     } else words.push(word);
@@ -103,6 +109,9 @@ export function parseLine(line: string): ParsedLine | string {
       const append = line[i + 1] === '>';
       if (append) i++;
       pending = { append };
+    } else if (c === '<') {
+      end();
+      pending = 'input';
     } else if (/\s/.test(c)) {
       end();
     } else {
@@ -112,7 +121,7 @@ export function parseLine(line: string): ParsedLine | string {
   }
   end();
   if (pending) return "bash: syntax error near unexpected token `newline'";
-  return redirect ? { words, redirect } : { words };
+  return { words, ...(redirect ? { redirect } : {}), ...(input === undefined ? {} : { input }) };
 }
 
 function needFs(device: Parameters<Command>[1], name: string, io: ShellIO) {

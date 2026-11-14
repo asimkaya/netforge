@@ -188,6 +188,9 @@ function layers(frame: EthernetFrame): { name: string; fields: Field[] }[] {
       fields.push(['Encrypted payload', 'an IP packet, unreadable without the keys']);
     return [ethernet, ip, udp, { name: 'WireGuard', fields }];
   }
+  if (d.app === 'stream') {
+    return [ethernet, ip, udp, { name: 'Video stream', fields: [['Frame', String(d.frame)]] }];
+  }
   if (d.app === 'dhcp') {
     const fields: Field[] = [
       ['Message type', `DHCP ${d.op}`],

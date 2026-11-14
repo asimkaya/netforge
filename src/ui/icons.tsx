@@ -220,6 +220,129 @@ export function HomeRouterArt({ className }: { className?: string | undefined })
   );
 }
 
+/** Two rows of copper sockets and SFP cages: the 24-port switch (and, with arrows, the L3 one). */
+function WideSwitchArt({ className, routes }: { className?: string | undefined; routes: boolean }) {
+  return (
+    <svg viewBox="0 0 48 40" className={className} aria-hidden>
+      <rect
+        x="1"
+        y="10"
+        width="46"
+        height="22"
+        rx="2.5"
+        fill="var(--nf-hw)"
+        stroke="var(--nf-hw-edge)"
+        strokeWidth="1"
+      />
+      {[0, 1].map((row) =>
+        [0, 1, 2, 3, 4, 5].map((i) => (
+          <rect
+            key={`${row}-${i}`}
+            x={4 + i * 5.5}
+            y={15 + row * 8}
+            width="4"
+            height="4"
+            rx="0.7"
+            fill="var(--nf-socket)"
+          />
+        )),
+      )}
+      {[0, 1].map((row) =>
+        [0, 1].map((i) => (
+          <rect
+            key={`sfp-${row}-${i}`}
+            x={38 + i * 4.5}
+            y={15 + row * 8}
+            width="3.5"
+            height="4"
+            rx="0.7"
+            fill="var(--nf-socket)"
+            stroke="var(--nf-cable-fiber)"
+            strokeWidth="0.7"
+          />
+        )),
+      )}
+      {routes && (
+        <path
+          d="M14 5h20m-3-3 3 3-3 3M34 8H14m3-3-3 3 3 3"
+          transform="translate(0 -2)"
+          stroke="var(--nf-accent)"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+        />
+      )}
+    </svg>
+  );
+}
+
+export const Switch24Art = (props: { className?: string | undefined }) => (
+  <WideSwitchArt {...props} routes={false} />
+);
+
+export const L3SwitchArt = (props: { className?: string | undefined }) => (
+  <WideSwitchArt {...props} routes />
+);
+
+export function PrinterArt({ className }: { className?: string | undefined }) {
+  return (
+    <svg viewBox="0 0 48 40" className={className} aria-hidden>
+      <rect x="14" y="4" width="20" height="9" rx="1" fill="var(--nf-term-text)" />
+      <rect
+        x="4"
+        y="12"
+        width="40"
+        height="17"
+        rx="3"
+        fill="var(--nf-hw)"
+        stroke="var(--nf-hw-edge)"
+        strokeWidth="1"
+      />
+      <rect x="8" y="16" width="12" height="6" rx="1" fill="var(--nf-term-bg)" />
+      <circle cx="38" cy="19" r="1.3" fill="var(--nf-ok)" />
+      <rect
+        x="12"
+        y="26"
+        width="24"
+        height="10"
+        rx="1"
+        fill="var(--nf-term-text)"
+        stroke="var(--nf-hw-edge)"
+        strokeWidth="1"
+      />
+      <path
+        d="M16 30h16M16 33h10"
+        stroke="var(--nf-hw-muted)"
+        strokeWidth="1"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+export function CameraArt({ className }: { className?: string | undefined }) {
+  return (
+    <svg viewBox="0 0 48 40" className={className} aria-hidden>
+      <path d="M6 6h6v8" stroke="var(--nf-hw-edge)" strokeWidth="2" strokeLinecap="round" />
+      <rect
+        x="8"
+        y="12"
+        width="32"
+        height="16"
+        rx="4"
+        fill="var(--nf-hw)"
+        stroke="var(--nf-hw-edge)"
+        strokeWidth="1"
+      />
+      <circle cx="31" cy="20" r="6" fill="var(--nf-hw-edge)" />
+      <circle cx="31" cy="20" r="3" fill="var(--nf-term-bg)" />
+      <circle cx="13" cy="17" r="1.3" fill="var(--nf-ok)" />
+      <path d="M24 28v5h-8" stroke="var(--nf-hw-edge)" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function SpecArt({ spec, className }: { spec: SpecId; className?: string | undefined }) {
   if (spec === 'pc') return <PcArt className={className} />;
   if (spec === 'router') return <RouterArt className={className} />;
@@ -229,5 +352,9 @@ export function SpecArt({ spec, className }: { spec: SpecId; className?: string 
   if (spec === 'phone') return <PhoneArt className={className} />;
   if (spec === 'ap') return <ApArt className={className} />;
   if (spec === 'homerouter') return <HomeRouterArt className={className} />;
+  if (spec === 'switch24') return <Switch24Art className={className} />;
+  if (spec === 'l3switch') return <L3SwitchArt className={className} />;
+  if (spec === 'printer') return <PrinterArt className={className} />;
+  if (spec === 'camera') return <CameraArt className={className} />;
   return <SwitchArt className={className} />;
 }

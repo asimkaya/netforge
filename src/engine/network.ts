@@ -372,6 +372,7 @@ export class Network implements Fabric {
 
   removeDevice(device: Device): void {
     for (const port of device.ports) if (port.link) this.disconnect(port.link);
+    device.dispose();
     this.devices.delete(device.id);
     this.changed();
   }

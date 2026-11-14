@@ -111,7 +111,7 @@ const HELP: Record<string, { about: string; lines: string[] }> = {
       '  traceroute [-m MAX_TTL] ADDR       show the routers on the way to ADDR',
       '  dig [@SERVER] [+short] NAME        ask a DNS server for the address of NAME',
       '  curl [-i|-I] URL                   fetch a web page over HTTP',
-      '  nc -z HOST PORT                    check whether a TCP port is open',
+      '  nc [-z] HOST PORT                  check a TCP port (-z), or send stdin to it: nc HOST 9100 < FILE',
       '  ss -t                              list TCP sockets',
       '  tcpdump [-i IF] [-c COUNT]         show the packets this device sends and receives',
     ],
@@ -1320,6 +1320,16 @@ function runOne(net: Network, device: Device, line: string, io: ShellIO): Proces
     const instead = Object.hasOwn(INSTEAD, name) ? INSTEAD[name] : undefined;
     if (instead) io.out(`Try: ${instead}`);
     return undefined;
+  }
+  if (parsed.input !== undefined) {
+    // `< FILE`: the file's lines are the command's standard input.
+    const path = normalizePath(parsed.input);
+    const text = path === null ? undefined : device.fs?.read(path);
+    if (text === undefined) {
+      io.out(`bash: ${parsed.input}: No such file or directory`);
+      return undefined;
+    }
+    io = { ...io, stdin: text === '' ? [] : text.replace(/\n$/, '').split('\n') };
   }
   const { redirect } = parsed;
   if (!redirect) return command(net, device, args, io);

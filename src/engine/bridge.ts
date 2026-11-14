@@ -124,9 +124,12 @@ export class Bridge {
     }
     const local = this.local;
     let heard = false;
-    if (local && (vid === 0 || vid === DEFAULT_VID)) {
+    if (local) {
       const group = frame.dst === BROADCAST_MAC || /^(01:|33:33:)/.test(frame.dst);
-      if (frame.dst === local.port.mac || group) local.receive(untagged(frame));
+      // shortcut: the bridge's own port is a member of every VLAN (no `bridge vlan add dev br0
+      // self`); frames of VLANs above 1 reach the matching `br0.N` interface, or nothing.
+      const tagged = vid > DEFAULT_VID ? { ...frame, vlan: vid } : untagged(frame);
+      if (frame.dst === local.port.mac || group) local.receive(tagged);
       if (frame.dst === local.port.mac) return;
       heard = group;
     }
@@ -182,7 +185,8 @@ export class Bridge {
 
   /** Sends a frame from the bridge's own interface out of the right port, or floods it. */
   sendLocal(frame: EthernetFrame): void {
-    const vid = this.vlanFiltering ? DEFAULT_VID : 0;
+    // A `br0.N` interface sends its frames tagged with N.
+    const vid = frame.vlan ?? (this.vlanFiltering ? DEFAULT_VID : 0);
     const entry = this.#fdb.get(`${vid}/${frame.dst}`);
     if (entry && this.stp.forwards(entry.port)) {
       this.#egress(entry.port, frame, vid);

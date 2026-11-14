@@ -8,7 +8,11 @@ export const FOOTPRINT: Record<SpecId, { w: number; h: number }> = {
   phone: { w: 120, h: 120 },
   server: { w: 180, h: 120 },
   ap: { w: 160, h: 110 },
+  printer: { w: 180, h: 120 },
+  camera: { w: 180, h: 120 },
   switch: { w: 340, h: 100 },
+  switch24: { w: 470, h: 140 },
+  l3switch: { w: 470, h: 140 },
   router: { w: 220, h: 100 },
   homerouter: { w: 200, h: 120 },
   internet: { w: 220, h: 100 },
@@ -43,7 +47,13 @@ export function boundsOf(placed: readonly Placed[]) {
  */
 export function freeSpot(spec: SpecId, center: Point, placed: readonly Placed[]): Point {
   const size = FOOTPRINT[spec];
-  const host = spec === 'pc' || spec === 'server' || spec === 'laptop' || spec === 'phone';
+  const host =
+    spec === 'pc' ||
+    spec === 'server' ||
+    spec === 'laptop' ||
+    spec === 'phone' ||
+    spec === 'printer' ||
+    spec === 'camera';
   const baseY = host ? center.y + 30 : center.y - 190;
   const rowStep = host ? 140 : -120;
   for (let row = 0; row < 6; row++) {

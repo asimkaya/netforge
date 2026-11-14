@@ -1,6 +1,7 @@
 import type { Mac } from './addr.ts';
 import { BIRD_CONF, Bird, parseBirdConf } from './bird.ts';
 import { RADVD_CONF, parseRadvd } from './ip6.ts';
+import { Camera, Printer } from './appliances.ts';
 import { Bridge } from './bridge.ts';
 import { dhclient } from './dhcp.ts';
 import { WireGuard } from './wireguard.ts';
@@ -64,6 +65,9 @@ export class Device {
   sshd: (() => void) | null = null;
   /** The running BIRD routing daemon (OSPF), if started. */
   bird: Bird | null = null;
+  /** What a printer or IP camera is (see appliances.ts); null on every other device. */
+  printer: Printer | null = null;
+  camera: Camera | null = null;
   /** The running access point (hostapd) and the arguments it was started with. */
   hostapd: (HostapdConfig & { args: string[] }) | null = null;
 
@@ -101,10 +105,30 @@ export class Device {
         bridgeSelf: this.bridge,
       };
       this.bridgePort = br0;
-      this.bridge.local = { port: br0, receive: (frame) => this.ip?.receive(br0, frame) };
+      this.bridge.local = { port: br0, receive: (frame) => this.receive(br0, frame) };
       this.ip.addPort(br0);
     }
     this.fs = spec.ip ? new FileSystem(spec.files ?? {}, () => fabric.changed()) : null;
+    const stack = this.ip;
+    if (stack && spec.appliance === 'printer') {
+      this.printer = new Printer(
+        () => this.name,
+        stack,
+        () => fabric.changed(),
+      );
+    } else if (stack && spec.appliance === 'camera') {
+      this.camera = new Camera(
+        () => this.name,
+        stack,
+        fabric.scheduler,
+        () => fabric.changed(),
+      );
+    }
+  }
+
+  /** Called when the device is deleted: stops what would keep scheduling events. */
+  dispose(): void {
+    this.camera?.stop();
   }
 
   /** Starts dnsmasq with command-line arguments. Returns its log lines or an error message. */
@@ -382,7 +406,9 @@ export class Device {
     if (br0 && hasCarrier(br0) !== this.#bridgeCarrier) {
       this.#bridgeCarrier = hasCarrier(br0);
       this.ip?.carrierChanged(br0);
+      for (const sub of this.vlanPorts) if (sub.parent === br0) this.ip?.carrierChanged(sub);
     }
+    if (this.camera && !hasCarrier(port)) this.camera.stop();
     // A WAN port asks for an address when plugged in, unless it already has one.
     const ip = this.ip;
     if (port.name === this.spec.wanDhcp && hasCarrier(port) && ip?.addrsOn(port).length === 0) {

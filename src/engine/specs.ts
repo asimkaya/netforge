@@ -1,7 +1,23 @@
 import type { PortType } from './port.ts';
 
 export type SpecId =
-  'pc' | 'laptop' | 'phone' | 'server' | 'switch' | 'ap' | 'router' | 'homerouter' | 'internet';
+  | 'pc'
+  | 'laptop'
+  | 'phone'
+  | 'server'
+  | 'printer'
+  | 'camera'
+  | 'switch'
+  | 'switch24'
+  | 'l3switch'
+  | 'ap'
+  | 'router'
+  | 'homerouter'
+  | 'internet';
+
+/** The devices that are switches: guided tasks, VLAN and STP screens treat them alike. */
+export const SWITCH_SPECS: readonly SpecId[] = ['switch', 'switch24', 'l3switch'];
+export const isSwitchSpec = (id: SpecId): boolean => SWITCH_SPECS.includes(id);
 
 /**
  * What a device is made of. Adding a device type means adding a spec here (and its
@@ -21,6 +37,8 @@ export interface DeviceSpec {
   bridgeIp?: boolean;
   /** A port that asks for an address with DHCP whenever its link comes up (a WAN port). */
   wanDhcp?: string;
+  /** A single-purpose device whose services start with it (see appliances.ts). */
+  appliance?: 'printer' | 'camera';
   /** Runs an IP stack on the ports that are not bridged. */
   ip: boolean;
   /** Initial `net.ipv4.ip_forward`: forwards packets between its interfaces. */
@@ -127,6 +145,32 @@ export const SPECS: Record<SpecId, DeviceSpec> = {
       '/var/www/html/index.html': SAMPLE_PAGE,
     },
   },
+  printer: {
+    id: 'printer',
+    label: 'Printer',
+    description:
+      'A network printer: asks for an address with DHCP, shows a status page on port 80 and prints jobs sent to port 9100',
+    namePrefix: 'printer',
+    ports: ports('ethernet', 0, 1),
+    bridge: false,
+    wanDhcp: 'eth0',
+    appliance: 'printer',
+    ip: true,
+    forwarding: false,
+  },
+  camera: {
+    id: 'camera',
+    label: 'IP Camera',
+    description:
+      'An IP camera: asks for an address with DHCP, has a live view page on port 80 and streams to viewers that connect to port 554',
+    namePrefix: 'cam',
+    ports: ports('ethernet', 0, 1),
+    bridge: false,
+    wanDhcp: 'eth0',
+    appliance: 'camera',
+    ip: true,
+    forwarding: false,
+  },
   switch: {
     id: 'switch',
     label: 'Switch',
@@ -136,6 +180,31 @@ export const SPECS: Record<SpecId, DeviceSpec> = {
     bridge: true,
     ip: false,
     forwarding: false,
+  },
+  switch24: {
+    id: 'switch24',
+    label: '24-port Switch',
+    description:
+      'Switch with 24 Ethernet ports and 4 fiber (SFP) uplinks; supports VLANs and Spanning Tree',
+    // Shares the sw counter with the 8-port switch, so every switch has a unique name.
+    namePrefix: 'sw',
+    ports: [...ports('ethernet', 0, 24), ...ports('sfp', 24, 4)],
+    bridge: true,
+    ip: false,
+    forwarding: false,
+  },
+  l3switch: {
+    id: 'l3switch',
+    label: 'L3 Switch',
+    description:
+      'Switch with 24 Ethernet ports and 4 SFP uplinks that also routes: give br0.10, br0.20... an address to route between VLANs',
+    namePrefix: 'l3sw',
+    ports: [...ports('ethernet', 0, 24), ...ports('sfp', 24, 4)],
+    bridge: true,
+    bridgeIp: true,
+    ip: true,
+    forwarding: true,
+    files: { '/etc/bird.conf': BIRD_SAMPLE },
   },
   ap: {
     id: 'ap',

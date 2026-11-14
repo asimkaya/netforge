@@ -54,6 +54,12 @@ export interface ProbeData {
   app: 'probe';
 }
 
+/** One frame of a camera's video stream (the picture itself is not simulated). */
+export interface StreamData {
+  app: 'stream';
+  frame: number;
+}
+
 /**
  * A WireGuard message. Keys stand in for the session indexes real messages carry; the
  * inner packet of `data` is what the encryption hides.
@@ -70,7 +76,7 @@ export interface UdpDatagram {
   kind: 'udp';
   srcPort: number;
   dstPort: number;
-  data: DhcpMessage | DnsMessage | ProbeData | WireguardMessage;
+  data: DhcpMessage | DnsMessage | ProbeData | StreamData | WireguardMessage;
 }
 
 export type TcpFlag = 'SYN' | 'ACK' | 'FIN' | 'RST' | 'PSH';
@@ -223,6 +229,7 @@ function describeUdp(u: UdpDatagram): string {
     if (d.qr === 'query') return `DNS A? ${d.name}.`;
     return d.answer ? `DNS ${d.name}. A ${formatIp(d.answer)}` : `DNS ${d.name}. NXDomain`;
   }
+  if (d.app === 'stream') return `Video stream, frame ${d.frame}`;
   return 'UDP, length 32';
 }
 
@@ -317,5 +324,5 @@ export function protocolOf(frame: EthernetFrame): Protocol {
     return TCP_SERVICES[t.dstPort] ?? TCP_SERVICES[t.srcPort] ?? 'tcp';
   }
   const app = p.payload.data.app;
-  return app === 'probe' ? 'udp' : app;
+  return app === 'probe' || app === 'stream' ? 'udp' : app;
 }

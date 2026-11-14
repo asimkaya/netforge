@@ -3,6 +3,7 @@ import { SpecArt } from '../icons.tsx';
 import {
   closeWindow,
   focusWindow,
+  hasCli,
   hasDesktop,
   minimizeWindow,
   moveWindow,
@@ -31,7 +32,9 @@ function Window({ win, bounds }: { win: DeviceWindow; bounds: () => DOMRect | un
   if (!device || win.minimized) return null;
   const tabs: WindowTab[] = hasDesktop(device.spec.id)
     ? ['physical', 'config', 'desktop']
-    : ['physical', 'config', 'cli'];
+    : hasCli(device.spec.id)
+      ? ['physical', 'config', 'cli']
+      : ['physical', 'config'];
 
   const onPointerDown = (e: PointerEvent) => {
     if ((e.target as HTMLElement).closest('button')) return;

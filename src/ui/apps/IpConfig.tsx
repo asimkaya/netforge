@@ -15,7 +15,7 @@ export const SECONDARY =
 const DEFAULT_ROUTE = { ip: 0, prefix: 0 };
 
 /** "Obtain an address automatically": runs dhclient on the first interface and shows its log. */
-function DhcpBox({ device }: { device: Device }) {
+export function DhcpBox({ device }: { device: Device }) {
   const [log, setLog] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const ip = device.ip;
@@ -78,7 +78,7 @@ function DhcpBox({ device }: { device: Device }) {
 }
 
 /** Default gateway and name servers, the other half of a host's IP settings. */
-function GatewayDns({ device }: { device: Device }) {
+export function GatewayDns({ device }: { device: Device }) {
   const ip = device.ip;
   const gateway = ip?.staticRoutes.find((r) => r.dst.prefix === 0)?.via ?? null;
   // Fields follow the live settings (e.g. after DHCP) until the user starts typing.

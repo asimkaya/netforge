@@ -248,12 +248,21 @@ export function openWindow(
   select(id);
 }
 
+/** Printers and cameras are appliances: they have no shell, only Physical and Config. */
+export function hasCli(spec: SpecId): boolean {
+  return !hasDesktop(spec) && spec !== 'printer' && spec !== 'camera';
+}
+
 /** Opens the device's terminal: the Desktop app on hosts, the CLI tab elsewhere. */
 export function openTerminal(id: string): void {
   const device = state.net.devices.get(id);
   openWindow(
     id,
-    device && hasDesktop(device.spec.id) ? { tab: 'desktop', app: 'terminal' } : { tab: 'cli' },
+    device && hasDesktop(device.spec.id)
+      ? { tab: 'desktop', app: 'terminal' }
+      : device && !hasCli(device.spec.id)
+        ? { tab: 'physical' }
+        : { tab: 'cli' },
   );
 }
 
