@@ -22,6 +22,7 @@ import {
   parseLine,
   pwd,
   rm,
+  splitList,
   splitPipeline,
   tee,
   touch,
@@ -54,6 +55,8 @@ export interface ShellIO {
   out(line: string): void;
   /** Lines from the previous command of a pipeline (`a | b`), if any. */
   stdin?: readonly string[];
+  /** The command lines typed in this terminal, oldest first (for `history`). */
+  history?: readonly string[];
   /** Signals that a long-running command finished. */
   exit(): void;
 }
@@ -63,13 +66,13 @@ export interface Process {
   /** Stops the command, like Ctrl+C. */
   interrupt(): void;
   /** Interactive programs (like `ssh`) take the lines the user types. */
-  input?(line: string): void;
+  input?: ((line: string) => void) | undefined;
   /** The prompt before the input field; null while the program is busy. */
   prompt?(): string | null;
   /** Whether typing should be hidden (passwords). */
   secret?(): boolean;
   /** Ctrl+C handled by the program itself (ssh passes it to the remote command). */
-  signal?(): void;
+  signal?: (() => void) | undefined;
 }
 
 export type Command = (
@@ -79,61 +82,141 @@ export type Command = (
   io: ShellIO,
 ) => Process | undefined;
 
-const HELP = [
-  'Available commands:',
-  '  ip addr [show [dev IF]]            show addresses',
-  '  ip addr add|del ADDR/LEN dev IF    add or remove an IPv4 address',
-  '  ip addr flush dev IF               remove all addresses from IF',
-  '  ip link [show [dev IF]]            show interfaces',
-  '  ip link set [dev] IF up|down       enable or disable an interface',
-  '  ip link add link IF name IF.VID type vlan id VID   add a VLAN interface',
-  '  ip link del IF.VID                 delete a VLAN interface',
-  '  ip link set br0 type bridge vlan_filtering 1   turn on VLANs (switches)',
-  '  ip neigh [show] | flush all|dev IF show or clear the ARP table',
-  '  ip route [show]                    show the routing table',
-  '  ip route add DST [via GW] [dev IF] add a route; DST is ADDR/LEN or default',
-  '  ip route del DST                   remove a route',
-  '  ip route get ADDR                  show which route a packet would take',
-  '  sysctl -w net.ipv4.ip_forward=1    let the device forward packets (router)',
-  '  ping [-c COUNT] [-t TTL] ADDR      send ICMP echo requests (Ctrl+C stops)',
-  '  ping 2001:db8::1, ping fe80::1%eth0   ping over IPv6 (ping6 works too)',
-  '  ip -6 addr|route|neigh             IPv6 addresses, routes and neighbors',
-  '  radvd                              announce IPv6 prefixes (routers, /etc/radvd.conf)',
-  '  traceroute [-m MAX_TTL] ADDR       show the routers on the way to ADDR',
-  '  bridge fdb [show]                  show learned MAC addresses (switches)',
-  '  bridge vlan [show]                 show the VLANs of each port (switches)',
-  '  bridge link [show]                 show the Spanning Tree state of ports (switches)',
-  '  ip link set br0 type bridge stp_state 1 [priority N]   turn on Spanning Tree',
-  '  ip -d link show br0                show bridge settings, root bridge and root port',
-  '  bridge vlan add|del dev IF vid VID [pvid] [untagged]   set port VLANs',
-  '  dhclient [-r] IF                   get (or release) an address with DHCP',
-  '  dnsmasq --dhcp-range=START,END ... start a DHCP/DNS server (see dnsmasq --help)',
-  '  killall dnsmasq                    stop the DHCP/DNS server',
-  '  dig [@SERVER] [+short] NAME        ask a DNS server for the address of NAME',
-  '  resolvectl [status]                show the DNS servers this device asks',
-  '  resolvectl dns IF SERVER...        set the DNS servers',
-  '  httpd [-p PORT] [-h DIR]           start a web server (killall httpd stops it)',
-  '  curl [-i|-I] URL                   fetch a web page over HTTP',
-  '  postfix start|stop, dovecot        start the mail servers (SMTP 25, POP3 110)',
-  '  nc -z HOST PORT                    check whether a TCP port is open',
-  '  tcpdump [-i IF] [-c COUNT]         show the packets this device sends and receives',
-  '  nmcli dev wifi list                list Wi-Fi networks in range',
-  '  nmcli dev wifi connect SSID password PASS   join a Wi-Fi network',
-  '  hostapd -B /etc/hostapd/hostapd.conf        start an access point (APs)',
-  '  bird; birdc show ospf neighbors    OSPF dynamic routing (config: /etc/bird.conf)',
-  '  birdc show route|show protocols|configure|down   inspect or control BIRD',
-  '  nft list ruleset | nft add ...     firewall and NAT (see nft with no arguments)',
-  '  conntrack -L                       list tracked connections (firewall, NAT)',
-  '  wg genkey | tee key | wg pubkey    WireGuard keys; wg show, wg set wg0 ...',
-  '  wg-quick up|down wg0               VPN from /etc/wireguard/wg0.conf',
-  '  ssh [USER@]HOST [COMMAND]          log in to another device (sshd must run there)',
-  "  sshd; echo root:PASS | chpasswd    start the SSH server; change root's password",
-  '  ss -t                              list TCP sockets',
-  '  hostname [NAME]                    show or set the device name',
-  '  ls, cat, echo TEXT > FILE, rm, touch, mkdir, pwd   work with files',
-  '  CMD | grep [-i] [-v] TEXT          keep the lines that match (also tee FILE)',
-  '  clear                              clear the screen',
-];
+/** `help` topics: `help` lists them, `help TOPIC` shows one, `help all` everything. */
+const HELP: Record<string, { about: string; lines: string[] }> = {
+  ip: {
+    about: 'addresses, interfaces and routes',
+    lines: [
+      '  ip addr [show [dev IF]]            show addresses',
+      '  ip addr add|del ADDR/LEN dev IF    add or remove an IPv4 address',
+      '  ip addr flush dev IF               remove all addresses from IF',
+      '  ip link [show [dev IF]]            show interfaces',
+      '  ip link set [dev] IF up|down       enable or disable an interface',
+      '  ip neigh [show] | flush all|dev IF show or clear the ARP table',
+      '  ip route [show]                    show the routing table',
+      '  ip route add DST [via GW] [dev IF] add a route; DST is ADDR/LEN or default',
+      '  ip route del DST                   remove a route',
+      '  ip route get ADDR                  show which route a packet would take',
+      '  sysctl -w net.ipv4.ip_forward=1    let the device forward packets (router)',
+      '  ip -6 addr|route|neigh             IPv6 addresses, routes and neighbors',
+      '  hostname [NAME]                    show or set the device name',
+    ],
+  },
+  test: {
+    about: 'ping, traceroute and other ways to look at the network',
+    lines: [
+      '  ping [-c COUNT] [-t TTL] ADDR      send ICMP echo requests (Ctrl+C stops)',
+      '  ping 2001:db8::1, ping fe80::1%eth0   ping over IPv6 (ping6 works too)',
+      '  traceroute [-m MAX_TTL] ADDR       show the routers on the way to ADDR',
+      '  dig [@SERVER] [+short] NAME        ask a DNS server for the address of NAME',
+      '  curl [-i|-I] URL                   fetch a web page over HTTP',
+      '  nc -z HOST PORT                    check whether a TCP port is open',
+      '  ss -t                              list TCP sockets',
+      '  tcpdump [-i IF] [-c COUNT]         show the packets this device sends and receives',
+    ],
+  },
+  switch: {
+    about: 'MAC table, VLANs and Spanning Tree (switches)',
+    lines: [
+      '  bridge fdb [show]                  show learned MAC addresses (switches)',
+      '  bridge vlan [show]                 show the VLANs of each port (switches)',
+      '  bridge vlan add|del dev IF vid VID [pvid] [untagged]   set port VLANs',
+      '  ip link set br0 type bridge vlan_filtering 1   turn on VLANs (switches)',
+      '  ip link add link IF name IF.VID type vlan id VID   add a VLAN interface',
+      '  ip link del IF.VID                 delete a VLAN interface',
+      '  bridge link [show]                 show the Spanning Tree state of ports (switches)',
+      '  ip link set br0 type bridge stp_state 1 [priority N]   turn on Spanning Tree',
+      '  ip -d link show br0                show bridge settings, root bridge and root port',
+    ],
+  },
+  services: {
+    about: 'DHCP, DNS, web, mail, SSH and Wi-Fi',
+    lines: [
+      '  dhclient [-r] IF                   get (or release) an address with DHCP',
+      '  dnsmasq --dhcp-range=START,END ... start a DHCP/DNS server (see dnsmasq --help)',
+      '  killall dnsmasq                    stop the DHCP/DNS server',
+      '  resolvectl [status]                show the DNS servers this device asks',
+      '  resolvectl dns IF SERVER...        set the DNS servers',
+      '  httpd [-p PORT] [-h DIR]           start a web server (killall httpd stops it)',
+      '  postfix start|stop, dovecot        start the mail servers (SMTP 25, POP3 110)',
+      '  ssh [USER@]HOST [COMMAND]          log in to another device (sshd must run there)',
+      "  sshd; echo root:PASS | chpasswd    start the SSH server; change root's password",
+      '  nmcli dev wifi list                list Wi-Fi networks in range',
+      '  nmcli dev wifi connect SSID password PASS   join a Wi-Fi network',
+      '  hostapd -B /etc/hostapd/hostapd.conf        start an access point (APs)',
+    ],
+  },
+  routing: {
+    about: 'OSPF with BIRD, IPv6 router advertisements',
+    lines: [
+      '  bird; birdc show ospf neighbors    OSPF dynamic routing (config: /etc/bird.conf)',
+      '  birdc show route|show protocols|configure|down   inspect or control BIRD',
+      '  radvd                              announce IPv6 prefixes (routers, /etc/radvd.conf)',
+    ],
+  },
+  firewall: {
+    about: 'nftables firewall, NAT and WireGuard VPN',
+    lines: [
+      '  nft list ruleset | nft add ...     firewall and NAT (see nft with no arguments)',
+      '  conntrack -L                       list tracked connections (firewall, NAT)',
+      '  wg genkey | tee key | wg pubkey    WireGuard keys; wg show, wg set wg0 ...',
+      '  wg-quick up|down wg0               VPN from /etc/wireguard/wg0.conf',
+    ],
+  },
+  shell: {
+    about: 'files, pipes, history and the screen',
+    lines: [
+      '  ls, cat, echo TEXT > FILE, rm, touch, mkdir, pwd   work with files',
+      '  CMD | grep [-i] [-v] TEXT          keep the lines that match (also tee FILE)',
+      '  CMD ; CMD, CMD && CMD              run commands one after the other',
+      '  history                            list the commands typed so far',
+      '  clear                              clear the screen',
+      '  Tab                                complete a command, interface or file name',
+    ],
+  },
+};
+
+/** What people type out of habit, and the command to use here instead. */
+const INSTEAD: Record<string, string> = {
+  ifconfig: 'ip addr',
+  ipconfig: 'ip addr',
+  route: 'ip route',
+  arp: 'ip neigh',
+  netstat: 'ss -t',
+  nslookup: 'dig NAME',
+  host: 'dig NAME',
+  tracert: 'traceroute HOST',
+  iptables: 'nft list ruleset',
+  brctl: 'bridge link',
+  iwconfig: 'nmcli dev wifi list',
+  wget: 'curl URL',
+  telnet: 'nc -z HOST PORT',
+};
+
+/** `help [TOPIC|COMMAND]`, and `man COMMAND` (there are no manual pages, so it shows the same). */
+const help: Command = (_net, _device, args, io) => {
+  const [word] = args;
+  if (word === undefined) {
+    io.out('Topics (type "help TOPIC", or "help all" for every command):');
+    for (const [topic, { about }] of Object.entries(HELP)) io.out(`  ${topic.padEnd(10)}${about}`);
+    return;
+  }
+  const lines =
+    word === 'all'
+      ? Object.values(HELP).flatMap((t) => t.lines)
+      : Object.hasOwn(HELP, word)
+        ? (HELP[word]?.lines ?? [])
+        : Object.values(HELP).flatMap((t) =>
+            t.lines.filter((l) => l.trim().split(/[\s,;]/)[0] === word),
+          );
+  if (lines.length === 0) io.out(`bash: help: no help topics match \`${word}'.`);
+  else lines.forEach(io.out);
+};
+
+/** bash's `history` builtin: the numbered list of typed commands. */
+const history: Command = (_net, _device, _args, io) => {
+  (io.history ?? []).forEach((line, i) => io.out(`${String(i + 1).padStart(5)}  ${line}`));
+};
 
 /** `ip` accepts any unambiguous prefix of an object or verb, e.g. `ip a`, `ip n`. */
 function matches(word: string | undefined, full: string): boolean {
@@ -166,21 +249,28 @@ function linkLines(device: Device, port: Port, index: number): string[] {
   if (port.tunnel) {
     const up = port.adminUp ? 'UP,LOWER_UP' : '';
     return [
-      `${index + 1}: ${port.name}: <POINTOPOINT,NOARP${up ? `,${up}` : ''}> mtu 1420 state ${port.adminUp ? 'UNKNOWN' : 'DOWN'}`,
+      `${index + 2}: ${port.name}: <POINTOPOINT,NOARP${up ? `,${up}` : ''}> mtu 1420 state ${port.adminUp ? 'UNKNOWN' : 'DOWN'}`,
       '    link/none',
     ];
   }
   const name = port.parent ? `${port.name}@${port.parent.name}` : port.name;
   const vlan = port.parent ? [`    vlan protocol 802.1Q id ${port.vid ?? 0}`] : [];
   return [
-    `${index + 1}: ${name}: <${noCarrier}${flags.join(',')}> mtu 1500${master} state ${state}`,
+    `${index + 2}: ${name}: <${noCarrier}${flags.join(',')}> mtu 1500${master} state ${state}`,
     `    link/ether ${port.mac} brd ff:ff:ff:ff:ff:ff`,
     ...vlan,
   ];
 }
 
+/** The loopback interface: always number 1, always up, like on Linux. */
+const LO_LINES = [
+  '1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 state UNKNOWN',
+  '    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00',
+];
+
 /** Every interface of a device for `ip link`/`ip addr`, or just the one named. */
 function listed(device: Device, name: string | undefined, io: ShellIO): Port[] {
+  if (name === 'lo') return [];
   if (name === undefined) return device.interfaces();
   const port = findPort(device, name, io);
   return port ? [port] : [];
@@ -188,7 +278,7 @@ function listed(device: Device, name: string | undefined, io: ShellIO): Port[] {
 
 function bridgeLines(device: Device, index: number, details = false): string[] {
   const lines = [
-    `${index + 1}: br0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 state UP`,
+    `${index + 2}: br0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 state UP`,
     `    link/ether ${device.ports[0]?.mac ?? ''} brd ff:ff:ff:ff:ff:ff`,
   ];
   const br = device.bridge;
@@ -291,6 +381,7 @@ function ipLink(
       bridgeLines(device, all.length, details).forEach(io.out);
       return;
     }
+    if (name === undefined || name === 'lo') LO_LINES.forEach(io.out);
     listed(device, name, io).forEach((p) => linkLines(device, p, all.indexOf(p)).forEach(io.out));
     if (name === undefined && device.bridge) bridgeLines(device, all.length).forEach(io.out);
     return;
@@ -336,7 +427,13 @@ function ipAddr(
   const [verb, ...rest] = args;
   if (verb === undefined || matches(verb, 'show') || matches(verb, 'list')) {
     const all = device.interfaces();
-    for (const port of listed(device, devArg(rest), io)) {
+    const name = devArg(rest);
+    // shortcut: no ::1, so `ip -6 addr` leaves lo out; add it with IPv6 loopback.
+    if ((name === undefined || name === 'lo') && family !== 6) {
+      LO_LINES.forEach(io.out);
+      if (device.ip) io.out('    inet 127.0.0.1/8 scope host lo');
+    }
+    for (const port of listed(device, name, io)) {
       linkLines(device, port, all.indexOf(port)).forEach(io.out);
       if (!device.ip?.ports.includes(port)) continue;
       if (family !== 6) {
@@ -1067,8 +1164,11 @@ const COMMANDS: Record<string, Command> = {
   sysctl,
   bridge,
   hostname,
-  help: (_net, _device, _args, io) => {
-    HELP.forEach(io.out);
+  help,
+  history,
+  man: (net, device, args, io) => {
+    if (args.length === 0) io.out('What manual page do you want?');
+    else help(net, device, args.slice(-1), io);
   },
 };
 
@@ -1078,6 +1178,56 @@ const COMMANDS: Record<string, Command> = {
  * `clear` is handled by the terminal UI.
  */
 export function run(net: Network, device: Device, line: string, io: ShellIO): Process | undefined {
+  const parts = splitList(line);
+  if (parts.length <= 1) return runPipeline(net, device, parts[0] ?? '', io);
+
+  // `a ; b` and `a && b`: the next command starts when the one before it exits.
+  // shortcut: commands have no exit status, so `&&` runs the next one even after an
+  // error; give commands a status before adding `||` or `if`.
+  let i = 0;
+  let current: Process | undefined;
+  let waiting = false;
+  const step = (): void => {
+    while (i < parts.length) {
+      let exited = false;
+      let returned = false;
+      const proc = runPipeline(net, device, parts[i++] ?? '', {
+        ...io,
+        exit: () => {
+          exited = true;
+          current = undefined;
+          if (returned) step();
+        },
+      });
+      returned = true;
+      if (proc && !exited) {
+        current = proc;
+        return;
+      }
+    }
+    if (waiting) io.exit();
+  };
+  step();
+  if (!current) return undefined;
+  waiting = true;
+  return {
+    // Ctrl+C ends the whole list, like bash.
+    interrupt: () => {
+      i = parts.length;
+      current?.interrupt();
+    },
+    get input() {
+      return current?.input;
+    },
+    get signal() {
+      return current?.signal;
+    },
+    prompt: () => current?.prompt?.() ?? null,
+    secret: () => current?.secret?.() ?? false,
+  };
+}
+
+function runPipeline(net: Network, device: Device, line: string, io: ShellIO): Process | undefined {
   const segments = splitPipeline(line);
   if (typeof segments === 'string') {
     io.out(segments);
@@ -1091,6 +1241,7 @@ export function run(net: Network, device: Device, line: string, io: ShellIO): Pr
       out: (l) => lines.push(l),
       exit: () => {},
       ...(stdin ? { stdin } : {}),
+      ...(io.history ? { history: io.history } : {}),
     });
     if (proc) {
       proc.interrupt();
@@ -1101,6 +1252,30 @@ export function run(net: Network, device: Device, line: string, io: ShellIO): Pr
     stdin = lines;
   }
   return runOne(net, device, segments.at(-1) ?? '', stdin ? { ...io, stdin } : io);
+}
+
+/**
+ * Tab completion: what the last word of `line` could become. The first word completes to
+ * a command, the word after `ip` to its objects, anything else to an interface or a file.
+ */
+export function complete(device: Device, line: string): string[] {
+  const words = line.split(/\s+/);
+  const last = words.at(-1) ?? '';
+  const before = words.at(-2);
+  let pool: string[];
+  if (before === undefined || /[|;&]$/.test(before)) pool = [...Object.keys(COMMANDS), 'clear'];
+  else if (before === 'ip') pool = ['addr', 'link', 'route', 'neigh'];
+  else if (before === 'help' || before === 'man') pool = [...Object.keys(HELP), 'all'];
+  else {
+    const slash = last.lastIndexOf('/');
+    const dir = normalizePath(slash < 0 ? '.' : last.slice(0, slash) || '/');
+    const files = dir === null ? [] : (device.fs?.list(dir) ?? []);
+    pool = [
+      ...(slash < 0 ? ['lo', ...device.interfaces().map((p) => p.name)] : []),
+      ...files.map((f) => last.slice(0, slash + 1) + f),
+    ];
+  }
+  return [...new Set(pool)].filter((c) => c.startsWith(last)).sort();
 }
 
 function runOne(net: Network, device: Device, line: string, io: ShellIO): Process | undefined {
@@ -1114,6 +1289,8 @@ function runOne(net: Network, device: Device, line: string, io: ShellIO): Proces
   const command = Object.hasOwn(COMMANDS, name) ? COMMANDS[name] : undefined;
   if (!command) {
     io.out(`${name}: command not found`);
+    const instead = Object.hasOwn(INSTEAD, name) ? INSTEAD[name] : undefined;
+    if (instead) io.out(`Try: ${instead}`);
     return undefined;
   }
   const { redirect } = parsed;

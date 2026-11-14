@@ -38,6 +38,41 @@ export function splitPipeline(line: string): string[] | string {
   return parts;
 }
 
+/**
+ * Splits a line into the commands of a list (`a ; b`, `a && b`), outside quotes. A `;`
+ * inside braces stays, so `nft add chain ... { type nat hook postrouting priority 100 ; }`
+ * needs no escaping here (bash wants `\;`).
+ */
+export function splitList(line: string): string[] {
+  const parts: string[] = [];
+  let current = '';
+  let depth = 0;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i] ?? '';
+    if (c === "'" || c === '"') {
+      const close = line.indexOf(c, i + 1);
+      const end = close < 0 ? line.length - 1 : close;
+      current += line.slice(i, end + 1);
+      i = end;
+      continue;
+    }
+    if (c === '\\') {
+      current += c + (line[++i] ?? '');
+      continue;
+    }
+    if (c === '{') depth++;
+    if (c === '}') depth--;
+    const and = c === '&' && line[i + 1] === '&';
+    if (depth <= 0 && (c === ';' || and)) {
+      parts.push(current);
+      current = '';
+      if (and) i++;
+    } else current += c;
+  }
+  parts.push(current);
+  return parts.filter((p) => p.trim() !== '');
+}
+
 export function parseLine(line: string): ParsedLine | string {
   const words: string[] = [];
   let word = '';

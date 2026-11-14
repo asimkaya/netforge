@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Device } from './device.ts';
 import { Network } from './network.ts';
-import { run } from './shell.ts';
+import { complete, run } from './shell.ts';
 
 /** Runs a command and the simulation until it exits (or `ms` passes). */
 function sh(net: Network, device: Device, line: string, ms = 20_000) {
@@ -28,7 +28,10 @@ describe('shell', () => {
   it('shows interfaces and addresses like iproute2', () => {
     const { net, pc1 } = lab();
     expect(sh(net, pc1, 'ip addr').lines).toEqual([
-      '1: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 state UP',
+      '1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 state UNKNOWN',
+      '    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00',
+      '    inet 127.0.0.1/8 scope host lo',
+      '2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 state UP',
       `    link/ether ${pc1.ports[0]?.mac} brd ff:ff:ff:ff:ff:ff`,
       '    inet 192.168.1.10/24 brd 192.168.1.255 scope global eth0',
       `    inet6 fe80::ff:fe00:${pc1.ports[0]?.mac.slice(-2).replace(/^0/, '')}/64 scope link`,
@@ -41,8 +44,8 @@ describe('shell', () => {
   it('reports a missing cable as NO-CARRIER', () => {
     const net = new Network();
     const pc = net.addDevice('pc');
-    expect(sh(net, pc, 'ip link').lines[0]).toBe(
-      '1: eth0: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 state DOWN',
+    expect(sh(net, pc, 'ip link').lines[2]).toBe(
+      '2: eth0: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 state DOWN',
     );
   });
 
@@ -162,6 +165,7 @@ describe('shell', () => {
   it('pipes output into grep and tee', () => {
     const { net, pc1 } = lab();
     expect(sh(net, pc1, 'ip addr | grep inet').lines).toEqual([
+      '    inet 127.0.0.1/8 scope host lo',
       '    inet 192.168.1.10/24 brd 192.168.1.255 scope global eth0',
       `    inet6 fe80::ff:fe00:${pc1.ports[0]?.mac.slice(-2).replace(/^0/, '')}/64 scope link`,
     ]);
@@ -179,5 +183,72 @@ describe('shell', () => {
     expect(sh(net, pc1, 'ping -c 1 192.168.1.20 | grep ttl').lines).toEqual([
       'bash: NetForge pipes only take commands that finish at once',
     ]);
+  });
+
+  it('answers pings to loopback without a cable or an address', () => {
+    const net = new Network();
+    const pc = net.addDevice('pc');
+    const { lines, exited } = sh(net, pc, 'ping -c 1 127.0.0.1');
+    expect(lines[1]).toMatch(/^64 bytes from 127\.0\.0\.1: icmp_seq=1 ttl=64 time=/);
+    expect(exited).toBe(true);
+    expect(net.trace).toEqual([]);
+    expect(sh(net, pc, 'ip addr show lo').lines).toEqual([
+      '1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 state UNKNOWN',
+      '    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00',
+      '    inet 127.0.0.1/8 scope host lo',
+    ]);
+  });
+
+  it('runs lists of commands joined with ; and &&', () => {
+    const { net, pc1 } = lab();
+    expect(sh(net, pc1, 'echo a; echo b && echo "c;d"').lines).toEqual(['a', 'b', 'c;d']);
+    // A long-running command in the middle: the rest waits for it, then the list exits.
+    const { lines, exited } = sh(net, pc1, 'echo before; ping -c 1 192.168.1.20; echo after');
+    expect(lines[0]).toBe('before');
+    expect(lines.at(-1)).toBe('after');
+    expect(lines.some((l) => l.includes('1 packets transmitted, 1 received'))).toBe(true);
+    expect(exited).toBe(true);
+    // Ctrl+C ends the whole list.
+    const stopped: string[] = [];
+    const proc = run(net, pc1, 'ping 192.168.1.20; echo never', {
+      out: (l) => stopped.push(l),
+      exit: () => {},
+    });
+    proc?.interrupt();
+    expect(stopped).not.toContain('never');
+    // Braces keep nft's own semicolons.
+    const r1 = net.addDevice('router');
+    sh(net, r1, 'nft add table ip nat');
+    expect(
+      sh(net, r1, 'nft add chain ip nat post { type nat hook postrouting priority 100 ; }').lines,
+    ).toEqual([]);
+  });
+
+  it('has help topics, history and hints for commands from other systems', () => {
+    const { net, pc1 } = lab();
+    expect(sh(net, pc1, 'help').lines[0]).toBe(
+      'Topics (type "help TOPIC", or "help all" for every command):',
+    );
+    expect(sh(net, pc1, 'help routing').lines).toHaveLength(3);
+    expect(sh(net, pc1, 'man traceroute').lines).toEqual([
+      '  traceroute [-m MAX_TTL] ADDR       show the routers on the way to ADDR',
+    ]);
+    expect(sh(net, pc1, 'help nope').lines).toEqual(["bash: help: no help topics match `nope'."]);
+    expect(sh(net, pc1, 'ifconfig').lines).toEqual(['ifconfig: command not found', 'Try: ip addr']);
+    const lines: string[] = [];
+    const io = { out: (l: string) => lines.push(l), exit: () => {}, history: ['ip a', 'ping x'] };
+    run(net, pc1, 'history | grep ping', io);
+    expect(lines).toEqual(['    2  ping x']);
+  });
+
+  it('completes commands, ip objects, interfaces and files', () => {
+    const { net, pc1 } = lab();
+    expect(complete(pc1, 'trac')).toEqual(['traceroute']);
+    expect(complete(pc1, 'ip ro')).toEqual(['route']);
+    expect(complete(pc1, 'ip addr show dev e')).toEqual(['eth0']);
+    expect(complete(pc1, 'echo x | gr')).toEqual(['grep']);
+    sh(net, pc1, 'echo hi > notes.txt');
+    expect(complete(pc1, 'cat no')).toEqual(['notes.txt']);
+    expect(complete(pc1, 'zzz')).toEqual([]);
   });
 });

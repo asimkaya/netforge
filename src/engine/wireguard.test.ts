@@ -126,7 +126,7 @@ describe('WireGuard', () => {
     ]);
     expect(received(sh(net, pcB, 'ping -c 1 10.8.0.1'))).toBe(true);
     expect(sh(net, rA, 'ip link show wg0')).toEqual([
-      '5: wg0: <POINTOPOINT,NOARP,UP,LOWER_UP> mtu 1420 state UNKNOWN',
+      '6: wg0: <POINTOPOINT,NOARP,UP,LOWER_UP> mtu 1420 state UNKNOWN',
       '    link/none',
     ]);
   });

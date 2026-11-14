@@ -74,7 +74,7 @@ describe('VLANs', () => {
     expect(sh(net, sw, 'bridge vlan del dev eth0 vid 99')).toEqual([
       'RTNETLINK answers: No such file or directory',
     ]);
-    expect(sh(net, sw, 'ip link show br0')[0]).toMatch(/^11: br0: /);
+    expect(sh(net, sw, 'ip link show br0')[0]).toMatch(/^12: br0: /);
   });
 
   it('routes between VLANs over a trunk (router on a stick)', () => {
@@ -88,7 +88,7 @@ describe('VLANs', () => {
     sh(net, r1, 'ip addr add 192.168.20.1/24 dev eth0.20');
     // New links start down on Linux.
     expect(sh(net, r1, 'ip link show eth0.10')).toEqual([
-      '5: eth0.10@eth0: <BROADCAST,MULTICAST> mtu 1500 state DOWN',
+      '6: eth0.10@eth0: <BROADCAST,MULTICAST> mtu 1500 state DOWN',
       `    link/ether ${r1.ports[0]?.mac} brd ff:ff:ff:ff:ff:ff`,
       '    vlan protocol 802.1Q id 10',
     ]);

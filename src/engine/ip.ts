@@ -171,8 +171,9 @@ export class IpStack implements TcpHost {
     return [...this.addrs.values()].flat();
   }
 
+  /** Its own addresses, plus the whole loopback network 127.0.0.0/8 (`lo`). */
   ownsIp(ip: Ip): boolean {
-    return this.allAddrs().some((a) => a.ip === ip);
+    return ip >>> 24 === 127 || this.allAddrs().some((a) => a.ip === ip);
   }
 
   /** Returns an error message in Linux wording, or null on success. */
@@ -437,7 +438,9 @@ export class IpStack implements TcpHost {
   #send(dst: Ip, payload: Ipv4Packet['payload'], ttl = DEFAULT_TTL, src?: Ip): string | null {
     if (this.ownsIp(dst)) {
       const packet: Ipv4Packet = { kind: 'ipv4', src: src ?? dst, dst, ttl, payload };
-      const port = this.ports.find((p) => this.addrsOn(p).some((a) => a.ip === dst));
+      // Loopback has no port of its own: local delivery only needs one to name.
+      const port =
+        this.ports.find((p) => this.addrsOn(p).some((a) => a.ip === dst)) ?? this.ports[0];
       if (port) this.fabric.scheduler.schedule(0, () => this.#deliver(packet, port));
       return null;
     }

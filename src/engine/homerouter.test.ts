@@ -37,7 +37,7 @@ describe('home router', () => {
   it('comes ready: LAN on br0, DHCP, Wi-Fi, NAT and a firewall', () => {
     const { net, home } = lab();
     expect(sh(net, home, 'ip -4 addr show br0')).toEqual([
-      `14: br0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 state UP`,
+      `15: br0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 state UP`,
       `    link/ether ${port(home, 'eth1').mac} brd ff:ff:ff:ff:ff:ff`,
       '    inet 192.168.1.1/24 brd 192.168.1.255 scope global br0',
     ]);

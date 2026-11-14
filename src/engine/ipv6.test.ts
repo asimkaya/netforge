@@ -38,7 +38,7 @@ describe('IPv6', () => {
     const [a, b] = [net.addDevice('pc'), net.addDevice('pc')];
     net.connect(a, b);
     expect(sh(net, a, 'ip -6 addr')).toEqual([
-      '1: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 state UP',
+      '2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 state UP',
       `    link/ether ${port(a, 'eth0').mac} brd ff:ff:ff:ff:ff:ff`,
       `    inet6 ${linkLocal(a)}/64 scope link`,
     ]);
