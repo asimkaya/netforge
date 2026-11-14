@@ -295,6 +295,13 @@ export function Canvas({ onShowPanel }: { onShowPanel: (tab?: Tab) => void }) {
     addDevice(spec, { x: drop.x - 70, y: drop.y - 40 });
   };
 
+  /** The device under a touch that has not moved yet: a tap on it opens its window. */
+  const tap = useRef<{ id: string; x: number; y: number } | null>(null);
+  const deviceAt = (target: EventTarget) => {
+    const node = (target as Element).closest?.('.react-flow__node-device');
+    return node ? { node, id: node.getAttribute('data-id') } : null;
+  };
+
   return (
     <div
       ref={wrapper}
@@ -303,6 +310,21 @@ export function Canvas({ onShowPanel }: { onShowPanel: (tab?: Tab) => void }) {
         // Enter on a focused device opens its window, like a click.
         const id = (e.target as HTMLElement).closest('.react-flow__node')?.getAttribute('data-id');
         if (e.key === 'Enter' && id) openWindow(id);
+      }}
+      // Browsers may drop the click that follows a touch gesture (right after a cable was
+      // drawn by finger, the first tap produced no click), so a tap is recognised here too.
+      // Opening an open window only brings it to the front, so a click as well does no harm.
+      onPointerDown={(e) => {
+        const hit = e.pointerType === 'touch' ? deviceAt(e.target) : null;
+        tap.current = hit?.id ? { id: hit.id, x: e.clientX, y: e.clientY } : null;
+      }}
+      onPointerUp={(e) => {
+        const start = tap.current;
+        tap.current = null;
+        const hit = deviceAt(e.target);
+        if (!start || hit?.id !== start.id) return;
+        if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 10) return;
+        openWindow(start.id, {}, beside(hit.node));
       }}
     >
       <ReactFlow
