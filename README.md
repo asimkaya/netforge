@@ -12,12 +12,14 @@ packets travel hop by hop. Guided tasks take you from "two machines that can pin
 other" to VLANs, routing, NAT, firewalls and VPNs. NetForge works offline after the first
 visit.
 
-> **Status:** Phases 0–6 are done: PCs, laptops, phones, servers, switches, access points,
-> Linux routers and an Internet cloud; Wi-Fi, VLANs, Spanning Tree, static and OSPF
-> routing, DHCP, DNS, HTTP, mail, NAT and nftables firewalls, IPv6 with SLAAC, WireGuard
-> VPNs and SSH; simulation mode, packet capture with pcap export, guided tasks and a task
-> editor, undo and share links. See [features](docs/FEATURES.md) and the
-> [roadmap](docs/ROADMAP.md).
+> **Status:** Phases 0–7 are done: PCs, laptops, phones, servers, printers, IP cameras,
+> 8- and 24-port switches, layer-3 switches, access points, Linux routers, home routers and
+> an Internet cloud; Wi-Fi, VLANs, Spanning Tree, static and OSPF routing, DHCP with relay,
+> DNS with forwarding, HTTP, mail, NAT and nftables firewalls, IPv6 with SLAAC, WireGuard
+> VPNs and SSH; simulation mode, packet capture with pcap export, guided tasks that build
+> one growing network, ready networks, troubleshooting challenges, "Why did this fail?"
+> explanations, a task editor, progress reports, Linux script export, undo and share
+> links. See [features](docs/FEATURES.md) and the [roadmap](docs/ROADMAP.md).
 
 ## A quick look
 
