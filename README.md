@@ -2,6 +2,10 @@
 
 Build, wire and debug computer networks right in your browser. No install, no account.
 
+**[Try the live demo →](https://netforge-20l.pages.dev/)**
+
+![A company network with VLANs, a firewall, Wi-Fi and a branch office](docs/screenshots/company.png)
+
 NetForge is an open-source network simulator for learning. Drop hosts, switches and
 routers on a canvas, connect them, configure them from a Linux-style shell, and watch
 packets travel hop by hop. Guided tasks take you from "two machines that can ping each
@@ -13,6 +17,17 @@ other" to VLANs, routing, NAT, firewalls and VPNs.
 > VPNs and SSH; simulation mode, packet capture with pcap export, guided tasks and a task
 > editor, undo and share links. See [features](docs/FEATURES.md) and the
 > [roadmap](docs/ROADMAP.md).
+
+## A quick look
+
+Open a ready network (home, small office or a company with VLANs) and poke around, or
+follow a guided task that points at what to do next and checks your work.
+
+| Linux-style shell on every device                                        | Every frame, step by step                                              |
+| ------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| ![A terminal running ping and traceroute](docs/screenshots/terminal.png) | ![Simulation mode listing ARP frames](docs/screenshots/simulation.png) |
+
+![A guided task highlighting the two PCs to cable](docs/screenshots/guided-task.png)
 
 ## Principles
 
@@ -41,10 +56,21 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request, and
 
 ## Deployment
 
-The site is deployed to Cloudflare Pages:
+The site is a static build on Cloudflare Pages: <https://netforge-20l.pages.dev/>.
 
-- Build command: `npm run build`
-- Output directory: `dist`
+Every push to `main` is deployed by the `deploy` job in
+[.github/workflows/ci.yml](.github/workflows/ci.yml), after lint, type check, unit tests
+and end-to-end tests pass. The job needs two repository secrets:
+
+- `CLOUDFLARE_ACCOUNT_ID`: the account that owns the `netforge` Pages project.
+- `CLOUDFLARE_API_TOKEN`: an API token with the _Cloudflare Pages: Edit_ permission.
+
+Without the token the job only prints a warning. To deploy by hand:
+
+```bash
+npm run build
+npx wrangler pages deploy dist --project-name=netforge --branch=main
+```
 
 ## License
 
