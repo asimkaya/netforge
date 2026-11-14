@@ -1,4 +1,4 @@
-import { formatCidr, formatIp, macFromIndex, parseCidr, parseIp } from './addr.ts';
+import { formatCidr, formatIp, macFromIndex, networkOf, parseCidr, parseIp } from './addr.ts';
 import { defaultVlans, type Bridge } from './bridge.ts';
 import { Device, type Fabric } from './device.ts';
 import { formatCidr6, formatIp6, parseCidr6, parseIp6 } from './addr6.ts';
@@ -589,8 +589,13 @@ export class Network implements Fabric {
           if (!dst || via === undefined || (r.via !== undefined && via === null) || !dev) {
             throw new Error(`Invalid route ${r.dst} on ${d.id}`);
           }
-          const error = device.ip.addRoute(dst, via, dev);
-          if (error) throw new Error(`Route ${r.dst} on ${d.id}: ${error}`);
+          // Not addRoute: a saved route may have lost its on-link gateway when the learner
+          // changed an address. The running engine keeps it inactive, so loading must too.
+          device.ip.staticRoutes.push({
+            dst: { ip: networkOf(dst), prefix: dst.prefix },
+            via,
+            dev,
+          });
         }
       }
       if (d.files && device.fs) {

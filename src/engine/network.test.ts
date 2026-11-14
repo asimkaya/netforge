@@ -3,6 +3,7 @@ import { formatIp, parseCidr, parseIp, type Ip } from './addr.ts';
 import type { Device } from './device.ts';
 import type { IcmpEvent, IpStack } from './ip.ts';
 import { Network } from './network.ts';
+import { routed, sh } from './testing.ts';
 
 function ip(text: string): Ip {
   const value = parseIp(text);
@@ -222,6 +223,21 @@ describe('Network', () => {
     expect(ping(copy, copyPc1, '10.0.0.2')).toHaveLength(1);
     // New ids continue after the restored counters.
     expect(copy.addDevice('pc').id).toBe('d4');
+  });
+
+  it('loads a static route whose gateway went off-link as the same inactive route', () => {
+    const { net, pc1 } = routed();
+    sh(net, pc1, 'ip addr flush dev eth0');
+    sh(net, pc1, 'ip addr add 192.168.1.10/30 dev eth0');
+    const before = sh(net, pc1, 'ip route');
+    expect(before.join(' ')).toContain('default via 192.168.1.1');
+    const copy = Network.fromJSON(JSON.parse(JSON.stringify(net.toJSON())));
+    const again = copy.devices.get(pc1.id) as Device;
+    expect(sh(copy, again, 'ip route')).toEqual(before);
+    expect(ipOf(again).routeTo(ip('192.168.2.20'))).toBeNull();
+    sh(copy, again, 'ip addr flush dev eth0');
+    sh(copy, again, 'ip addr add 192.168.1.10/24 dev eth0');
+    expect(ping(copy, again, '192.168.2.20')).toHaveLength(1);
   });
 
   it('rejects inconsistent snapshots', () => {

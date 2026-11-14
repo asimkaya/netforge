@@ -221,16 +221,16 @@ describe('lab files', () => {
       /damaged/,
     ],
     [
-      'a route through an unknown gateway',
+      'a route out of an unknown interface',
       (f) =>
         Object.assign(f.network.devices[0] ?? {}, {
           ip: {
             forwarding: false,
             dns: [],
-            routes: [{ dst: '0.0.0.0/0', via: '9.9.9.9', dev: 'eth0' }],
+            routes: [{ dst: '0.0.0.0/0', via: '9.9.9.9', dev: 'eth99' }],
           },
         }),
-      /invalid gateway/,
+      /damaged/,
     ],
     [
       'a malformed DNS server',
