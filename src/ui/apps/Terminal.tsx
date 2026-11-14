@@ -138,13 +138,16 @@ export function Terminal({ deviceId }: { deviceId: string }) {
         >
           <p className="font-semibold">What went wrong</p>
           <p className="mt-1">{explanation.text}</p>
+          {explanation.fix && explanation.fixDevice && (
+            <p className="mt-2">On {explanation.fixDevice}, run:</p>
+          )}
           {explanation.fix && (
             <code className="mt-2 block rounded bg-(--nf-hw) px-2 py-1 font-mono text-xs break-all text-(--nf-hw-text)">
               {explanation.fix}
             </code>
           )}
           <div className="mt-2 flex gap-2">
-            {explanation.fix && (
+            {explanation.fix && !explanation.fixDevice && (
               <button
                 type="button"
                 className="rounded bg-(--nf-accent) px-3 py-1 text-xs font-semibold text-(--nf-on-accent) hover:opacity-90"

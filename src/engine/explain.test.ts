@@ -83,7 +83,8 @@ describe('explainFailure', () => {
     sh(net, lan, 'ip addr add 10.2.2.10/24 dev eth0');
     expect(why(net, pc1, 'ping -c 1 10.2.2.10')).toMatchObject({
       text: expect.stringContaining('r1 received the ping to 10.2.2.10 but has no route'),
-      fix: null,
+      fix: 'ip route add 10.2.2.0/24 via 10.1.1.2',
+      fixDevice: 'r1',
       deviceId: r1.id,
     });
     expect(why(net, r1, 'ping -c 1 10.2.2.10')).toMatchObject({
@@ -97,8 +98,9 @@ describe('explainFailure', () => {
     sh(net, pc1, 'ip route add default via 10.0.0.2');
     expect(why(net, pc1, 'ping -c 1 8.8.8.8')).toEqual({
       kind: 'dropped',
-      text: 'pc2 received the ping to 8.8.8.8 for another address, but it is a host and IP forwarding is off, so it threw the packet away. Turn forwarding on, or make the sender use a real router as its gateway. On pc2, run: sysctl -w net.ipv4.ip_forward=1',
-      fix: null,
+      text: 'pc2 received the ping to 8.8.8.8 for another address, but it is a host and IP forwarding is off, so it threw the packet away. Turn forwarding on, or make the sender use a real router as its gateway.',
+      fix: 'sysctl -w net.ipv4.ip_forward=1',
+      fixDevice: 'pc2',
       deviceId: pc2.id,
     });
   });
@@ -145,8 +147,9 @@ describe('explainFailure', () => {
     sh(net, r1, forwardChain('drop'));
     expect(why(net, pc1, 'ping -c 1 192.168.2.20')).toEqual({
       kind: 'dropped',
-      text: "r1's firewall dropped the ping to 192.168.2.20 (chain forward, hook forward): no rule accepted it and the policy of chain forward is drop. On r1, run: nft add rule ip filter forward ip protocol icmp accept",
-      fix: null,
+      text: "r1's firewall dropped the ping to 192.168.2.20 (chain forward, hook forward): no rule accepted it and the policy of chain forward is drop.",
+      fix: 'nft add rule ip filter forward ip protocol icmp accept',
+      fixDevice: 'r1',
       deviceId: r1.id,
     });
     sh(net, r1, 'nft flush chain ip filter forward');
@@ -163,21 +166,25 @@ describe('explainFailure', () => {
       ),
       deviceId: r1.id,
     });
-    expect(e?.text).toContain('On r1, run: nft delete rule ip filter forward handle');
+    expect(e?.fix).toContain('nft delete rule ip filter forward handle');
+    expect(e?.fixDevice).toBe('r1');
+    expect(e?.text).not.toContain('nft delete');
   });
 
-  it('puts the fix in the input only when it is for the device that ran the command', () => {
+  it('names the other device only when the fix is not for the one that ran the command', () => {
     const { net, pc1 } = routed();
     sh(net, pc1, 'ip link set eth0 down');
     expect(why(net, pc1, 'ping -c 1 192.168.2.20')?.fix).toBe('ip link set eth0 up');
+    expect(why(net, pc1, 'ping -c 1 192.168.2.20')).not.toHaveProperty('fixDevice');
   });
 
   it('explains a service that is not running', () => {
     const { net, pc1, srv } = routed();
     expect(why(net, pc1, 'curl http://192.168.2.20/')).toEqual({
       kind: 'dropped',
-      text: `${srv.name} received the connection request but nothing is listening on TCP port 80: its web server is not running, so it refused it. On ${srv.name}, run: httpd`,
-      fix: null,
+      text: `${srv.name} received the connection request but nothing is listening on TCP port 80: its web server is not running, so it refused it.`,
+      fix: 'httpd',
+      fixDevice: srv.name,
       deviceId: srv.id,
     });
     expect(why(net, pc1, 'nc -z 192.168.2.20 22')?.text).toContain('its SSH server is not running');
@@ -194,8 +201,9 @@ describe('explainFailure', () => {
     sh(net, sw, 'bridge vlan del dev eth1 vid 1');
     expect(why(net, pc1, 'ping -c 1 10.0.0.2')).toEqual({
       kind: 'dropped',
-      text: `sw1 port eth0 puts pc1 in VLAN 10, but pc2's port eth1 is in VLAN 20: they are separate networks, so the frame has nowhere to go. On sw1, put both ports in the same VLAN: bridge vlan add dev eth1 vid 10 pvid untagged && bridge vlan del dev eth1 vid 20`,
-      fix: null,
+      text: `sw1 port eth0 puts pc1 in VLAN 10, but pc2's port eth1 is in VLAN 20: they are separate networks, so the frame has nowhere to go. Put both ports in the same VLAN.`,
+      fix: 'bridge vlan add dev eth1 vid 10 pvid untagged && bridge vlan del dev eth1 vid 20',
+      fixDevice: 'sw1',
       deviceId: sw.id,
     });
     sh(net, sw, 'bridge vlan del dev eth0 vid 10');
@@ -306,8 +314,9 @@ describe('explainFailure', () => {
     sh(net, srv, 'ip route del default');
     expect(why(net, pc1, 'ping -c 1 192.168.2.20')).toEqual({
       kind: 'dropped',
-      text: `Your ping reached 192.168.2.20, but the reply was lost on the way back. ${srv.name} has no default gateway, so it does not know where to send packets for 192.168.1.10. On ${srv.name}, run: ip route add default via 192.168.2.1`,
-      fix: null,
+      text: `Your ping reached 192.168.2.20, but the reply was lost on the way back. ${srv.name} has no default gateway, so it does not know where to send packets for 192.168.1.10.`,
+      fix: 'ip route add default via 192.168.2.1',
+      fixDevice: srv.name,
       deviceId: srv.id,
     });
   });

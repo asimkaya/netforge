@@ -31,8 +31,10 @@ export interface Explanation {
   /** `dropped`: a packet died; `config`: the device cannot even send; `ok`; `unknown`. */
   kind: 'dropped' | 'config' | 'ok' | 'unknown';
   text: string;
-  /** A command to type on the device the command ran on, when there is an obvious one. */
+  /** A command that fixes it, when there is an obvious one. */
   fix: string | null;
+  /** The device to type `fix` on, when that is not the one the command ran on. */
+  fixDevice?: string;
   /** The device where it went wrong, for pointing at it on the canvas. */
   deviceId: string | null;
 }
@@ -216,7 +218,11 @@ function describe(p: PacketSummary): string {
 // ------------------------------------------------------------------ explain
 
 /** What went wrong at a drop, and the command that fixes it, run on the drop's device. */
-function reasonOf(net: Network, where: Device, d: Drop): { text: string; fix: string | null } {
+function reasonOf(
+  net: Network,
+  where: Device,
+  d: Drop,
+): { text: string; fix: string | null; on?: string } {
   const p = d.packet;
   const wherePort = d.port ?? '';
   const stack = where.ip;
@@ -275,8 +281,9 @@ function reasonOf(net: Network, where: Device, d: Drop): { text: string; fix: st
         const far = peerOf(phys);
         const fix = far ? `ip link set ${far.name} up` : null;
         return {
-          text: `${where.name} ${wherePort} is cabled, but the other end (${far?.device.name ?? '?'} ${far?.name ?? ''}) is turned off, so there is no link.${fix ? ` On ${far?.device.name}, run: ${fix}` : ''}`,
-          fix: null,
+          text: `${where.name} ${wherePort} is cabled, but the other end (${far?.device.name ?? '?'} ${far?.name ?? ''}) is turned off, so there is no link.`,
+          fix,
+          ...(far && { on: far.device.name }),
         };
       }
       if (phys?.type === 'wifi') {
@@ -402,8 +409,9 @@ function reasonOf(net: Network, where: Device, d: Drop): { text: string; fix: st
             .join('')}`
         : null;
       return {
-        text: `${where.name} port ${wherePort} puts ${src} in VLAN ${d.vid}, but ${them}'s port ${other?.port ?? '?'} is in ${vlans}: they are separate networks, so the frame has nowhere to go. On ${where.name}, put both ports in the same VLAN${fix ? `: ${fix}` : ''}`,
-        fix: null,
+        text: `${where.name} port ${wherePort} puts ${src} in VLAN ${d.vid}, but ${them}'s port ${other?.port ?? '?'} is in ${vlans}: they are separate networks, so the frame has nowhere to go. Put both ports in the same VLAN.`,
+        fix,
+        on: where.name,
       };
     }
     case 'stp-not-forwarding': {
@@ -534,16 +542,15 @@ export function explainFailure(net: Network, device: Device, run: CommandRun): E
   if (first) {
     const where = net.devices.get(first.device) ?? device;
     const back = !outbound(first);
-    const { text, fix } = reasonOf(net, where, first);
+    const { text, fix, on = where.name } = reasonOf(net, where, first);
     const lead = back
       ? `Your ${cmd.name === 'ping' ? 'ping' : 'request'} reached ${target ?? 'the destination'}, but the reply was lost on the way back. `
       : '';
-    const local = where === device;
-    const on = !local && fix ? ` On ${where.name}, run: ${fix}` : '';
     return {
       kind: 'dropped',
-      text: `${lead}${text}${on}`,
-      fix: local ? fix : null,
+      text: `${lead}${text}`,
+      fix,
+      ...(fix && on !== device.name && { fixDevice: on }),
       deviceId: where.id,
     };
   }

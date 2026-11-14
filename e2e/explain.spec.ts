@@ -62,7 +62,11 @@ test('the explanation points at the router whose firewall dropped the ping', asy
   await expect(panel).toContainText("r1's firewall dropped the ping to 192.168.2.20");
   await expect(page.getByTestId('device-r1')).toHaveClass(/nf-focus/);
   await expect(page.getByTestId('device-pc1')).not.toHaveClass(/nf-focus/);
-  // The fix is for r1, so there is nothing to copy into pc1's input.
+  // The fix is for r1: shown as a command, but nothing to copy into pc1's input.
+  await expect(panel).toContainText('On r1, run:');
+  await expect(panel.locator('code')).toHaveText(
+    'nft add rule ip filter forward ip protocol icmp accept',
+  );
   await expect(panel.getByRole('button', { name: 'Copy to input' })).toBeHidden();
 
   await panel.getByRole('button', { name: 'Close' }).click();
