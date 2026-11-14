@@ -3,7 +3,7 @@ export const SHARE_PREFIX = '#lab=';
 /** Links longer than this may be cut by chat apps or browsers. */
 export const LONG_LINK = 8000;
 /** A shared link may not expand beyond this, so a crafted link can't exhaust memory. */
-const MAX_DECODED_BYTES = 2_000_000;
+export const MAX_DECODED_BYTES = 2_000_000;
 
 function toBase64Url(bytes: Uint8Array): string {
   let binary = '';
