@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { getLab, loadLab, subscribeLab } from './lab.ts';
-import { emptyProgress, parseProject, serializeProject } from './project.ts';
+import { emptyProgress, parseProject, serializeProject, type Project } from './project.ts';
 
 /** Changes that land within this window become one undo step (e.g. dragging a device). */
 const SETTLE_MS = 400;
@@ -53,6 +53,22 @@ function apply(text: string): void {
   tracked = net;
   current = text;
   notify();
+}
+
+/**
+ * Swaps in a rebuilt lab (a paste) as one undo step. Open windows and terminals stay,
+ * like with undo itself.
+ */
+export function replaceLab({ net, layout, tasks }: Project): void {
+  record();
+  applying = true;
+  try {
+    loadLab({ net, layout, tasks }, { keepWindows: true });
+  } finally {
+    applying = false;
+  }
+  tracked = net;
+  record();
 }
 
 export function undo(): void {

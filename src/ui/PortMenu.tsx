@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { Device } from '../engine/device.ts';
 import { MEDIUM_OF, PORT_TYPE_LABEL, peerOf, type Port } from '../engine/port.ts';
+import { duplicate } from './clipboard.ts';
 import { cable, openTerminal, openWindow, removeDevice } from './lab.ts';
 
 export interface PortMenuState {
@@ -56,6 +57,7 @@ export function DeviceMenu({ menu, onClose }: { menu: DeviceMenuState; onClose: 
     ['Open', () => openWindow(device.id)],
     ['Open terminal', () => openTerminal(device.id)],
     ['Rename…', () => openWindow(device.id, { tab: 'config' })],
+    ['Duplicate', () => duplicate(device.id)],
     ['Delete', () => removeDevice(device.id)],
   ];
   return (

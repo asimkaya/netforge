@@ -4,12 +4,13 @@ import {
   ConnectionMode,
   Controls,
   ReactFlow,
+  SelectionMode,
   useReactFlow,
   type EdgeChange,
   type FinalConnectionState,
   type NodeChange,
 } from '@xyflow/react';
-import { useRef, useState, type DragEvent } from 'react';
+import { useEffect, useRef, useState, type DragEvent } from 'react';
 import type { Network } from '../engine/network.ts';
 import { hasCarrier, type Link } from '../engine/port.ts';
 import { isSpecId } from '../engine/specs.ts';
@@ -24,8 +25,10 @@ import {
   openWindow,
   removeDevice,
   select,
+  setSelection,
   useLab,
 } from './lab.ts';
+import { copySelection, pasteClipboard } from './clipboard.ts';
 import { EmptyCanvas } from './EmptyCanvas.tsx';
 import type { Tab } from './TaskPanel.tsx';
 import { startFirstTask } from './taskStart.ts';
@@ -56,7 +59,7 @@ function cableVlanColor(l: Link): string | null {
 }
 
 export function Canvas({ onShowPanel }: { onShowPanel: (tab?: Tab) => void }) {
-  const { net, layout, selected, mode, why } = useLab();
+  const { net, layout, selection, mode, why } = useLab();
   const [selectedCable, setSelectedCable] = useState<string | null>(null);
   const [menu, setMenu] = useState<PortMenuState | null>(null);
   const [deviceMenu, setDeviceMenu] = useState<DeviceMenuState | null>(null);
@@ -86,7 +89,7 @@ export function Canvas({ onShowPanel }: { onShowPanel: (tab?: Tab) => void }) {
       id: d.id,
       type: 'device',
       position: layout[d.id] ?? { x: 0, y: 0 },
-      selected: d.id === selected,
+      selected: selection.includes(d.id),
       data: {
         deviceId: d.id,
         version: net.version,
@@ -115,16 +118,19 @@ export function Canvas({ onShowPanel }: { onShowPanel: (tab?: Tab) => void }) {
   }));
 
   const onNodesChange = (changes: NodeChange<DeviceNodeType>[]) => {
+    // Picks and drops arrive one node at a time; apply them as one selection change.
+    let picked = getLab().selection;
     for (const c of changes) {
       if (c.type === 'dimensions' && c.dimensions) {
         const size = c.dimensions;
         setSizes((prev) => ({ ...prev, [c.id]: size }));
       } else if (c.type === 'position' && c.position) moveDevice(c.id, c.position);
       else if (c.type === 'select') {
-        if (c.selected) select(c.id);
-        else if (getLab().selected === c.id) select(null);
+        picked = picked.filter((id) => id !== c.id);
+        if (c.selected) picked = [...picked, c.id];
       } else if (c.type === 'remove') removeDevice(c.id);
     }
+    setSelection(picked.filter((id) => getLab().net.devices.has(id)));
   };
 
   const onEdgesChange = (changes: EdgeChange<CableEdgeType>[]) => {
@@ -186,6 +192,27 @@ export function Canvas({ onShowPanel }: { onShowPanel: (tab?: Tab) => void }) {
     };
   };
 
+  // Ctrl/Cmd+A, C and V work on the canvas, but not while the keys go to a text field or a
+  // device window, and Ctrl+C leaves selected text to the browser.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as Element;
+      const key = e.key.toLowerCase();
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || !['a', 'c', 'v'].includes(key)) return;
+      if (target.closest?.('input, textarea, select, [contenteditable="true"], [role="dialog"]')) {
+        return;
+      }
+      if (key === 'a') setSelection([...getLab().net.devices.keys()]);
+      else if (key === 'c') {
+        if (window.getSelection()?.toString()) return;
+        copySelection();
+      } else pasteClipboard();
+      e.preventDefault();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const onDrop = (event: DragEvent) => {
     const spec = event.dataTransfer.getData(DRAG_MIME);
     if (!isSpecId(spec)) return;
@@ -212,9 +239,11 @@ export function Canvas({ onShowPanel }: { onShowPanel: (tab?: Tab) => void }) {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnectEnd={onConnectEnd}
-        onNodeClick={(event, node) =>
-          openWindow(node.id, {}, beside((event.target as Element).closest('.react-flow__node')))
-        }
+        onNodeClick={(event, node) => {
+          // Ctrl/Cmd+click edits the selection; it does not open a window.
+          if (event.ctrlKey || event.metaKey || event.shiftKey) return;
+          openWindow(node.id, {}, beside((event.target as Element).closest('.react-flow__node')));
+        }}
         onNodeContextMenu={(event, node) => {
           event.preventDefault();
           const device = net.devices.get(node.id);
@@ -226,6 +255,7 @@ export function Canvas({ onShowPanel }: { onShowPanel: (tab?: Tab) => void }) {
           e.dataTransfer.dropEffect = 'copy';
         }}
         onDrop={onDrop}
+        selectionMode={SelectionMode.Full}
         connectionMode={ConnectionMode.Loose}
         connectionLineStyle={{ stroke: 'var(--nf-accent)', strokeWidth: 2.5 }}
         deleteKeyCode={['Delete', 'Backspace']}

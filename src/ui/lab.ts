@@ -58,7 +58,10 @@ export interface CommandRecord {
 export interface LabState {
   net: Network;
   layout: Record<string, Point>;
+  /** The device clicked last, or null: device windows and the like follow this one. */
   selected: string | null;
+  /** Everything selected on the canvas (devices today), in the order it was picked. */
+  selection: string[];
   windows: DeviceWindow[];
   mode: Mode;
   /** Commands the user ran, oldest first (guided tasks read this). */
@@ -98,6 +101,7 @@ function freshState({ net, layout, tasks }: Project): LabState {
     layout,
     tasks,
     selected: null,
+    selection: [],
     windows: [],
     mode: 'realtime',
     commands: [],
@@ -149,6 +153,7 @@ export function loadLab(project: Project, options: { keepWindows?: boolean } = {
   // Undo/redo keep open windows and terminal history for devices that still exist.
   if (!options.keepWindows) sessions.clear();
   const has = (id: string | null) => id !== null && project.net.devices.has(id);
+  const selection = state.selection.filter(has);
   unsubscribeNet();
   state = {
     ...freshState(project),
@@ -157,6 +162,7 @@ export function loadLab(project: Project, options: { keepWindows?: boolean } = {
       ? {
           windows: state.windows.filter((w) => has(w.device)),
           selected: has(state.selected) ? state.selected : null,
+          selection,
         }
       : {}),
   };
@@ -167,7 +173,11 @@ export function loadLab(project: Project, options: { keepWindows?: boolean } = {
 
 export function addDevice(spec: SpecId, at: Point): void {
   const device = state.net.addDevice(spec);
-  update({ layout: { ...state.layout, [device.id]: at }, selected: device.id });
+  update({
+    layout: { ...state.layout, [device.id]: at },
+    selected: device.id,
+    selection: [device.id],
+  });
 }
 
 /** Cables two ports; a refused cable is explained in a toast. */
@@ -197,13 +207,22 @@ export function removeDevice(id: string): void {
   update({
     layout,
     selected: state.selected === id ? null : state.selected,
+    selection: state.selection.filter((s) => s !== id),
     windows: state.windows.filter((w) => w.device !== id),
     ...(state.why?.terminal === id || state.why?.explanation.deviceId === id ? { why: null } : {}),
   });
 }
 
+/** Selects exactly these devices; the last one becomes the clicked device. */
+export function setSelection(ids: string[]): void {
+  const same =
+    ids.length === state.selection.length && ids.every((id, i) => id === state.selection[i]);
+  if (same) return;
+  update({ selection: ids, selected: ids.at(-1) ?? null });
+}
+
 export function select(id: string | null): void {
-  if (state.selected !== id) update({ selected: id });
+  setSelection(id === null ? [] : [id]);
 }
 
 /** End hosts get a desktop with apps; network gear gets a CLI tab instead. */
