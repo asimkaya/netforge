@@ -188,7 +188,19 @@ body {
   animation: nf-focus 1.6s ease-in-out infinite;
 }
 
+@keyframes nf-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+}
+
+.nf-pop {
+  animation: nf-pop 0.25s ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .nf-pop,
   .nf-led-blink,
   .nf-cursor,
   .nf-focus {

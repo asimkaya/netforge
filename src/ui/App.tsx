@@ -8,6 +8,7 @@ import { Palette } from './Palette.tsx';
 import { ReportPanel } from './ReportUi.tsx';
 import { UpdateToast } from './UpdateToast.tsx';
 import { Coach, Sidebar, type Tab } from './TaskPanel.tsx';
+import { Celebration } from './Celebration.tsx';
 import { TaskCenter } from './TaskCenter.tsx';
 import type { CustomTask } from '../tasks/custom.ts';
 import { findTask } from '../tasks/tasks.ts';
@@ -51,7 +52,7 @@ function ModeSwitch({ mode }: { mode: Mode }) {
 export function App() {
   const { net, mode, notice, tasks } = useLab();
   useRealtimeClock(net, mode);
-  useTaskProgress();
+  const { celebration, dismiss } = useTaskProgress();
   // The side panel starts closed on narrow screens, where it would cover the canvas.
   const [panel, setPanel] = useState(() => window.matchMedia('(min-width: 768px)').matches);
 
@@ -102,6 +103,14 @@ export function App() {
               setCenter(false);
               setPanel(true);
             }}
+          />
+        )}
+        {celebration && (
+          <Celebration
+            info={celebration}
+            onClose={dismiss}
+            onCenter={() => openCenter('tasks')}
+            onStarted={() => setPanel(true)}
           />
         )}
         <ReportPanel />

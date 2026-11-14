@@ -36,10 +36,25 @@ test('a newcomer completes the first guided task', async ({ page }) => {
   await expect(task).toContainText('5/5');
   await expect(task).toContainText('Congratulations!');
 
-  // Progress survives a reload.
+  // Finishing a chapter celebrates once; chapter 1 alone does not raise the rank yet.
+  const party = page.getByRole('dialog', { name: 'Chapter complete!' });
+  await expect(party).toBeVisible();
+  await expect(party).toContainText('Day one: connect two desks');
+  await expect(party).not.toContainText('Promoted');
+  await expect(party).toContainText('Unlocked: Room for a third desk');
+  await page.keyboard.press('Escape');
+  await expect(party).toHaveCount(0);
+
+  // Progress survives a reload, and the celebration does not come back.
   await page.waitForTimeout(1000);
   await page.reload();
   await expect(page.getByRole('region', { name: 'Current task' })).toContainText('5/5');
+  await expect(party).toHaveCount(0);
+  await taskCenter(page);
+  await expect(page.getByRole('dialog', { name: 'Task center' })).toContainText(
+    'Rank: Intern · 1 chapter to Junior Admin',
+  );
+  await page.getByRole('button', { name: 'Close' }).click();
 
   // The next task goes on with the learner's own network: nothing is cleared, nothing asked.
   await page.getByRole('button', { name: 'Next task: Room for a third desk' }).click();

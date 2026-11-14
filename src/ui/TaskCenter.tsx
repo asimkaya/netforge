@@ -1,6 +1,6 @@
 import { useReactFlow } from '@xyflow/react';
 import { useEffect, useId, useRef, type KeyboardEvent } from 'react';
-import { ACTS, chapterState } from '../tasks/campaign.ts';
+import { ACTS, chapterState, rankOf } from '../tasks/campaign.ts';
 import { CHALLENGES } from '../tasks/challenges.ts';
 import type { CustomTask } from '../tasks/custom.ts';
 import { TASKS, findTask } from '../tasks/tasks.ts';
@@ -107,6 +107,7 @@ function Campaign({ onStarted, onEdit }: Actions) {
   const { tasks } = useLab();
   const flow = useReactFlow();
   const doneCount = TASKS.filter((t) => chapterState(t.id, tasks.steps) === 'done').length;
+  const { rank, next, needed } = rankOf(doneCount);
   return (
     <div className="space-y-6">
       <div className="space-y-1">
@@ -120,6 +121,14 @@ function Campaign({ onStarted, onEdit }: Actions) {
           </div>
           {doneCount}/{TASKS.length} chapters done
         </div>
+        <p className="text-xs">
+          <span className="font-semibold">Rank: {rank.title}</span>
+          <span className="text-(--nf-muted)">
+            {next
+              ? ` · ${needed} ${needed === 1 ? 'chapter' : 'chapters'} to ${next.title}`
+              : ' · the top rank'}
+          </span>
+        </p>
       </div>
       {ACTS.map((act) => (
         <section key={act.id} aria-label={act.title} className="space-y-2">

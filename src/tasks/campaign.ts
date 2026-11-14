@@ -31,3 +31,30 @@ export function chapterState(id: string, steps: Record<string, number>): Chapter
   const before = TASKS[at - 1];
   return before && !isDone(before.id, steps) ? 'locked' : 'available';
 }
+
+export interface Rank {
+  title: string;
+  /** Chapters that must be done to hold this rank. */
+  at: number;
+}
+
+/** Ranks follow the story: Act 1 done, half of Act 2, all of Act 2, everything. */
+export const RANKS: Rank[] = [
+  { title: 'Intern', at: 0 },
+  { title: 'Junior Admin', at: 2 },
+  { title: 'Network Technician', at: 5 },
+  { title: 'Network Engineer', at: 8 },
+  { title: 'Network Architect', at: 11 },
+];
+
+export function doneChapters(steps: Record<string, number>): number {
+  return TASKS.filter((t) => isDone(t.id, steps)).length;
+}
+
+/** The rank for a number of done chapters, the one after it and how many chapters it needs. */
+export function rankOf(doneCount: number): { rank: Rank; next: Rank | null; needed: number } {
+  const earned = RANKS.filter((r) => r.at <= doneCount);
+  const rank = earned[earned.length - 1] ?? { title: 'Intern', at: 0 };
+  const next = RANKS.find((r) => r.at > doneCount) ?? null;
+  return { rank, next, needed: next ? next.at - doneCount : 0 };
+}

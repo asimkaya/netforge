@@ -14,6 +14,10 @@ test('a finished task makes a report that "Check a report" confirms, and edits a
   await run(page, 'pc2', 'ip addr add 192.168.1.20/24 dev eth0');
   await run(page, 'pc2', 'ping -c 1 192.168.1.10');
   await expect(page.getByRole('region', { name: 'Current task' })).toContainText('5/5');
+  await page
+    .getByRole('dialog', { name: 'Chapter complete!' })
+    .getByRole('button', { name: 'Close' })
+    .click();
 
   // The first time, the report asks for a name; it can be skipped by leaving it empty.
   const download = page.waitForEvent('download');
