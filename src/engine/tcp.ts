@@ -125,6 +125,8 @@ class Connection implements TcpConnection {
 export class TcpLayer {
   readonly #listeners = new Map<number, (conn: TcpConnection) => TcpHandlers>();
   readonly #conns = new Map<string, Connection>();
+  /** Servers this host has opened a connection to (used by guided tasks and challenges). */
+  readonly connectedTo = new Set<Ip>();
   #nextPort = 40000;
   #nextIsn = 1000;
 
@@ -208,6 +210,7 @@ export class TcpLayer {
         conn.stopTimer();
         conn.rcvNext = seg.seq + 1;
         conn.state = 'established';
+        this.connectedTo.add(conn.remoteIp);
         conn.segment(['ACK']);
         this.host.fabric.changed();
         conn.handlers.onOpen?.(conn);

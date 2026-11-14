@@ -85,6 +85,17 @@ describe('TCP', () => {
     expect(net.scheduler.pending).toBe(0);
   });
 
+  it('remembers the servers it opened a connection to, not refused ones', () => {
+    const { net, client, server, tcp } = lab();
+    tcp(client).connect(ip('10.0.0.2'), 7, { onData: () => {} });
+    net.scheduler.runUntil(1000);
+    expect([...tcp(client).connectedTo]).toEqual([]);
+    tcp(server).listen(7, () => ({ onData: () => {} }));
+    tcp(client).connect(ip('10.0.0.2'), 7, { onData: () => {} });
+    net.scheduler.runUntil(2000);
+    expect([...tcp(client).connectedTo]).toEqual([ip('10.0.0.2')]);
+  });
+
   it('is refused with RST on a closed port', () => {
     const { net, client } = lab();
     expect(sh(net, client, 'nc -z 10.0.0.2 80')).toEqual([
