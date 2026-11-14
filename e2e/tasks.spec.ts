@@ -106,7 +106,7 @@ test('the empty canvas offers the first task and the ready networks', async ({ p
 
   await page.reload();
   await page.getByRole('button', { name: 'Open a ready network' }).click();
-  await expect(page.getByRole('tab', { name: 'Ready networks' })).toHaveAttribute(
+  await expect(page.getByRole('tab', { name: 'Networks' })).toHaveAttribute(
     'aria-selected',
     'true',
   );

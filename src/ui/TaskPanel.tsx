@@ -380,9 +380,9 @@ function Troubleshooting() {
 
 export type Tab = 'tasks' | 'networks' | 'troubleshooting';
 const TABS: { id: Tab; label: string }[] = [
-  { id: 'tasks', label: 'Guided tasks' },
-  { id: 'networks', label: 'Ready networks' },
-  { id: 'troubleshooting', label: 'Troubleshooting' },
+  { id: 'tasks', label: 'Tasks' },
+  { id: 'networks', label: 'Networks' },
+  { id: 'troubleshooting', label: 'Troubleshoot' },
 ];
 
 function Home({
@@ -405,7 +405,7 @@ function Home({
             role="tab"
             aria-selected={tab === t.id}
             onClick={() => setTab(t.id)}
-            className={`-mb-px flex-1 border-b-2 px-2 py-1.5 ${
+            className={`-mb-px flex-1 border-b-2 px-2 py-1.5 whitespace-nowrap ${
               tab === t.id
                 ? 'border-(--nf-accent) font-medium text-(--nf-text)'
                 : 'border-transparent text-(--nf-muted) hover:text-(--nf-text)'
