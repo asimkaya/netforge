@@ -20,6 +20,7 @@ import { Terminal } from '../apps/Terminal.tsx';
 import { FirewallSection } from './firewall-section.tsx';
 import { OspfSection } from './ospf-section.tsx';
 import { WireguardSection } from './wireguard-section.tsx';
+import { LinuxCommandsSection } from './script-section.tsx';
 import { ApplianceSection } from './appliance-section.tsx';
 import { StpSection, SwitchVlanSection, VlanInterfacesSection } from './vlan-sections.tsx';
 import { cable, hasDesktop, removeDevice, setWindowView, useLab, type AppId } from '../lab.ts';
@@ -224,6 +225,7 @@ export function ConfigTab({ device }: { device: Device }) {
           <MailServerSection device={device} />
         </>
       )}
+      <LinuxCommandsSection device={device} />
       <button
         type="button"
         onClick={() => removeDevice(device.id)}

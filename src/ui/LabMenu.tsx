@@ -4,7 +4,7 @@ import { redo, undo, useHistory } from './history.ts';
 import { getLab, loadLab, notify } from './lab.ts';
 import { ProjectError, parseProject, serializeProject } from './project.ts';
 import { LONG_LINK, encodeLab, shareUrl } from './share.ts';
-import { downloadLab } from './storage.ts';
+import { downloadLab, downloadLinuxScript } from './storage.ts';
 import { setTheme, useTheme } from './themeMode.ts';
 
 const icon =
@@ -142,7 +142,7 @@ export function LabMenu() {
             <div
               role="menu"
               aria-label="Lab"
-              className="absolute right-0 z-50 mt-1 w-40 rounded-md border border-(--nf-border) bg-(--nf-surface) py-1 text-xs shadow-lg"
+              className="absolute right-0 z-50 mt-1 w-48 rounded-md border border-(--nf-border) bg-(--nf-surface) py-1 text-xs shadow-lg"
             >
               <button
                 type="button"
@@ -154,6 +154,14 @@ export function LabMenu() {
               </button>
               <button type="button" role="menuitem" className={item} onClick={pick(downloadLab)}>
                 Export
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className={item}
+                onClick={pick(downloadLinuxScript)}
+              >
+                Export as Linux script
               </button>
               <button
                 type="button"

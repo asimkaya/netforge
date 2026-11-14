@@ -90,5 +90,5 @@ export async function add(
 /** Picks an item (Share link, Export, Import, New lab) from the Lab menu in the top bar. */
 export async function labMenu(page: Page, item: string) {
   await page.getByRole('button', { name: 'Lab menu' }).click();
-  await page.getByRole('menuitem', { name: item }).click();
+  await page.getByRole('menuitem', { name: item, exact: true }).click();
 }

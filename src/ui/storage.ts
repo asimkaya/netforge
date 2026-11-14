@@ -1,4 +1,5 @@
 import { get, set } from 'idb-keyval';
+import { labScript } from '../engine/script.ts';
 import { getLab, loadLab, notify, subscribeLab } from './lab.ts';
 import { parseProject, serializeProject } from './project.ts';
 import { SHARE_PREFIX, decodeLab } from './share.ts';
@@ -65,6 +66,11 @@ export function downloadFile(name: string, data: BlobPart, type: string): void {
 export function downloadLab(): void {
   const name = `netforge-lab-${new Date().toISOString().slice(0, 10)}.json`;
   downloadFile(name, serializeProject(getLab()), 'application/json');
+}
+
+/** The lab as one shell script for real Linux machines (see engine/script.ts). */
+export function downloadLinuxScript(): void {
+  downloadFile('netforge-lab.sh', labScript(getLab().net), 'text/x-shellscript');
 }
 
 /**

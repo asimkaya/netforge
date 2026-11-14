@@ -8,6 +8,7 @@ test('the Lab menu closes on Escape and holds the file actions', async ({ page }
   await expect(menu.getByRole('menuitem')).toHaveText([
     'Share link',
     'Export',
+    'Export as Linux script',
     'Import',
     'Dark theme',
     'New lab',
