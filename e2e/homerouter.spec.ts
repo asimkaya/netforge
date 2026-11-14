@@ -6,7 +6,7 @@ test('a home router gets online by itself and shares the Internet with a PC', as
   await add(page, 'Internet');
   await add(page, 'Home Router');
   await add(page, 'PC');
-  await expect(page.getByTestId('device-home1')).toContainText('HomeWiFi · 0 clients');
+  await expect(page.getByTestId('device-home1')).toContainText(/HomeWiFi\s*0 clients/);
   await connect(page, 'home1/eth0', 'internet1/eth0');
   await connect(page, 'pc1', 'home1/eth1');
 

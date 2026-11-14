@@ -11,7 +11,7 @@ import {
 } from '@xyflow/react';
 import { useRef, useState, type DragEvent } from 'react';
 import type { Network } from '../engine/network.ts';
-import { hasCarrier } from '../engine/port.ts';
+import { hasCarrier, type Link } from '../engine/port.ts';
 import { isSpecId } from '../engine/specs.ts';
 import { CableEdge, type CableEdgeType } from './CableEdge.tsx';
 import { BODY_HANDLE, DeviceNode, type DeviceNodeType } from './DeviceNode.tsx';
@@ -26,7 +26,11 @@ import {
   select,
   useLab,
 } from './lab.ts';
+import { EmptyCanvas } from './EmptyCanvas.tsx';
+import type { Tab } from './TaskPanel.tsx';
+import { startFirstTask } from './taskStart.ts';
 import { useTaskFocus } from './taskProgress.ts';
+import { portRole, vlanColor, vlansInUse } from './vlanColors.ts';
 import { DeviceMenu, PortMenu, type DeviceMenuState, type PortMenuState } from './PortMenu.tsx';
 
 const nodeTypes = { device: DeviceNode };
@@ -41,7 +45,17 @@ function portOf(net: Network, device: string | undefined, port: string | null | 
   return (port && device && net.devices.get(device)?.port(port)) || null;
 }
 
-export function Canvas() {
+/** The VLAN colour of a copper cable whose switch end is an access port, else null. */
+function cableVlanColor(l: Link): string | null {
+  if (l.medium !== 'copper') return null;
+  for (const end of [l.a, l.b]) {
+    const role = portRole(end.device.bridge, end);
+    if (role?.kind === 'access') return vlanColor(role.vid);
+  }
+  return null;
+}
+
+export function Canvas({ onShowPanel }: { onShowPanel: (tab?: Tab) => void }) {
   const { net, layout, selected, mode } = useLab();
   const [selectedCable, setSelectedCable] = useState<string | null>(null);
   const [menu, setMenu] = useState<PortMenuState | null>(null);
@@ -63,6 +77,8 @@ export function Canvas() {
       (activity[end.device] ??= {})[end.port] = t.seq;
     }
   }
+
+  const vlans = vlansInUse([...net.devices.values()].map((d) => d.bridge));
 
   const nodes: DeviceNodeType[] = [...net.devices.values()].map((d) => {
     const size = sizes[d.id];
@@ -92,6 +108,7 @@ export function Canvas() {
     data: {
       up: hasCarrier(l.a),
       medium: l.medium,
+      vlanColor: cableVlanColor(l),
       packets: recent.filter((t) => t.linkId === l.id),
     },
   }));
@@ -211,14 +228,38 @@ export function Canvas() {
         connectionMode={ConnectionMode.Loose}
         connectionLineStyle={{ stroke: 'var(--nf-accent)', strokeWidth: 2.5 }}
         deleteKeyCode={['Delete', 'Backspace']}
-        colorMode="dark"
         defaultViewport={{ x: 0, y: 0, zoom: 1 }}
         maxZoom={2}
         aria-label="Network topology canvas"
       >
-        <Background variant={BackgroundVariant.Dots} gap={20} size={1.5} />
+        <Background variant={BackgroundVariant.Dots} gap={20} size={1.5} color="var(--nf-grid)" />
         <Controls />
       </ReactFlow>
+      {net.devices.size === 0 && (
+        <EmptyCanvas
+          onStartTask={() => {
+            startFirstTask(flow);
+            onShowPanel();
+          }}
+          onOpenReadyNetworks={() => onShowPanel('networks')}
+        />
+      )}
+      {vlans.length > 0 && (
+        <ul
+          aria-label="VLAN colours"
+          className="pointer-events-none absolute right-3 bottom-3 z-[1] space-y-1 rounded-[4px] border border-(--nf-border) bg-(--nf-surface) px-2.5 py-2 text-xs"
+        >
+          {vlans.map((vid) => (
+            <li key={vid} className="flex items-center gap-2">
+              <span
+                className="h-2.5 w-2.5 rounded-[2px]"
+                style={{ background: vlanColor(vid) ?? undefined }}
+              />
+              VLAN {vid}
+            </li>
+          ))}
+        </ul>
+      )}
       {menu && <PortMenu menu={menu} onClose={() => setMenu(null)} />}
       {deviceMenu && <DeviceMenu menu={deviceMenu} onClose={() => setDeviceMenu(null)} />}
     </div>

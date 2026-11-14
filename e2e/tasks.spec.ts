@@ -4,7 +4,7 @@ import { add, connect, run } from './helpers.ts';
 test('a newcomer completes the first guided task', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: /Welcome to NetForge/ })).toBeVisible();
-  await page.getByRole('button', { name: 'Start' }).first().click();
+  await page.getByRole('button', { name: 'Start: Two computers, one cable' }).click();
 
   const task = page.getByRole('region', { name: 'Current task' });
   const current = task.locator('[aria-current="step"]');
@@ -96,4 +96,20 @@ test('an empty canvas starts a later task from its prepared network', async ({ p
   await expect(page.getByTestId('device-sw1')).toBeVisible();
   await expect(page.getByTestId('device-r1')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Current task' })).toContainText('0/5');
+});
+
+test('the empty canvas offers the first task and the ready networks', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByText('An empty bench.')).toBeVisible();
+  await page.getByRole('button', { name: 'Start the first task' }).click();
+  await expect(page.getByRole('region', { name: 'Current task' })).toContainText('Add two PCs');
+
+  await page.reload();
+  await page.getByRole('button', { name: 'Open a ready network' }).click();
+  await expect(page.getByRole('tab', { name: 'Ready networks' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await add(page, 'PC', 1);
+  await expect(page.getByText('An empty bench.')).toHaveCount(0);
 });

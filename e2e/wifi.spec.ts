@@ -12,7 +12,7 @@ test('a laptop joins Wi-Fi, gets an address and reaches the router', async ({ pa
   await win(page, 'r1').getByRole('button', { name: 'Close r1' }).click();
 
   // The access point starts broadcasting right away; its range is drawn on the canvas.
-  await expect(page.getByTestId('device-ap1')).toContainText('NetForge · 0 clients');
+  await expect(page.getByTestId('device-ap1')).toContainText(/NetForge\s*0 clients/);
 
   // Drag the laptop inside the access point's dashed range circle.
   const box = await page.getByTestId('device-laptop1').boundingBox();

@@ -4,12 +4,21 @@ import { protocolOf } from '../engine/packet.ts';
 import type { Medium } from '../engine/port.ts';
 import { PROTOCOL_COLORS } from './theme.ts';
 
-export type CableEdgeType = Edge<{ up: boolean; medium: Medium; packets: TraceEntry[] }, 'cable'>;
+export type CableEdgeType = Edge<
+  {
+    up: boolean;
+    medium: Medium;
+    packets: TraceEntry[];
+    /** VLAN colour of a copper cable whose switch end is an access port. */
+    vlanColor: string | null;
+  },
+  'cable'
+>;
 
-const MEDIUM_COLOR: Record<Medium, string> = {
-  copper: '#64748b',
-  fiber: '#f59e0b',
-  wireless: '#38bdf8',
+const MEDIUM_STYLE: Record<Medium, { color: string; width: number }> = {
+  copper: { color: 'var(--nf-cable-copper)', width: 2.5 },
+  fiber: { color: 'var(--nf-cable-fiber)', width: 3.5 },
+  wireless: { color: 'var(--nf-accent)', width: 1.5 },
 };
 
 /** A straight cable from port to port, with packets animated along it. */
@@ -20,7 +29,9 @@ export function CableEdge(props: EdgeProps<CableEdgeType>) {
   const path = `M ${x1} ${y1} L ${x2} ${y2}`;
   const reverse = `M ${x2} ${y2} L ${x1} ${y1}`;
   const up = data?.up ?? false;
-  const color = up ? MEDIUM_COLOR[data?.medium ?? 'copper'] : '#ef4444';
+  const medium = data?.medium ?? 'copper';
+  const style = MEDIUM_STYLE[medium];
+  const color = !up ? 'var(--nf-bad)' : (data?.vlanColor ?? style.color);
   return (
     <>
       <BaseEdge
@@ -28,8 +39,8 @@ export function CableEdge(props: EdgeProps<CableEdgeType>) {
         path={path}
         style={{
           stroke: selected ? 'var(--nf-accent)' : color,
-          strokeWidth: selected ? 3.5 : 2.5,
-          strokeDasharray: !up ? '6 4' : data?.medium === 'wireless' ? '2 6' : undefined,
+          strokeWidth: selected ? style.width + 1.5 : style.width,
+          strokeDasharray: !up ? '6 4' : medium === 'wireless' ? '4 5' : undefined,
         }}
       />
       {data?.packets.map((p) => (
@@ -37,7 +48,7 @@ export function CableEdge(props: EdgeProps<CableEdgeType>) {
           key={p.seq}
           r={7}
           fill={PROTOCOL_COLORS[protocolOf(p.frame)]}
-          stroke="#0b1120"
+          stroke="var(--nf-bg)"
           strokeWidth={2}
         >
           <animateMotion

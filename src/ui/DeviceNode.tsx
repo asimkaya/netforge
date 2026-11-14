@@ -5,6 +5,7 @@ import type { Device } from '../engine/device.ts';
 import { WIFI_RANGE } from '../engine/wifi.ts';
 import { PORT_TYPE_LABEL, hasCarrier, peerOf, type Port } from '../engine/port.ts';
 import { getLab } from './lab.ts';
+import { portRole, vlanColor } from './vlanColors.ts';
 
 export type DeviceNodeType = Node<
   {
@@ -43,9 +44,9 @@ function portTitle(port: Port): string {
 
 function ledColor(port: Port): string {
   // Like a real switch: amber while Spanning Tree holds the port back.
-  if (hasCarrier(port)) return stpHold(port) ? '#f59e0b' : '#22c55e';
-  if (port.link) return '#f59e0b';
-  return '#334155';
+  if (hasCarrier(port)) return stpHold(port) ? 'var(--nf-warn)' : 'var(--nf-ok)';
+  if (port.link) return 'var(--nf-warn)';
+  return 'color-mix(in srgb, var(--nf-hw-muted) 40%, transparent)';
 }
 
 /** One physical socket: a React Flow handle shaped like an RJ45 or SFP cage, plus its LED. */
@@ -65,6 +66,7 @@ function Socket({
   label?: string;
 }) {
   const sfp = port.type === 'sfp';
+  const role = portRole(port.device.bridge, port);
   const style: CSSProperties = {
     left: x,
     top: y,
@@ -89,20 +91,49 @@ function Socket({
         title={portTitle(port)}
         aria-label={portTitle(port)}
         data-testid={`port-${port.device.name}-${port.name}`}
-        className={`z-10 !rounded-[3px] !border-[1.5px] !bg-[#05080f] hover:!border-(--nf-accent) ${
-          sfp ? '!border-amber-500' : port.link ? '!border-slate-400' : '!border-slate-600'
+        className={`z-10 !rounded-[3px] !border-[1.5px] !bg-(--nf-socket) hover:!border-(--nf-ok) ${
+          sfp
+            ? '!border-(--nf-cable-fiber)'
+            : port.link
+              ? '!border-(--nf-hw-muted)'
+              : '!border-(--nf-hw-edge)'
         }`}
         style={style}
       >
         {/* RJ45 latch notch; SFP cages are plain rectangles. */}
         {!sfp && (
-          <span className="pointer-events-none absolute bottom-0 left-1/2 h-1 w-2 -translate-x-1/2 rounded-t-[1px] bg-slate-700" />
+          <span className="pointer-events-none absolute bottom-0 left-1/2 h-1 w-2 -translate-x-1/2 rounded-t-[1px] bg-(--nf-hw-edge)" />
         )}
       </Handle>
+      {role?.kind === 'access' && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute h-[3px] rounded-[1px]"
+          style={{
+            left: x,
+            top: y + SOCKET.h,
+            width: SOCKET.w,
+            background: vlanColor(role.vid) ?? undefined,
+          }}
+        />
+      )}
+      {role?.kind === 'trunk' &&
+        role.vids.slice(0, 4).map((vid, i, shown) => (
+          <span
+            key={vid}
+            aria-hidden
+            className="pointer-events-none absolute h-[3px] w-[4px]"
+            style={{
+              left: x + SOCKET.w / 2 - (shown.length * 5 - 1) / 2 + i * 5,
+              top: y + SOCKET.h,
+              background: vlanColor(vid) ?? undefined,
+            }}
+          />
+        ))}
       {label && (
         <span
-          className="pointer-events-none absolute text-center font-mono text-[9px] text-(--nf-muted)"
-          style={{ left: x, top: y + SOCKET.h + 1, width: SOCKET.w }}
+          className="pointer-events-none absolute text-center font-(family-name:--font-label) text-[9px] text-(--nf-hw-muted)"
+          style={{ left: x, top: y + SOCKET.h + (role ? 4 : 1), width: SOCKET.w }}
         >
           {label}
         </span>
@@ -138,7 +169,7 @@ function WifiBadge({ device }: { device: Device }) {
   const on = hasCarrier(radio);
   return (
     <span
-      className={`absolute top-2 left-2 font-mono text-[11px] ${on ? 'text-sky-400' : 'text-slate-600'}`}
+      className={`absolute top-2 left-2 font-mono text-[11px] ${on ? 'text-(--nf-ok)' : 'text-(--nf-hw-muted)'}`}
       title={on ? `${radio.name}: connected to Wi-Fi` : `${radio.name}: not connected to Wi-Fi`}
       aria-label={on ? 'Wi-Fi connected' : 'Wi-Fi not connected'}
     >
@@ -150,11 +181,11 @@ function WifiBadge({ device }: { device: Device }) {
 function HostArt({ device, addr }: { device: Device; addr: string }) {
   const screen = (x: number, y: number, w: number, h: number) => (
     <>
-      <rect x={x} y={y} width={w} height={h} rx="2" fill="#0b1f36" />
-      <text x={x + 5} y={y + 13} fill="#38bdf8" fontSize="8" fontFamily="monospace">
+      <rect x={x} y={y} width={w} height={h} rx="2" fill="var(--nf-term-bg)" />
+      <text x={x + 5} y={y + 13} fill="var(--nf-term-prompt)" fontSize="8" className="font-mono">
         root@{device.name.slice(0, 10)}
       </text>
-      <text x={x + 5} y={y + 25} fill="#94a3b8" fontSize="8" fontFamily="monospace">
+      <text x={x + 5} y={y + 25} fill="var(--nf-term-text)" fontSize="8" className="font-mono">
         {addr}
       </text>
     </>
@@ -163,12 +194,12 @@ function HostArt({ device, addr }: { device: Device; addr: string }) {
     case 'phone':
       return (
         <svg viewBox="0 0 96 66" className="h-16 w-24" aria-hidden>
-          <rect x="30" y="1" width="36" height="64" rx="6" fill="#1e293b" />
-          <rect x="33" y="7" width="30" height="50" rx="2" fill="#0b1f36" />
-          <text x="35" y="20" fill="#38bdf8" fontSize="6" fontFamily="monospace">
+          <rect x="30" y="1" width="36" height="64" rx="6" fill="var(--nf-hw-edge)" />
+          <rect x="33" y="7" width="30" height="50" rx="2" fill="var(--nf-term-bg)" />
+          <text x="35" y="20" fill="var(--nf-term-prompt)" fontSize="6" className="font-mono">
             {device.name.slice(0, 8)}
           </text>
-          <text x="35" y="30" fill="#94a3b8" fontSize="5" fontFamily="monospace">
+          <text x="35" y="30" fill="var(--nf-term-text)" fontSize="5" className="font-mono">
             {addr}
           </text>
         </svg>
@@ -176,33 +207,45 @@ function HostArt({ device, addr }: { device: Device; addr: string }) {
     case 'laptop':
       return (
         <svg viewBox="0 0 96 66" className="h-16 w-24" aria-hidden>
-          <rect x="10" y="1" width="76" height="50" rx="4" fill="#1e293b" />
+          <rect x="10" y="1" width="76" height="50" rx="4" fill="var(--nf-hw-edge)" />
           {screen(14, 5, 68, 42)}
-          <path d="M2 53h92l-6 10H8z" fill="#334155" />
+          <path d="M2 53h92l-6 10H8z" fill="var(--nf-hw-edge)" />
         </svg>
       );
     case 'server':
       return (
         <svg viewBox="0 0 96 66" className="h-16 w-24" aria-hidden>
-          <rect x="1" y="1" width="94" height="52" rx="5" fill="#1e293b" />
+          <rect x="1" y="1" width="94" height="52" rx="5" fill="var(--nf-hw-edge)" />
           {screen(5, 5, 86, 28)}
           {[36, 42].map((y) => (
             <g key={y}>
-              <rect x="10" y={y} width="76" height="4" rx="1" fill="#0b1f36" />
-              <circle cx="82" cy={y + 2} r="1.3" fill={device.httpd ? '#22c55e' : '#475569'} />
+              <rect x="10" y={y} width="76" height="4" rx="1" fill="var(--nf-socket)" />
+              <circle
+                cx="82"
+                cy={y + 2}
+                r="1.3"
+                fill={device.httpd ? 'var(--nf-ok)' : 'var(--nf-hw-muted)'}
+              />
             </g>
           ))}
-          <rect x="8" y="53" width="80" height="12" rx="2" fill="#334155" />
+          <rect x="8" y="53" width="80" height="12" rx="2" fill="var(--nf-hw-edge)" />
         </svg>
       );
     default:
       return (
         <svg viewBox="0 0 96 66" className="h-16 w-24" aria-hidden>
-          <rect x="1" y="1" width="94" height="52" rx="5" fill="#1e293b" />
+          <rect x="1" y="1" width="94" height="52" rx="5" fill="var(--nf-hw-edge)" />
           {screen(5, 5, 86, 44)}
-          <rect x="10" y="36" width="5" height="7" fill="#38bdf8" className="nf-cursor" />
-          <path d="M40 53h16l3 8H37z" fill="#334155" />
-          <rect x="30" y="61" width="36" height="4" rx="2" fill="#334155" />
+          <rect
+            x="10"
+            y="36"
+            width="5"
+            height="7"
+            fill="var(--nf-term-prompt)"
+            className="nf-cursor"
+          />
+          <path d="M40 53h16l3 8H37z" fill="var(--nf-hw-edge)" />
+          <rect x="30" y="61" width="36" height="4" rx="2" fill="var(--nf-hw-edge)" />
         </svg>
       );
   }
@@ -217,7 +260,9 @@ function HostFace({ device, activity }: { device: Device; activity: Record<strin
   return (
     <div className={`relative flex ${width} flex-col items-center px-3 pt-2 pb-2`}>
       <HostArt device={device} addr={addr ? formatCidr(addr) : 'no address'} />
-      <span className="max-w-full truncate text-xs font-semibold">{device.name}</span>
+      <span className="max-w-full truncate text-xs font-semibold text-(--nf-hw-text)">
+        {device.name}
+      </span>
       <WifiBadge device={device} />
       <RadioHandles device={device} />
       {wired && (
@@ -244,25 +289,32 @@ function ApFace({ device, activity }: { device: Device; activity: Record<string,
       {on && (
         <span
           aria-hidden
-          className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-dashed border-sky-400/40 bg-sky-400/5"
+          className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-dashed border-(--nf-accent)/35 bg-(--nf-accent)/[0.04]"
           style={{ width: WIFI_RANGE * 2, height: WIFI_RANGE * 2 }}
         />
       )}
       <svg viewBox="0 0 96 40" className="h-10 w-24" aria-hidden>
         <path
           d="M30 22V6M66 22V6"
-          stroke={on ? '#38bdf8' : '#475569'}
+          stroke={on ? 'var(--nf-ok)' : 'var(--nf-hw-muted)'}
           strokeWidth="3"
           strokeLinecap="round"
         />
-        <rect x="14" y="20" width="68" height="18" rx="5" fill="#1e293b" />
-        <circle cx="70" cy="29" r="2" fill={on ? '#22c55e' : '#475569'} />
+        <rect x="14" y="20" width="68" height="18" rx="5" fill="var(--nf-hw-edge)" />
+        <circle cx="70" cy="29" r="2" fill={on ? 'var(--nf-ok)' : 'var(--nf-hw-muted)'} />
       </svg>
-      <span className="max-w-full truncate text-xs font-semibold">{device.name}</span>
-      <span className="text-[10px] text-(--nf-muted)">
-        {on
-          ? `${device.hostapd?.ssid} · ${clients} client${clients === 1 ? '' : 's'}`
-          : 'radio off'}
+      <span className="max-w-full truncate text-xs font-semibold text-(--nf-hw-text)">
+        {device.name}
+      </span>
+      <span className="text-[10px] text-(--nf-hw-muted)">
+        {on ? (
+          <>
+            <span className="mr-1.5 text-(--nf-hw-text)">{device.hostapd?.ssid}</span>
+            <span>{`${clients} client${clients === 1 ? '' : 's'}`}</span>
+          </>
+        ) : (
+          'radio off'
+        )}
       </span>
       <RadioHandles device={device} />
       {uplink && (
@@ -297,22 +349,27 @@ function HomeRouterFace({
       {on && (
         <span
           aria-hidden
-          className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-dashed border-sky-400/40 bg-sky-400/5"
+          className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-dashed border-(--nf-accent)/35 bg-(--nf-accent)/[0.04]"
           style={{ width: WIFI_RANGE * 2, height: WIFI_RANGE * 2 }}
         />
       )}
       <div className="flex items-baseline gap-2 px-3 pt-1.5">
-        <span className="truncate text-xs font-semibold">{device.name}</span>
-        <span className="truncate text-[10px] text-(--nf-muted)">
-          {on
-            ? `${device.hostapd?.ssid} · ${clients} client${clients === 1 ? '' : 's'}`
-            : 'Wi-Fi off'}
+        <span className="truncate text-xs font-semibold text-(--nf-hw-text)">{device.name}</span>
+        <span className="truncate text-[10px] text-(--nf-hw-muted)">
+          {on ? (
+            <>
+              <span className="mr-1.5 text-(--nf-hw-text)">{device.hostapd?.ssid}</span>
+              <span>{`${clients} client${clients === 1 ? '' : 's'}`}</span>
+            </>
+          ) : (
+            'Wi-Fi off'
+          )}
         </span>
       </div>
-      <span className="absolute top-[30px] left-3 text-[9px] font-semibold text-amber-400">
+      <span className="absolute top-[30px] left-3 text-[9px] font-semibold text-(--nf-hw-text)">
         Internet
       </span>
-      <span className="absolute top-[30px] left-[62px] text-[9px] text-(--nf-muted)">LAN</span>
+      <span className="absolute top-[30px] left-[62px] text-[9px] text-(--nf-hw-muted)">LAN</span>
       {wan && (
         <Socket
           port={wan}
@@ -349,10 +406,11 @@ function SwitchFace({ device, activity }: { device: Device; activity: Record<str
   return (
     <div className="relative h-[74px]" style={{ width }}>
       <div className="flex items-baseline gap-2 px-3 pt-1.5">
-        <span className="truncate text-xs font-semibold">{device.name}</span>
-        <span className="text-[10px] text-(--nf-muted)">
-          {device.spec.label} · {copper.length}× Ethernet
-          {fiber.length > 0 && ` · ${fiber.length}× SFP`}
+        <span className="truncate text-xs font-semibold text-(--nf-hw-text)">{device.name}</span>
+        <span className="flex gap-1.5 text-[10px] text-(--nf-hw-muted)">
+          <span>{device.spec.label}</span>
+          <span>{copper.length}× Ethernet</span>
+          {fiber.length > 0 && <span>{fiber.length}× SFP</span>}
         </span>
       </div>
       {copper.map((p, i) => (
@@ -397,8 +455,10 @@ export function DeviceNode({ id, data, selected }: NodeProps<DeviceNodeType>) {
           : SwitchFace;
   return (
     <div
-      className={`relative rounded-xl border bg-(--nf-surface) shadow-sm transition-colors ${
-        selected ? 'border-(--nf-accent)' : 'border-(--nf-border)'
+      className={`relative rounded-md border bg-(--nf-hw) font-(family-name:--font-label) text-(--nf-hw-text) transition-colors ${
+        selected
+          ? 'border-(--nf-accent) shadow-[0_0_0_1px_var(--nf-accent)]'
+          : 'border-(--nf-hw-edge)'
       } ${data.focused ? 'nf-focus' : ''}`}
       data-testid={`device-${device.name}`}
     >
@@ -411,7 +471,7 @@ export function DeviceNode({ id, data, selected }: NodeProps<DeviceNodeType>) {
         type="target"
         position={Position.Top}
         isConnectableStart={false}
-        className={`!absolute !inset-0 !z-[5] !h-full !w-full !transform-none !rounded-xl !border-2 !border-dashed !bg-transparent ${
+        className={`!absolute !inset-0 !z-[5] !h-full !w-full !transform-none !rounded-md !border-2 !border-dashed !bg-transparent ${
           isDropTarget ? '!border-(--nf-accent)' : '!pointer-events-none !border-transparent'
         }`}
       />
