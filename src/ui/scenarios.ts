@@ -1,9 +1,6 @@
 import type { Device } from '../engine/device.ts';
-import { Network } from '../engine/network.ts';
-import { run } from '../engine/shell.ts';
-import type { SpecId } from '../engine/specs.ts';
-import { FOOTPRINT } from './placement.ts';
-import { emptyProgress, parseProject, serializeProject, type Project } from './project.ts';
+import { Lab } from './labBuilder.ts';
+import type { Project } from './project.ts';
 
 /** A ready-made network the user can open and explore. */
 export interface Scenario {
@@ -14,68 +11,6 @@ export interface Scenario {
   /** Things to try once it is open. Text in backticks renders as code. */
   tryIt: string[];
   build(): Project;
-}
-
-const OUTPUT_PROBLEM = /error|cannot|not found|unreachable|failed|no dhcpoffers|usage/i;
-
-/**
- * Builds a lab the way a user would: devices, cables, then shell commands. A command that
- * prints an error throws, so a scenario cannot silently rot when the engine changes.
- */
-class Lab {
-  readonly net = new Network();
-  readonly layout: Project['layout'] = {};
-
-  constructor() {
-    // Wi-Fi range needs positions (the canvas provides them once the lab is open).
-    this.net.locate = (id) => {
-      const at = this.layout[id];
-      const device = this.net.devices.get(id);
-      if (!at || !device) return null;
-      const size = FOOTPRINT[device.spec.id];
-      return { x: at.x + size.w / 2, y: at.y + size.h / 2 };
-    };
-  }
-
-  add(spec: SpecId, x: number, y: number): Device {
-    const device = this.net.addDevice(spec);
-    this.layout[device.id] = { x, y };
-    return device;
-  }
-
-  cable(a: Device, aPort: string, b: Device, bPort: string): void {
-    const pa = a.port(aPort);
-    const pb = b.port(bPort);
-    if (!pa || !pb) throw new Error(`scenario: no port ${a.name}/${aPort} or ${b.name}/${bPort}`);
-    this.net.connect(pa, pb);
-  }
-
-  /** Lets simulated time pass (DHCP on a WAN port, Spanning Tree settling). */
-  wait(ms: number): void {
-    this.net.scheduler.runUntil(this.net.scheduler.now + ms);
-  }
-
-  sh(device: Device, ...lines: string[]): void {
-    for (const line of lines) {
-      let done = false;
-      const proc = run(this.net, device, line, {
-        out: (text) => {
-          if (OUTPUT_PROBLEM.test(text)) throw new Error(`scenario: ${device.name}: ${text}`);
-        },
-        exit: () => (done = true),
-      });
-      for (let t = 0; proc && !done && t < 60_000; t += 100) this.wait(100);
-      if (proc && !done) throw new Error(`scenario: ${device.name}: "${line}" did not finish`);
-    }
-  }
-
-  /** The lab as a freshly opened file: settled, with no leftover frames or timers. */
-  done(): Project {
-    this.wait(1000);
-    return parseProject(
-      serializeProject({ net: this.net, layout: this.layout, tasks: emptyProgress() }),
-    );
-  }
 }
 
 const NAT = [
