@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { getLab, loadLab, subscribeLab } from './lab.ts';
+import { getLab, loadLab, onBeforeLoad, subscribeLab } from './lab.ts';
 import { emptyProgress, parseProject, serializeProject, type Project } from './project.ts';
 
 /** Changes that land within this window become one undo step (e.g. dragging a device). */
@@ -102,15 +102,26 @@ export function resetHistory(): void {
 /** Watches the lab and records an undo step once changes settle. */
 export function startHistory(): () => void {
   resetHistory();
-  return subscribeLab(() => {
+  // Save the lab as it is right before another one replaces it, including edits that have
+  // not settled into a step yet.
+  const stopBefore = onBeforeLoad(() => {
+    if (!applying) record();
+  });
+  const stopWatching = subscribeLab(() => {
     if (getLab().net !== tracked && !applying) {
-      // New lab, import, task start or shared link: undo starts over.
-      resetHistory();
+      // New lab, import, task start, ready network or shared link: one step, so Undo
+      // brings the previous lab back.
+      tracked = getLab().net;
+      record();
       return;
     }
     clearTimeout(timer);
     timer = setTimeout(record, SETTLE_MS);
   });
+  return () => {
+    stopBefore();
+    stopWatching();
+  };
 }
 
 export function useHistory(): { canUndo: boolean; canRedo: boolean } {

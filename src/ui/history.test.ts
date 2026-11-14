@@ -36,6 +36,21 @@ describe('undo and redo', () => {
     expect(names()).toEqual(['pc1', 'sw1']);
   });
 
+  it('brings back the lab another one replaced, with edits not yet settled', () => {
+    loadLab({ net: new Network(), layout: {}, tasks: emptyProgress() });
+    addDevice('pc', { x: 0, y: 0 });
+    settle();
+    addDevice('router', { x: 100, y: 0 }); // still within the settle window
+    const other = new Network();
+    other.addDevice('switch');
+    loadLab({ net: other, layout: {}, tasks: emptyProgress() });
+    expect(names()).toEqual(['sw1']);
+    undo();
+    expect(names()).toEqual(['pc1', 'r1']);
+    redo();
+    expect(names()).toEqual(['sw1']);
+  });
+
   it('merges quick changes such as a drag into one step', () => {
     loadLab({ net: new Network(), layout: {}, tasks: emptyProgress() });
     addDevice('pc', { x: 0, y: 0 });

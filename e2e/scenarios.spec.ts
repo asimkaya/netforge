@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { run } from './helpers.ts';
+import { add, run } from './helpers.ts';
 
 test('ready networks open with one click and work at once', async ({ page }) => {
   await page.goto('/');
@@ -41,4 +41,16 @@ test('the three side panel tabs share one row', async ({ page }) => {
     ys.push((await tabs.filter({ hasText: name }).first().boundingBox())?.y);
   }
   expect(new Set(ys).size).toBe(1);
+});
+
+test('Undo brings back the lab that a ready network replaced', async ({ page }) => {
+  await page.goto('/');
+  await add(page, 'PC', 1);
+  await page.getByRole('tab', { name: 'Networks' }).click();
+  await page.getByRole('button', { name: 'Open Small office' }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Replace' }).click();
+  await expect(page.getByTestId('device-srv1')).toBeVisible();
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(page.getByTestId('device-srv1')).toHaveCount(0);
+  await expect(page.getByTestId('device-pc1')).toBeVisible();
 });

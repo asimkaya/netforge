@@ -72,9 +72,7 @@ export function downloadLab(): void {
 export function confirmReplace(): boolean {
   return (
     getLab().net.devices.size === 0 ||
-    window.confirm(
-      'This replaces your current lab. Export it first if you want to keep it. Continue?',
-    )
+    window.confirm('This replaces your current lab. Undo (Ctrl+Z) brings it back. Continue?')
   );
 }
 

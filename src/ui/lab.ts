@@ -149,7 +149,16 @@ export function useLab(): LabState {
 }
 
 /** Replaces the whole lab (new task, import, restore from storage). */
+const beforeLoad = new Set<() => void>();
+
+/** Runs `hook` just before another lab replaces the current one (undo saves the old one). */
+export function onBeforeLoad(hook: () => void): () => void {
+  beforeLoad.add(hook);
+  return () => beforeLoad.delete(hook);
+}
+
 export function loadLab(project: Project, options: { keepWindows?: boolean } = {}): void {
+  for (const hook of beforeLoad) hook();
   for (const session of sessions.values()) {
     session.queue = [];
     session.process?.interrupt();

@@ -100,8 +100,8 @@ function ReplaceButton({
     >
       <p>
         {keep
-          ? 'There are devices on the canvas. Work on them, or start from the network this task expects? Loading it replaces yours: export yours first (Lab menu) to keep it.'
-          : 'This replaces the network on the canvas. Export it first (Lab menu) to keep it.'}
+          ? 'There are devices on the canvas. Work on them, or start from the network this task expects? Loading it replaces yours; Undo brings yours back.'
+          : 'This replaces the network on the canvas. Undo brings it back.'}
       </p>
       <div className="flex flex-wrap gap-2">
         {keep && (
