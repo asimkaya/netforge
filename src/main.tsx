@@ -10,6 +10,7 @@ import '@fontsource/ibm-plex-mono/latin-500.css';
 import { App } from './ui/App.tsx';
 import './ui/index.css';
 import { startHistory } from './ui/history.ts';
+import { registerServiceWorker } from './ui/offline.ts';
 import { openSharedLink, restoreAutosave, startAutosave } from './ui/storage.ts';
 
 const root = document.getElementById('root');
@@ -19,6 +20,7 @@ await restoreAutosave();
 await openSharedLink();
 startAutosave();
 startHistory();
+registerServiceWorker();
 
 createRoot(root).render(
   <StrictMode>

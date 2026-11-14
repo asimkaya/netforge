@@ -6,6 +6,7 @@ import { LabMenu } from './LabMenu.tsx';
 import { setMode, useLab, type Mode } from './lab.ts';
 import { Palette } from './Palette.tsx';
 import { ReportPanel } from './ReportUi.tsx';
+import { UpdateToast } from './UpdateToast.tsx';
 import { SimPanel } from './SimPanel.tsx';
 import { Coach, Sidebar, type Tab } from './TaskPanel.tsx';
 import { Windows } from './window/Windows.tsx';
@@ -76,6 +77,7 @@ export function App() {
           </div>
         </header>
         <ReportPanel />
+        <UpdateToast />
         <div className="relative flex min-h-0 flex-1">
           <Palette />
           <main className="flex min-w-0 flex-1 flex-col">
