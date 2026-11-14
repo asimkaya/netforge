@@ -23,7 +23,7 @@ test('export then import restores the same lab', async ({ page }) => {
   await labMenu(page, 'Export');
   const path = await (await download).path();
   const text = await readFile(path, 'utf8');
-  expect(JSON.parse(text)).toMatchObject({ format: 'netforge-lab', version: 11 });
+  expect(JSON.parse(text)).toMatchObject({ format: 'netforge-lab', version: 12 });
 
   page.once('dialog', (d) => void d.accept());
   await labMenu(page, 'New lab');

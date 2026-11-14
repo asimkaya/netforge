@@ -7,6 +7,7 @@ import { WireGuard } from './wireguard.ts';
 import type { Process, ShellIO } from './shell.ts';
 import { startSshd } from './ssh.ts';
 import { Dnsmasq } from './dnsmasq.ts';
+import { DhcpRelay } from './dhcrelay.ts';
 import { FileSystem } from './fs.ts';
 import { Httpd } from './http.ts';
 import { startPop3, startSmtp } from './mail.ts';
@@ -38,6 +39,8 @@ export class Device {
   readonly fs: FileSystem | null;
   /** The running dnsmasq (DHCP and DNS server), if started. */
   dnsmasq: Dnsmasq | null = null;
+  /** The running DHCP relay agent (dhcrelay), if started. */
+  dhcrelay: DhcpRelay | null = null;
   /** The running web server, if started. */
   httpd: Httpd | null = null;
   /** Stop functions of the running mail servers (postfix: SMTP, dovecot: POP3). */
@@ -100,6 +103,23 @@ export class Device {
     if (typeof server === 'string') return server;
     this.dnsmasq = server;
     return server.banner();
+  }
+
+  /** Starts dhcrelay (routers only). Returns its log lines, or its error lines. */
+  startDhcrelay(args: readonly string[]): { ok: boolean; lines: string[] } {
+    if (!this.ip?.forwarding) return { ok: false, lines: ['dhcrelay: command not found'] };
+    const started = DhcpRelay.start(this.fabric, this.ip, args, (name) => this.port(name));
+    if (Array.isArray(started)) return { ok: false, lines: started };
+    this.dhcrelay = started.relay;
+    return { ok: true, lines: started.lines };
+  }
+
+  stopDhcrelay(): boolean {
+    if (!this.dhcrelay) return false;
+    this.dhcrelay.stop();
+    this.dhcrelay = null;
+    this.fabric.changed();
+    return true;
   }
 
   /** Starts busybox-style httpd. Returns an error message, or null. */

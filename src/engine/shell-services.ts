@@ -16,12 +16,19 @@ export const dnsmasq: Command = (_net, device, args, io) => {
     io.out('  --dhcp-option=option:dns-server,IP   name server for clients');
     io.out('  --address=/NAME/IP                   answer DNS queries for NAME with IP');
     io.out('  --host-record=NAME,IP                same as --address');
+    io.out('  --server=IP                          ask this DNS server for other names');
     io.out('Stop it with: killall dnsmasq');
     return;
   }
   const result = device.startDnsmasq(args);
   if (typeof result === 'string') io.out(result);
   else result.forEach((line) => io.out(line));
+};
+
+/** `dhcrelay [-i IF]... SERVER...`: relays DHCP between networks (routers only). */
+export const dhcrelay: Command = (_net, device, args, io) => {
+  const { lines } = device.startDhcrelay(args);
+  lines.forEach((line) => io.out(line));
 };
 
 /** `killall NAME`: dnsmasq and httpd are the background services in NetForge. */
@@ -34,19 +41,21 @@ export const killall: Command = (_net, device, args, io) => {
   const stopped =
     name === 'dnsmasq'
       ? device.stopDnsmasq()
-      : name === 'httpd'
-        ? device.stopHttpd()
-        : name === 'dovecot' || name === 'postfix'
-          ? device.stopMail(name)
-          : name === 'hostapd'
-            ? device.stopHostapd()
-            : name === 'bird'
-              ? device.stopBird()
-              : name === 'radvd'
-                ? device.stopRadvd()
-                : name === 'sshd'
-                  ? device.stopSshd()
-                  : false;
+      : name === 'dhcrelay'
+        ? device.stopDhcrelay()
+        : name === 'httpd'
+          ? device.stopHttpd()
+          : name === 'dovecot' || name === 'postfix'
+            ? device.stopMail(name)
+            : name === 'hostapd'
+              ? device.stopHostapd()
+              : name === 'bird'
+                ? device.stopBird()
+                : name === 'radvd'
+                  ? device.stopRadvd()
+                  : name === 'sshd'
+                    ? device.stopSshd()
+                    : false;
   // Clients of a stopped access point lose their wireless link.
   if (stopped) checkWireless(_net);
   if (!stopped) io.out(`${name}: no process found`);

@@ -6,7 +6,7 @@ import type { Point } from './lab.ts';
 
 export const PROJECT_FORMAT = 'netforge-lab';
 /** Bump on any incompatible change and add a migration for the previous version. */
-export const PROJECT_VERSION = 11;
+export const PROJECT_VERSION = 12;
 
 export interface TaskProgress {
   /** Id of the task being played, if any. */
@@ -114,7 +114,16 @@ function readIpSettings(value: unknown, what: string) {
 function readServices(value: unknown, what: string) {
   const services = obj(value, `${what} services`);
   const list = (
-    key: 'dnsmasq' | 'httpd' | 'postfix' | 'dovecot' | 'hostapd' | 'bird' | 'radvd' | 'sshd',
+    key:
+      | 'dnsmasq'
+      | 'dhcrelay'
+      | 'httpd'
+      | 'postfix'
+      | 'dovecot'
+      | 'hostapd'
+      | 'bird'
+      | 'radvd'
+      | 'sshd',
     pattern: RegExp,
   ) =>
     services[key] === undefined
@@ -126,6 +135,7 @@ function readServices(value: unknown, what: string) {
         };
   return {
     ...list('dnsmasq', /^--?[a-z-]+(=[!-~]{0,200})?$/),
+    ...list('dhcrelay', /^[\w./-]{1,240}$/),
     ...list('httpd', /^[\w./-]{1,240}$/),
     ...list('postfix', /^$/),
     ...list('dovecot', /^$/),
@@ -176,6 +186,9 @@ function readBridge(value: unknown, what: string) {
     vlans,
     ...(b.stp === undefined ? {} : { stp: b.stp }),
     ...(b.priority === undefined ? {} : { priority: count(b.priority, `${what} bridge priority`) }),
+    ...(b.forwardDelay === undefined
+      ? {}
+      : { forwardDelay: count(b.forwardDelay, `${what} bridge forward delay`) }),
   };
 }
 
@@ -441,6 +454,8 @@ const MIGRATIONS: Record<number, (file: Json) => Json> = {
   9: (file) => file,
   // v11 adds the home router device and its br0 addresses (`bridgeAddrs`).
   10: (file) => file,
+  // v12 adds the dhcrelay service and the Spanning Tree `forwardDelay` of a switch.
+  11: (file) => file,
   // v2: devices name a spec instead of a kind; switches gain two SFP uplinks (eth8, eth9);
   // per-kind name counters become per-prefix counters.
   1: (file) => {

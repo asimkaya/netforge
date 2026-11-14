@@ -46,6 +46,8 @@ export function pathCost(port: Port): number {
 export class Stp {
   enabled = false;
   priority = DEFAULT_PRIORITY;
+  /** Time in each of listening and learning (`forward_delay`, set in ms; Linux: 2-30 s). */
+  forwardDelay = FORWARD_DELAY_MS;
   /** While true, ports skip the forward delay (used when a saved lab is loaded). */
   instant = false;
   readonly ports = new Map<Port, StpPort>();
@@ -108,6 +110,12 @@ export class Stp {
       this.#recompute();
       this.#advertise();
     }
+    this.fabric.changed();
+  }
+
+  /** `forward_delay`: the time spent listening, then learning, on ports that come up later. */
+  setForwardDelay(ms: number): void {
+    this.forwardDelay = ms;
     this.fabric.changed();
   }
 
@@ -226,9 +234,9 @@ export class Stp {
       return;
     }
     s.state = 'listening';
-    s.timer = this.fabric.scheduler.schedule(FORWARD_DELAY_MS, () => {
+    s.timer = this.fabric.scheduler.schedule(this.forwardDelay, () => {
       s.state = 'learning';
-      s.timer = this.fabric.scheduler.schedule(FORWARD_DELAY_MS, () => {
+      s.timer = this.fabric.scheduler.schedule(this.forwardDelay, () => {
         s.timer = null;
         s.state = 'forwarding';
         this.#topologyChange();

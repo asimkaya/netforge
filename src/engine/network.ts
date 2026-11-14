@@ -5,7 +5,7 @@ import { formatCidr6, formatIp6, parseCidr6, parseIp6 } from './addr6.ts';
 import type { Ip6Stack } from './ip6.ts';
 import { isKey } from './wireguard.ts';
 import { formatRuleset, runNft } from './nft.ts';
-import { DEFAULT_PRIORITY } from './stp.ts';
+import { DEFAULT_PRIORITY, FORWARD_DELAY_MS } from './stp.ts';
 import type { EthernetFrame } from './packet.ts';
 import { MEDIUM_OF, cableError, hasCarrier, peerOf, type Link, type Port } from './port.ts';
 import { Scheduler } from './scheduler.ts';
@@ -35,6 +35,7 @@ export interface NetworkSnapshot {
     /** Running services and their command-line arguments. */
     services?: {
       dnsmasq?: string[];
+      dhcrelay?: string[];
       httpd?: string[];
       postfix?: string[];
       dovecot?: string[];
@@ -72,6 +73,8 @@ export interface NetworkSnapshot {
       /** Spanning Tree on, and the bridge priority. */
       stp?: boolean;
       priority?: number;
+      /** Spanning Tree forward delay in centiseconds, when not the default 1500. */
+      forwardDelay?: number;
       vlans: Record<string, { vids: number[]; pvid: number | null; untagged: number[] }>;
     };
     /** IP settings beyond addresses; absent on devices without an IP stack. */
@@ -196,6 +199,7 @@ function isDefaultBridge(bridge: Bridge): boolean {
     !bridge.vlanFiltering &&
     !bridge.stp.enabled &&
     bridge.stp.priority === DEFAULT_PRIORITY &&
+    bridge.stp.forwardDelay === FORWARD_DELAY_MS &&
     [...bridge.vlans.values()].every(
       (v) => v.pvid === def.pvid && same(v.vids, def.vids) && same(v.untagged, def.untagged),
     )
@@ -208,6 +212,9 @@ function bridgeJSON(bridge: Bridge): BridgeSnapshot {
     vlanFiltering: bridge.vlanFiltering,
     stp: bridge.stp.enabled,
     priority: bridge.stp.priority,
+    ...(bridge.stp.forwardDelay === FORWARD_DELAY_MS
+      ? {}
+      : { forwardDelay: bridge.stp.forwardDelay / 10 }),
     vlans: Object.fromEntries(
       [...bridge.vlans].map(([port, v]) => [
         port.name,
@@ -224,6 +231,11 @@ function loadBridge(bridge: Bridge, saved: BridgeSnapshot, id: string): void {
     throw new Error(`Invalid bridge priority on ${id}`);
   }
   bridge.stp.priority = priority;
+  const delay = saved.forwardDelay ?? FORWARD_DELAY_MS / 10;
+  if (!Number.isInteger(delay) || delay < 0 || delay > 0xffffffff) {
+    throw new Error(`Invalid bridge forward delay on ${id}`);
+  }
+  bridge.stp.forwardDelay = delay * 10;
   if (saved.stp) bridge.stp.setEnabled(true);
   for (const [name, v] of Object.entries(saved.vlans)) {
     const port = bridge.ports.find((p) => p.name === name);
@@ -428,6 +440,7 @@ export class Network implements Fabric {
             }
           : {}),
         ...(d.dnsmasq ||
+        d.dhcrelay ||
         d.httpd ||
         d.postfix ||
         d.dovecot ||
@@ -442,6 +455,7 @@ export class Network implements Fabric {
                 ...(d.bird ? { bird: [...d.bird.args] } : {}),
                 ...(d.hostapd ? { hostapd: [...d.hostapd.args] } : {}),
                 ...(d.dnsmasq ? { dnsmasq: [...d.dnsmasq.args] } : {}),
+                ...(d.dhcrelay ? { dhcrelay: [...d.dhcrelay.args] } : {}),
                 ...(d.httpd ? { httpd: [...d.httpd.args] } : {}),
                 ...(d.postfix ? { postfix: [] } : {}),
                 ...(d.dovecot ? { dovecot: [] } : {}),
@@ -588,6 +602,10 @@ export class Network implements Fabric {
       if (d.services?.dnsmasq) {
         const started = device.startDnsmasq(d.services.dnsmasq);
         if (typeof started === 'string') throw new Error(`${d.id}: ${started}`);
+      }
+      if (d.services?.dhcrelay) {
+        const started = device.startDhcrelay(d.services.dhcrelay);
+        if (!started.ok) throw new Error(`${d.id}: ${started.lines[0] ?? 'dhcrelay failed'}`);
       }
       net.devices.set(device.id, device);
     }

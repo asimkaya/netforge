@@ -129,3 +129,43 @@ describe('Spanning Tree', () => {
     expect(copy.trace.filter((e) => e.frame.payload.kind === 'bpdu').length).toBe(0);
   });
 });
+
+describe('Spanning Tree forward delay', () => {
+  it('shows the delay in centiseconds and validates it like the kernel', () => {
+    const net = new Network();
+    const sw = net.addDevice('switch');
+    expect(sh(net, sw, 'ip -d link show br0')[2]).toContain('bridge forward_delay 1500 ');
+    // Anything goes while STP is off; with STP on the kernel allows 2 s to 30 s.
+    expect(sh(net, sw, 'ip link set br0 type bridge forward_delay 100')).toEqual([]);
+    expect(sh(net, sw, 'ip link set br0 type bridge stp_state 1 forward_delay 100')).toEqual([
+      'RTNETLINK answers: Numerical result out of range',
+    ]);
+    expect(sh(net, sw, 'ip link set br0 type bridge stp_state 1 forward_delay 200')).toEqual([]);
+    expect(sh(net, sw, 'ip link set br0 type bridge forward_delay 3001')).toEqual([
+      'RTNETLINK answers: Numerical result out of range',
+    ]);
+    expect(sh(net, sw, 'ip link set br0 type bridge forward_delay abc')).toEqual([
+      'Error: argument "abc" is wrong: invalid forward_delay',
+    ]);
+    expect(sh(net, sw, 'ip -d link show br0')[2]).toContain('bridge forward_delay 200 ');
+  });
+
+  it('listens and learns for the configured time, then forwards', () => {
+    const net = new Network();
+    const [sw1, sw2] = [net.addDevice('switch'), net.addDevice('switch')];
+    const pc = net.addDevice('pc');
+    for (const sw of [sw1, sw2]) {
+      sh(net, sw, 'ip link set br0 type bridge stp_state 1 forward_delay 200');
+    }
+    net.connect(port(sw1, 'eth0'), port(sw2, 'eth0'));
+    net.connect(port(pc, 'eth0'), port(sw2, 'eth1'));
+    wait(net, 1900);
+    expect(states(net, sw1)).toEqual(['eth0 listening']);
+    wait(net, 200);
+    expect(states(net, sw1)).toEqual(['eth0 learning']);
+    wait(net, 2000);
+    expect(states(net, sw1)).toEqual(['eth0 forwarding']);
+    expect(states(net, sw2)).toEqual(['eth0 forwarding', 'eth1 forwarding']);
+    expect(net.scheduler.pending).toBe(0);
+  });
+});

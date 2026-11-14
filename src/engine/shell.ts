@@ -36,6 +36,7 @@ import { pathCost } from './stp.ts';
 import {
   curl,
   dhclientCommand,
+  dhcrelay,
   dig,
   dnsmasq,
   dovecot,
@@ -126,6 +127,7 @@ const HELP: Record<string, { about: string; lines: string[] }> = {
       '  ip link del IF.VID                 delete a VLAN interface',
       '  bridge link [show]                 show the Spanning Tree state of ports (switches)',
       '  ip link set br0 type bridge stp_state 1 [priority N]   turn on Spanning Tree',
+      '  ip link set br0 type bridge forward_delay N   listen/learn time in 1/100 s (200-3000)',
       '  ip -d link show br0                show bridge settings, root bridge and root port',
     ],
   },
@@ -135,6 +137,7 @@ const HELP: Record<string, { about: string; lines: string[] }> = {
       '  dhclient [-r] IF                   get (or release) an address with DHCP',
       '  dnsmasq --dhcp-range=START,END ... start a DHCP/DNS server (see dnsmasq --help)',
       '  killall dnsmasq                    stop the DHCP/DNS server',
+      '  dhcrelay [-i IF]... SERVER...      relay DHCP to a server on another network (routers)',
       '  resolvectl [status]                show the DNS servers this device asks',
       '  resolvectl dns IF SERVER...        set the DNS servers',
       '  httpd [-p PORT] [-h DIR]           start a web server (killall httpd stops it)',
@@ -286,7 +289,7 @@ function bridgeLines(device: Device, index: number, details = false): string[] {
     const s = br.stp;
     const rootPort = s.rootPort ? br.ports.indexOf(s.rootPort) + 1 : 0;
     lines.push(
-      `    bridge forward_delay 1500 hello_time 200 max_age 2000 ageing_time 30000 stp_state ${s.enabled ? 1 : 0} priority ${s.priority} vlan_filtering ${br.vlanFiltering ? 1 : 0} bridge_id ${s.bridgeId} root_id ${s.enabled ? s.rootId : s.bridgeId} root_port ${rootPort} root_path_cost ${s.rootCost}`,
+      `    bridge forward_delay ${s.forwardDelay / 10} hello_time 200 max_age 2000 ageing_time 30000 stp_state ${s.enabled ? 1 : 0} priority ${s.priority} vlan_filtering ${br.vlanFiltering ? 1 : 0} bridge_id ${s.bridgeId} root_id ${s.enabled ? s.rootId : s.bridgeId} root_port ${rootPort} root_path_cost ${s.rootCost}`,
     );
   }
   return lines;
@@ -304,8 +307,7 @@ function vlanId(text: string): number | null {
   return vid >= 1 && vid <= 4094 ? vid : null;
 }
 
-/** `ip link set br0 type bridge vlan_filtering 0|1`. */
-/** `ip link set br0 type bridge [vlan_filtering 0|1] [stp_state 0|1] [priority N]`. */
+/** `ip link set br0 type bridge [vlan_filtering 0|1] [stp_state 0|1] [priority N] [forward_delay N]`. */
 function setBridge(net: Network, device: Device, args: string[], io: ShellIO): void {
   const br = device.bridge;
   if (!br) {
@@ -315,18 +317,42 @@ function setBridge(net: Network, device: Device, args: string[], io: ShellIO): v
   const vlan = option(args, 'vlan_filtering');
   const stp = option(args, 'stp_state');
   const priority = option(args, 'priority');
+  const delay = option(args, 'forward_delay');
   const flag = (v: string | undefined) => v === undefined || v === '0' || v === '1';
   const prio = priority === undefined ? null : /^\d+$/.test(priority) ? Number(priority) : -1;
-  const known = new Set(['bridge', 'vlan_filtering', 'stp_state', 'priority', vlan, stp, priority]);
+  const known = new Set([
+    'bridge',
+    'vlan_filtering',
+    'stp_state',
+    'priority',
+    'forward_delay',
+    vlan,
+    stp,
+    priority,
+    delay,
+  ]);
   if (
     args[0] !== 'bridge' ||
     args.some((a) => !known.has(a)) ||
-    (vlan === undefined && stp === undefined && priority === undefined) ||
+    (vlan === undefined && stp === undefined && priority === undefined && delay === undefined) ||
     !flag(vlan) ||
     !flag(stp) ||
     (prio !== null && !(prio >= 0 && prio <= 65535))
   ) {
-    io.out('Usage: ip link set br0 type bridge [vlan_filtering 0|1] [stp_state 0|1] [priority N]');
+    io.out(
+      'Usage: ip link set br0 type bridge [vlan_filtering 0|1] [stp_state 0|1] [priority N] [forward_delay N]',
+    );
+    return;
+  }
+  // iproute2 counts forward_delay in centiseconds; the kernel limits it to 2-30 s only while
+  // STP runs (checked against the state this command leaves behind).
+  if (delay !== undefined && !/^\d{1,10}$/.test(delay)) {
+    io.out(`Error: argument "${delay}" is wrong: invalid forward_delay`);
+    return;
+  }
+  const stpAfter = stp === undefined ? br.stp.enabled : stp === '1';
+  if (delay !== undefined && stpAfter && (Number(delay) < 200 || Number(delay) > 3000)) {
+    io.out('RTNETLINK answers: Numerical result out of range');
     return;
   }
   if (stp === '0' && br.stp.enabled && net.hasL2Loop(device)) {
@@ -335,6 +361,7 @@ function setBridge(net: Network, device: Device, args: string[], io: ShellIO): v
     return;
   }
   if (vlan !== undefined) br.setVlanFiltering(vlan === '1');
+  if (delay !== undefined) br.stp.setForwardDelay(Number(delay) * 10);
   if (prio !== null) br.stp.setPriority(prio);
   if (stp !== undefined) br.stp.setEnabled(stp === '1');
 }
@@ -1148,6 +1175,7 @@ const COMMANDS: Record<string, Command> = {
   rm,
   touch,
   dhclient: dhclientCommand,
+  dhcrelay,
   dig,
   dnsmasq,
   dovecot,
