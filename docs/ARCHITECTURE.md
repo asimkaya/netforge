@@ -93,8 +93,11 @@ comes next.
 
 ### Persistence
 
-- `src/ui/project.ts` defines the lab file (`format: netforge-lab`, `version: 11`) and
-  validates untrusted files field by field before the engine sees them.
+- `src/ui/project.ts` defines the lab file (`format: netforge-lab`, `version: 13`) and
+  validates untrusted files field by field before the engine sees them. Besides the network
+  it stores layout-level data: device positions, canvas notes and zones (`src/ui/annotations.ts`).
+  Copy and paste (`src/ui/clipboard.ts`) work on the network snapshot, so new device
+  settings are copied without extra code.
 - `src/ui/storage.ts` autosaves to IndexedDB and exports/imports files.
 - Bump `PROJECT_VERSION` on incompatible changes and migrate older files. Never break old
   save files.
