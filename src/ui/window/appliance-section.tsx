@@ -1,7 +1,7 @@
 import type { Device } from '../../engine/device.ts';
 import { formatIp } from '../../engine/addr.ts';
 import { CAMERA_PORT, PRINTER_PORT, STREAM_PORT } from '../../engine/appliances.ts';
-import { SECONDARY } from '../apps/IpConfig.tsx';
+import { SECONDARY } from '../styles.ts';
 import { useLab } from '../lab.ts';
 import { Section } from './network-sections.tsx';
 

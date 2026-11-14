@@ -4,7 +4,7 @@ import type { Device } from '../../engine/device.ts';
 import { RADVD_CONF } from '../../engine/ip6.ts';
 import { hasCarrier, type Port } from '../../engine/port.ts';
 import { useLab } from '../lab.ts';
-import { FIELD, PRIMARY, SECONDARY } from './IpConfig.tsx';
+import { FIELD, PRIMARY, SECONDARY } from '../styles.ts';
 
 const ORIGIN = { link: 'link-local', static: 'manual', ra: 'automatic (SLAAC)' } as const;
 

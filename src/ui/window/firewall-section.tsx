@@ -3,7 +3,7 @@ import { formatIp } from '../../engine/addr.ts';
 import type { Device } from '../../engine/device.ts';
 import type { Netfilter } from '../../engine/netfilter.ts';
 import { formatRuleset, runNft } from '../../engine/nft.ts';
-import { FIELD, PRIMARY, SECONDARY } from '../apps/IpConfig.tsx';
+import { FIELD, PRIMARY, SECONDARY } from '../styles.ts';
 import { useLab } from '../lab.ts';
 import { Section } from './network-sections.tsx';
 

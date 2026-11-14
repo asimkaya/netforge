@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { Device } from '../../engine/device.ts';
 import { deviceScript } from '../../engine/script.ts';
-import { SECONDARY } from '../apps/IpConfig.tsx';
+import { SECONDARY } from '../styles.ts';
 import { useLab } from '../lab.ts';
 import { Section } from './network-sections.tsx';
 

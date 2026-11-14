@@ -1,5 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
-import { PRIMARY, SECONDARY } from './apps/IpConfig.tsx';
+import { PRIMARY, SECONDARY } from './styles.ts';
 import { downloadLab } from './storage.ts';
 
 interface Props {

@@ -5,13 +5,8 @@ import type { Device } from '../../engine/device.ts';
 import { hasCarrier, type Port } from '../../engine/port.ts';
 import { getLab } from '../lab.ts';
 import { Ipv6Box } from './Ipv6Config.tsx';
+import { FIELD, PRIMARY, SECONDARY } from '../styles.ts';
 
-export const FIELD =
-  'rounded border border-(--nf-border) bg-(--nf-surface) px-2 py-1 font-mono text-xs text-(--nf-text)';
-export const PRIMARY =
-  'rounded bg-(--nf-accent) px-3 py-1 text-xs font-semibold text-(--nf-on-accent) hover:opacity-90 disabled:opacity-50';
-export const SECONDARY =
-  'rounded border border-(--nf-border) px-3 py-1 text-xs hover:bg-(--nf-raised)';
 const DEFAULT_ROUTE = { ip: 0, prefix: 0 };
 
 /** "Obtain an address automatically": runs dhclient on the first interface and shows its log. */

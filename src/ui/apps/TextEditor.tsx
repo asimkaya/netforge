@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { Device } from '../../engine/device.ts';
 import { normalizePath } from '../../engine/fs.ts';
 import { useLab } from '../lab.ts';
-import { FIELD, PRIMARY, SECONDARY } from './IpConfig.tsx';
+import { FIELD, PRIMARY, SECONDARY } from '../styles.ts';
 
 /** Opens, edits and saves the device's text files (the same files `cat` and httpd see). */
 export function TextEditor({ device }: { device: Device }) {

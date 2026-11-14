@@ -12,7 +12,7 @@ import {
   type CustomTask,
   type ServiceName,
 } from '../tasks/custom.ts';
-import { FIELD, PRIMARY, SECONDARY } from './apps/IpConfig.tsx';
+import { FIELD, PRIMARY, SECONDARY } from './styles.ts';
 import { useLab } from './lab.ts';
 
 const KINDS = Object.keys(CHECK_LABELS) as CheckKind[];

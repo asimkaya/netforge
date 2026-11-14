@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { Device } from '../../engine/device.ts';
 import { associatedAp, connectWifi, disconnectWifi, scan } from '../../engine/wifi.ts';
 import { getLab, useLab } from '../lab.ts';
-import { FIELD, PRIMARY, SECONDARY } from './IpConfig.tsx';
+import { FIELD, PRIMARY, SECONDARY } from '../styles.ts';
 
 /** Lists Wi-Fi networks in range and joins or leaves them, like a desktop Wi-Fi menu. */
 export function Wifi({ device }: { device: Device }) {

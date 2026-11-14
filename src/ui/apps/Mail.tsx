@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { Device } from '../../engine/device.ts';
 import { fetchMail, isEmail, sendMail, type MailMessage } from '../../engine/mail.ts';
-import { FIELD, PRIMARY, SECONDARY } from './IpConfig.tsx';
+import { FIELD, PRIMARY, SECONDARY } from '../styles.ts';
 
 /** Account settings live in the device's files, so they are saved with the lab. */
 const SETTINGS = '/root/.mailrc';

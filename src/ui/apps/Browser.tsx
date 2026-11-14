@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { Device } from '../../engine/device.ts';
 import { httpGet, type HttpResponse } from '../../engine/http.ts';
-import { FIELD, PRIMARY } from './IpConfig.tsx';
+import { FIELD, PRIMARY } from '../styles.ts';
 
 /**
  * Pages come from lab files anyone can share, so they are shown in a sandboxed frame: no

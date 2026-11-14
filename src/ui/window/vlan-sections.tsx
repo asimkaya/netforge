@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import type { Bridge } from '../../engine/bridge.ts';
 import type { Device } from '../../engine/device.ts';
 import type { Port } from '../../engine/port.ts';
-import { FIELD, PRIMARY, SECONDARY } from '../apps/IpConfig.tsx';
+import { FIELD, PRIMARY, SECONDARY } from '../styles.ts';
 import { useLab } from '../lab.ts';
 import { Section } from './network-sections.tsx';
 
