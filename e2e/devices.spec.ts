@@ -1,0 +1,88 @@
+import { expect, test, type Locator } from '@playwright/test';
+import { add, connect, open, run } from './helpers.ts';
+
+async function setPort(vlans: Locator, port: string, mode: 'Access' | 'Trunk', ids: string) {
+  await vlans.getByLabel(`${port} mode`).selectOption({ label: mode });
+  await vlans.getByLabel(`${port} VLANs`).fill(ids);
+  await vlans.getByLabel(`${port} VLANs`).press('Enter');
+}
+
+test('a printer, a camera and the 24-port and L3 switches can be added and cabled', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await add(page, '24-port Switch');
+  await add(page, 'L3 Switch');
+  await add(page, 'Printer');
+  await add(page, 'IP Camera');
+  await connect(page, 'printer1', 'sw1/eth0');
+  await connect(page, 'cam1', 'sw1/eth23');
+  await connect(page, 'l3sw1/eth24', 'sw1/eth27');
+  await expect(page.getByTestId('device-sw1')).toContainText('24× Ethernet');
+  await expect(page.getByTestId('device-sw1')).toContainText('4× SFP');
+
+  const printer = await open(page, 'printer1');
+  await expect(printer.getByRole('tab')).toHaveText(['Physical', 'Config']);
+  await printer.getByRole('tab', { name: 'Config' }).click();
+  await expect(printer.getByRole('region', { name: 'Printing' })).toContainText('Pages printed: 0');
+  await printer.getByRole('button', { name: 'Close printer1' }).click();
+
+  const camera = await open(page, 'cam1');
+  await expect(camera.getByRole('tab')).toHaveText(['Physical', 'Config']);
+  await camera.getByRole('tab', { name: 'Config' }).click();
+  await expect(camera.getByRole('region', { name: 'Streaming' })).toContainText('Viewers');
+});
+
+test('a PC prints a page and the printer counts it', async ({ page }) => {
+  await page.goto('/');
+  await add(page, 'Home Router');
+  await add(page, 'PC');
+  await add(page, 'Printer');
+  await connect(page, 'pc1', 'home1/eth1');
+  await connect(page, 'printer1', 'home1/eth2');
+
+  // The printer asks the router's DHCP server for an address when it is plugged in.
+  const shown = page.getByTestId('address-printer1');
+  await expect(shown).toHaveText(/^192\.168\.1\.\d+$/);
+  const address = (await shown.textContent()) ?? '';
+  await expect(page.getByTestId('pages-printer1')).toHaveText('0 pages');
+
+  await run(page, 'pc1', 'ip addr add 192.168.1.50/24 dev eth0');
+  await run(page, 'pc1', 'echo hello > job.txt');
+  const term = await run(page, 'pc1', `nc ${address} 9100 < job.txt`);
+  await expect(page.getByTestId('pages-printer1')).toHaveText('1 page');
+
+  await run(page, 'pc1', `curl -s http://${address}/`);
+  await expect(term.getByRole('log')).toContainText('Pages printed: 1');
+});
+
+test('an L3 switch routes between two VLANs without a router', async ({ page }) => {
+  await page.goto('/');
+  await add(page, 'L3 Switch');
+  await add(page, 'PC', 2);
+  await connect(page, 'pc1', 'l3sw1/eth0');
+  await connect(page, 'pc2', 'l3sw1/eth1');
+
+  const sw = await open(page, 'l3sw1');
+  await sw.getByRole('tab', { name: 'Config' }).click();
+  const vlans = sw.getByRole('region', { name: 'VLANs' });
+  await vlans.getByLabel('VLAN filtering').check();
+  await setPort(vlans, 'eth0', 'Access', '10');
+  await setPort(vlans, 'eth1', 'Access', '20');
+  const subs = sw.getByRole('region', { name: 'VLAN interfaces' });
+  for (const id of ['10', '20']) {
+    await subs.getByLabel('VLAN id').fill(id);
+    await subs.getByRole('button', { name: 'Add VLAN interface' }).click();
+    await expect(subs).toContainText(`br0.${id}`);
+  }
+  await sw.getByRole('button', { name: 'Close l3sw1' }).click();
+  await run(page, 'l3sw1', 'ip addr add 192.168.10.1/24 dev br0.10');
+  await run(page, 'l3sw1', 'ip addr add 192.168.20.1/24 dev br0.20');
+
+  await run(page, 'pc2', 'ip addr add 192.168.20.2/24 dev eth0');
+  await run(page, 'pc2', 'ip route add default via 192.168.20.1');
+  await run(page, 'pc1', 'ip addr add 192.168.10.2/24 dev eth0');
+  await run(page, 'pc1', 'ip route add default via 192.168.10.1');
+  const term = await run(page, 'pc1', 'ping -c 1 192.168.20.2');
+  await expect(term.getByRole('log')).toContainText('1 received');
+});
