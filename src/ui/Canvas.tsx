@@ -11,6 +11,8 @@ import {
   type NodeChange,
 } from '@xyflow/react';
 import { useEffect, useRef, useState, type DragEvent } from 'react';
+import { formatCidr } from '../engine/addr.ts';
+import type { Device } from '../engine/device.ts';
 import type { Network } from '../engine/network.ts';
 import { hasCarrier, type Link } from '../engine/port.ts';
 import { isSpecId } from '../engine/specs.ts';
@@ -51,6 +53,24 @@ export const DRAG_MIME = 'application/x-netforge-device';
 const WINDOW = { w: 600, h: 440, gap: 24 };
 /** Only the latest frames can still be blinking, so older trace entries are skipped. */
 const ACTIVITY_WINDOW = 200;
+
+/** What a screen reader announces for a device on the canvas. */
+function deviceLabel(d: Device): string {
+  const addr = d.ip?.allAddrs()[0];
+  const cabled = d.ports.filter((p) => p.link).length;
+  return [
+    `${d.name}, ${d.spec.label}`,
+    addr ? formatCidr(addr) : null,
+    `${cabled} of ${d.ports.length} ports cabled`,
+  ]
+    .filter(Boolean)
+    .join(', ');
+}
+
+function cableLabel(l: Link): string {
+  const end = (p: Link['a']) => `${p.device.name} ${p.name}`;
+  return `Cable from ${end(l.a)} to ${end(l.b)}, ${hasCarrier(l.a) ? 'link up' : 'no link'}`;
+}
 
 function portOf(net: Network, device: string | undefined, port: string | null | undefined) {
   return (port && device && net.devices.get(device)?.port(port)) || null;
@@ -98,6 +118,7 @@ export function Canvas({ onShowPanel }: { onShowPanel: (tab?: Tab) => void }) {
       type: 'device',
       position: layout[d.id] ?? { x: 0, y: 0 },
       selected: selection.includes(d.id),
+      ariaLabel: deviceLabel(d),
       data: {
         deviceId: d.id,
         version: net.version,
@@ -145,6 +166,7 @@ export function Canvas({ onShowPanel }: { onShowPanel: (tab?: Tab) => void }) {
     targetHandle: l.b.name,
     type: 'cable',
     selected: l.id === selectedCable,
+    ariaLabel: cableLabel(l),
     data: {
       up: hasCarrier(l.a),
       medium: l.medium,
