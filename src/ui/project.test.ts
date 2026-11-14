@@ -242,7 +242,8 @@ describe('lab files', () => {
     ],
     [
       'a dnsmasq option with odd characters',
-      (f) => Object.assign(f.network.devices[0] ?? {}, { services: { dnsmasq: ['--x=<b> '] } }),
+      (f) =>
+        Object.assign(f.network.devices[0] ?? {}, { services: { dnsmasq: ['--x=<b>\u0000'] } }),
       /dnsmasq option is invalid/,
     ],
     [
