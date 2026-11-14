@@ -33,6 +33,8 @@ export interface DhcpMessage {
   serverId: Ip;
   requested?: Ip;
   hostname?: string;
+  /** Relay agent address: a relay sets it so the server picks the right network. */
+  giaddr?: Ip;
   /** Network settings handed out with an offer or ack. */
   lease?: { prefix: number; router?: Ip; dns?: Ip; seconds: number };
 }

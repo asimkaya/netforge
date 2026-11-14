@@ -1,4 +1,4 @@
-import { formatIp, inSubnet, parseIp, type Cidr, type Ip, type Mac } from './addr.ts';
+import { formatIp, inSubnet, maskOf, parseIp, type Cidr, type Ip, type Mac } from './addr.ts';
 import type { Fabric } from './device.ts';
 import type { IpStack, UdpSocket } from './ip.ts';
 import type { DhcpMessage, DnsMessage, UdpDatagram } from './packet.ts';
@@ -9,11 +9,17 @@ export const DHCP_CLIENT_PORT = 68;
 export const DNS_PORT = 53;
 /** dnsmasq's default lease time. */
 export const DEFAULT_LEASE_SECONDS = 3600;
+/** How long one upstream server gets to answer before the next one is tried. */
+export const UPSTREAM_TIMEOUT_MS = 1500;
+/** Netmask assumed for a relayed range that does not say one. */
+const RELAY_PREFIX = 24;
 
 export interface DhcpRange {
   start: Ip;
   end: Ip;
   leaseSeconds: number;
+  /** Prefix length of the netmask given in the range; used to match a relay's giaddr. */
+  prefix?: number;
 }
 
 export interface DnsmasqConfig {
@@ -24,6 +30,8 @@ export interface DnsmasqConfig {
   dns?: Ip;
   /** `--address=/name/IP` and `--host-record=name,IP`. */
   hosts: { name: string; ip: Ip }[];
+  /** `--server=IP`: upstream DNS servers for names this one cannot answer. */
+  servers: Ip[];
 }
 
 export interface Lease {
@@ -50,7 +58,7 @@ function parseDuration(text: string): number | null {
  * wording. Unknown options are rejected so typos don't fail silently.
  */
 export function parseDnsmasqArgs(args: readonly string[]): DnsmasqConfig | string {
-  const config: DnsmasqConfig = { ranges: [], hosts: [] };
+  const config: DnsmasqConfig = { ranges: [], hosts: [], servers: [] };
   for (const arg of args) {
     const eq = arg.indexOf('=');
     const key = eq < 0 ? arg : arg.slice(0, eq);
@@ -64,13 +72,21 @@ export function parseDnsmasqArgs(args: readonly string[]): DnsmasqConfig | strin
       if (start === null || end === null || end < start)
         return `dnsmasq: bad dhcp-range at line 1 of command line`;
       let leaseSeconds = DEFAULT_LEASE_SECONDS;
+      let prefix: number | undefined;
       for (const p of rest) {
-        if (parseIp(p) !== null) continue; // netmask: the interface's subnet is used instead
+        const mask = parseIp(p);
+        if (mask !== null) {
+          // A local range uses the interface's subnet; a relayed one needs this mask.
+          const bits = mask.toString(2).replace(/0/g, '').length;
+          if (maskOf(bits) !== mask) return `dnsmasq: bad dhcp-range at line 1 of command line`;
+          prefix = bits;
+          continue;
+        }
         const seconds = parseDuration(p);
         if (seconds === null) return `dnsmasq: bad dhcp-range at line 1 of command line`;
         leaseSeconds = seconds;
       }
-      config.ranges.push({ start, end, leaseSeconds });
+      config.ranges.push({ start, end, leaseSeconds, ...(prefix === undefined ? {} : { prefix }) });
     } else if (key === '--dhcp-option') {
       const [name, ipText] = value.split(',');
       const ip = ipText === undefined ? null : parseIp(ipText);
@@ -88,8 +104,21 @@ export function parseDnsmasqArgs(args: readonly string[]): DnsmasqConfig | strin
       const ip = ipText === undefined ? null : parseIp(ipText);
       if (!name || ip === null) return `dnsmasq: bad host-record at line 1 of command line`;
       config.hosts.push({ name: name.toLowerCase(), ip });
-    } else if (key === '--interface' || key === '--no-daemon' || key === '-d' || key === '-k') {
-      // Accepted for familiarity; NetForge serves every interface with a matching subnet.
+    } else if (key === '--server') {
+      // Only a plain address: no domain-specific /domain/IP form and no #port.
+      const ip = parseIp(value);
+      if (ip === null) return `dnsmasq: bad server at line 1 of command line`;
+      config.servers.push(ip);
+    } else if (
+      key === '--no-resolv' ||
+      key === '-R' ||
+      key === '--interface' ||
+      key === '--no-daemon' ||
+      key === '-d' ||
+      key === '-k'
+    ) {
+      // Accepted for familiarity; NetForge serves every interface with a matching subnet and
+      // reads upstream servers only from --server, never from the host's resolver settings.
     } else {
       return `dnsmasq: bad command line options: try --help`;
     }
@@ -97,14 +126,24 @@ export function parseDnsmasqArgs(args: readonly string[]): DnsmasqConfig | strin
   return config;
 }
 
+interface Forwarded {
+  client: { id: number; from: Ip; port: number; name: string };
+  timer: number | null;
+  /** Gives the query to the next upstream server, or drops it when none is left. */
+  next(): void;
+}
+
 /**
  * A small dnsmasq: a DHCP server for the configured ranges and a DNS server for its host
- * records and the names of its DHCP clients. There is no upstream DNS.
+ * records and the names of its DHCP clients. Other names go to the `--server` addresses.
  */
 export class Dnsmasq {
   readonly leases: Lease[] = [];
   readonly #dhcp: UdpSocket;
   readonly #dns: UdpSocket;
+  /** Socket for queries to the upstream servers, and the queries waiting for an answer. */
+  readonly #upstream: UdpSocket;
+  readonly #forwarded = new Map<number, Forwarded>();
 
   private constructor(
     readonly fabric: Fabric,
@@ -112,9 +151,9 @@ export class Dnsmasq {
     readonly config: DnsmasqConfig,
     /** The command-line arguments, kept to save and restore the service. */
     readonly args: readonly string[],
-    sockets: [UdpSocket, UdpSocket],
+    sockets: [UdpSocket, UdpSocket, UdpSocket],
   ) {
-    [this.#dhcp, this.#dns] = sockets;
+    [this.#dhcp, this.#dns, this.#upstream] = sockets;
   }
 
   /** Starts the service, or returns an error message (e.g. ports already taken). */
@@ -139,7 +178,20 @@ export class Dnsmasq {
       dns.close();
       return `dnsmasq: failed to bind DHCP server socket: ${dhcp}`;
     }
-    ref.server = new Dnsmasq(fabric, stack, config, [...args], [dhcp, dns]);
+    const upstream = stack.openUdp(
+      (d) => ref.server?.onUpstream(d.data),
+      (_error, original) => {
+        const data = original.payload.kind === 'udp' ? original.payload.data : null;
+        // An ICMP error from the upstream server: try the next one.
+        if (data?.app === 'dns') ref.server?.nextUpstream(data.id);
+      },
+    );
+    if (typeof upstream === 'string') {
+      dns.close();
+      dhcp.close();
+      return `dnsmasq: failed to create upstream socket: ${upstream}`;
+    }
+    ref.server = new Dnsmasq(fabric, stack, config, [...args], [dhcp, dns, upstream]);
     fabric.changed();
     return ref.server;
   }
@@ -147,7 +199,21 @@ export class Dnsmasq {
   stop(): void {
     this.#dhcp.close();
     this.#dns.close();
+    this.#upstream.close();
+    for (const f of this.#forwarded.values()) {
+      if (f.timer !== null) this.fabric.scheduler.cancel(f.timer);
+    }
+    this.#forwarded.clear();
     this.fabric.changed();
+  }
+
+  /** The `--server` addresses that are used; one that is this machine itself would loop. */
+  upstreams(): Ip[] {
+    return this.config.servers.filter((ip) => !this.stack.ownsIp(ip));
+  }
+
+  nextUpstream(id: number): void {
+    this.#forwarded.get(id)?.next();
   }
 
   /** dnsmasq's startup log lines. */
@@ -158,6 +224,11 @@ export class Dnsmasq {
         const time = r.leaseSeconds >= 0xffffffff ? 'infinite' : `${r.leaseSeconds}s`;
         return `dnsmasq-dhcp: DHCP, IP range ${formatIp(r.start)} -- ${formatIp(r.end)}, lease time ${time}`;
       }),
+      ...this.config.servers.map((ip) =>
+        this.stack.ownsIp(ip)
+          ? `dnsmasq: ignoring nameserver ${formatIp(ip)} - local interface`
+          : `dnsmasq: using nameserver ${formatIp(ip)}#53`,
+      ),
       ...this.config.hosts.map((h) => `dnsmasq: serving ${h.name} as ${formatIp(h.ip)}`),
     ];
   }
@@ -170,8 +241,22 @@ export class Dnsmasq {
 
   // ------------------------------------------------------------------- DHCP
 
-  /** The interface subnet and range that serve requests arriving on `port`. */
-  #scope(port: Port): { subnet: Cidr; range: DhcpRange } | null {
+  /**
+   * The subnet and range that serve a request arriving on `port`. A relayed request (giaddr
+   * set) is served from the range whose network contains giaddr, with the netmask the range
+   * gives (/24 if it gives none); `subnet.ip` is then this server's own address on `port`.
+   */
+  #scope(port: Port, giaddr?: Ip): { subnet: Cidr; range: DhcpRange } | null {
+    if (giaddr) {
+      const own = this.stack.addrsOn(port)[0];
+      for (const range of this.config.ranges) {
+        const net: Cidr = { ip: range.start, prefix: range.prefix ?? RELAY_PREFIX };
+        if (own && inSubnet(giaddr, net) && inSubnet(range.end, net)) {
+          return { subnet: { ip: own.ip, prefix: net.prefix }, range };
+        }
+      }
+      return null;
+    }
     for (const subnet of this.stack.addrsOn(port)) {
       const range = this.config.ranges.find(
         (r) => inSubnet(r.start, subnet) && inSubnet(r.end, subnet),
@@ -207,7 +292,8 @@ export class Dnsmasq {
   /** Handles a datagram that arrived on UDP 67. */
   onDhcp(msg: UdpDatagram['data'], ingress: Port): void {
     if (msg.app !== 'dhcp') return;
-    const scope = this.#scope(ingress);
+    const giaddr = msg.giaddr || undefined;
+    const scope = this.#scope(ingress, giaddr);
     if (!scope) return;
     const { subnet, range } = scope;
     const now = this.fabric.scheduler.now;
@@ -219,18 +305,21 @@ export class Dnsmasq {
         chaddr: msg.chaddr,
         yiaddr,
         serverId: subnet.ip,
+        ...(giaddr === undefined ? {} : { giaddr }),
         ...(op === 'nak'
           ? {}
           : {
               lease: {
                 prefix: subnet.prefix,
-                router: this.config.router ?? subnet.ip,
+                router: this.config.router ?? giaddr ?? subnet.ip,
                 dns: this.config.dns ?? subnet.ip,
                 seconds: range.leaseSeconds,
               },
             }),
       };
-      this.#dhcp.broadcast(ingress, subnet.ip, DHCP_CLIENT_PORT, answer);
+      // A relayed client is answered through its relay (port 67), not by broadcast.
+      if (giaddr === undefined) this.#dhcp.broadcast(ingress, subnet.ip, DHCP_CLIENT_PORT, answer);
+      else this.#dhcp.send(giaddr, DHCP_SERVER_PORT, answer);
     };
     const remember = (ip: Ip, offered: boolean) => {
       const i = this.leases.findIndex((l) => l.mac === msg.chaddr);
@@ -286,13 +375,54 @@ export class Dnsmasq {
   /** Handles a datagram that arrived on UDP 53. */
   onDns(msg: UdpDatagram['data'], from: Ip, port: number): void {
     if (msg.app !== 'dns' || msg.qr !== 'query') return;
-    const answer: DnsMessage = {
-      app: 'dns',
-      id: msg.id,
-      qr: 'response',
-      name: msg.name,
-      answer: this.lookup(msg.name),
+    const answer = this.lookup(msg.name);
+    if (answer === null && this.upstreams().length > 0) {
+      this.#forward({ id: msg.id, from, port, name: msg.name });
+      return;
+    }
+    this.#dns.send(from, port, { app: 'dns', id: msg.id, qr: 'response', name: msg.name, answer });
+  }
+
+  /** Asks the upstream servers in turn; no answer from any of them means silence. */
+  #forward(client: Forwarded['client']): void {
+    const id = this.stack.nextDnsId();
+    const { scheduler } = this.fabric;
+    const servers = this.upstreams();
+    let tried = 0;
+    const entry: Forwarded = {
+      client,
+      timer: null,
+      next: () => {
+        if (entry.timer !== null) scheduler.cancel(entry.timer);
+        entry.timer = null;
+        const server = servers[tried++];
+        if (server === undefined) {
+          this.#forwarded.delete(id);
+          return;
+        }
+        const query: DnsMessage = { app: 'dns', id, qr: 'query', name: client.name };
+        if (this.#upstream.send(server, DNS_PORT, query)) entry.next();
+        else entry.timer = scheduler.schedule(UPSTREAM_TIMEOUT_MS, entry.next);
+      },
     };
-    this.#dns.send(from, port, answer);
+    this.#forwarded.set(id, entry);
+    entry.next();
+  }
+
+  /** Relays an upstream answer (or NXDOMAIN) back with the client's own query id. */
+  onUpstream(msg: UdpDatagram['data']): void {
+    if (msg.app !== 'dns' || msg.qr !== 'response') return;
+    const entry = this.#forwarded.get(msg.id);
+    if (!entry) return;
+    if (entry.timer !== null) this.fabric.scheduler.cancel(entry.timer);
+    this.#forwarded.delete(msg.id);
+    const { client } = entry;
+    this.#dns.send(client.from, client.port, {
+      app: 'dns',
+      id: client.id,
+      qr: 'response',
+      name: client.name,
+      answer: msg.answer ?? null,
+    });
   }
 }
