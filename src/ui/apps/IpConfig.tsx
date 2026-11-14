@@ -3,6 +3,7 @@ import { formatCidr, formatIp, maskOf, parseIp, type Ip } from '../../engine/add
 import { dhclient, dhcpRelease } from '../../engine/dhcp.ts';
 import type { Device } from '../../engine/device.ts';
 import { hasCarrier, type Port } from '../../engine/port.ts';
+import { getLab } from '../lab.ts';
 import { Ipv6Box } from './Ipv6Config.tsx';
 
 export const FIELD = 'rounded border border-(--nf-border) bg-(--nf-bg) px-2 py-1 font-mono text-xs';
@@ -179,20 +180,38 @@ export function PortForm({ device, port }: { device: Device; port: Port }) {
   const [address, setAddress] = useState('');
   const [prefix, setPrefix] = useState(24);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   if (!ip) return null;
   const addrs = ip.addrsOn(port);
   const command = `ip addr add ${address || 'ADDRESS'}/${prefix} dev ${port.name}`;
 
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
+  /** Adds the typed address; `replace` first removes the ones the interface has. */
+  const save = (replace: boolean) => {
     const parsed = parseIp(address.trim());
     if (parsed === null) {
       setError('Enter an IPv4 address like 192.168.1.10.');
       return;
     }
-    const result = ip.addAddress(port, { ip: parsed, prefix });
+    const cidr = { ip: parsed, prefix };
+    const same = addrs.some((a) => a.ip === parsed && a.prefix === prefix);
+    if (replace && !same) addrs.forEach((a) => ip.removeAddress(port, a));
+    const result = ip.addAddress(port, cidr);
     setError(result);
-    if (!result) setAddress('');
+    if (result) return;
+    setAddress('');
+    const other = [...getLab().net.devices.values()].find(
+      (d) => d !== device && d.ip?.allAddrs().some((a) => a.ip === parsed),
+    );
+    setWarning(
+      other
+        ? `${other.name} also uses ${formatIp(parsed)}. Two devices in the same network cannot share an address.`
+        : null,
+    );
+  };
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    save(addrs.length > 0);
   };
 
   return (
@@ -237,6 +256,7 @@ export function PortForm({ device, port }: { device: Device; port: Port }) {
             onChange={(e) => {
               setAddress(e.target.value);
               setError(null);
+              setWarning(null);
             }}
             placeholder="192.168.1.10"
             aria-invalid={error !== null}
@@ -261,12 +281,27 @@ export function PortForm({ device, port }: { device: Device; port: Port }) {
           type="submit"
           className="rounded bg-(--nf-accent) px-3 py-1 font-semibold text-slate-950 hover:opacity-90"
         >
-          Add address
+          {addrs.length > 0 ? 'Change address' : 'Add address'}
         </button>
+        {addrs.length > 0 && (
+          <button
+            type="button"
+            onClick={() => save(false)}
+            className={SECONDARY}
+            title="Keep the current address and give the interface a second one"
+          >
+            Add another
+          </button>
+        )}
       </form>
       {error && (
         <p role="alert" className="text-xs text-red-400">
           {error}
+        </p>
+      )}
+      {warning && (
+        <p role="status" className="text-xs text-amber-400">
+          {warning}
         </p>
       )}
       <p className="text-xs text-(--nf-muted)">
