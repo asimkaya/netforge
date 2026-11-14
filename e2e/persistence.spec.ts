@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { run } from './helpers.ts';
+import { labMenu, run } from './helpers.ts';
 import { readFile } from 'node:fs/promises';
 
 async function addAndAddress(page: Page) {
@@ -20,13 +20,13 @@ test('the lab survives a page reload', async ({ page }) => {
 test('export then import restores the same lab', async ({ page }) => {
   await addAndAddress(page);
   const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export' }).click();
+  await labMenu(page, 'Export');
   const path = await (await download).path();
   const text = await readFile(path, 'utf8');
   expect(JSON.parse(text)).toMatchObject({ format: 'netforge-lab', version: 11 });
 
   page.once('dialog', (d) => void d.accept());
-  await page.getByRole('button', { name: 'New lab' }).click();
+  await labMenu(page, 'New lab');
   await expect(page.getByTestId('device-pc1')).toHaveCount(0);
 
   await page.getByLabel('Import lab file').setInputFiles({

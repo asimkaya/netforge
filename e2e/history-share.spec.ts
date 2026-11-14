@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { add, connect, open, run } from './helpers.ts';
+import { add, connect, labMenu, open, run } from './helpers.ts';
 
 test('undo and redo edits with buttons and keyboard', async ({ page }) => {
   // Changes within 0.4 s merge into one undo step (a drag is one step), so pause like a person.
@@ -36,7 +36,7 @@ test('a share link carries the lab to another browser', async ({ page, context, 
   await add(page, 'PC');
   await connect(page, 'pc1', 'r1/eth2');
   await run(page, 'pc1', 'ip addr add 10.1.2.3/24 dev eth0');
-  await page.getByRole('button', { name: 'Share link' }).click();
+  await labMenu(page, 'Share link');
   await expect(page.getByRole('status')).toContainText('Link copied');
   const link = await page.evaluate(() => navigator.clipboard.readText());
   expect(link).toMatch(/\/#lab=[A-Za-z0-9_-]+$/);

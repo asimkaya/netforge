@@ -82,3 +82,9 @@ export async function add(
     await page.getByRole('button', { name: new RegExp(`Add ${label}`) }).click();
   }
 }
+
+/** Picks an item (Share link, Export, Import, New lab) from the Lab menu in the top bar. */
+export async function labMenu(page: Page, item: string) {
+  await page.getByRole('button', { name: 'Lab menu' }).click();
+  await page.getByRole('menuitem', { name: item }).click();
+}

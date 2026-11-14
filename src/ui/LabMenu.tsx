@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Network } from '../engine/network.ts';
 import { redo, undo, useHistory } from './history.ts';
 import { getLab, loadLab, notify } from './lab.ts';
@@ -6,8 +6,29 @@ import { ProjectError, parseProject, serializeProject } from './project.ts';
 import { LONG_LINK, encodeLab, shareUrl } from './share.ts';
 import { downloadLab } from './storage.ts';
 
-const button =
-  'shrink-0 rounded border border-(--nf-border) px-3 py-1 text-xs whitespace-nowrap hover:border-(--nf-accent) focus-visible:outline-2 focus-visible:outline-(--nf-accent) disabled:opacity-40 disabled:hover:border-(--nf-border)';
+const icon =
+  'grid h-7 w-7 shrink-0 place-items-center rounded border border-(--nf-border) hover:border-(--nf-accent) focus-visible:outline-2 focus-visible:outline-(--nf-accent) disabled:opacity-40 disabled:hover:border-(--nf-border)';
+const item =
+  'block w-full px-3 py-1.5 text-left hover:bg-(--nf-bg) focus-visible:bg-(--nf-bg) focus-visible:outline-none';
+
+/** A curved arrow; Redo is the same drawing mirrored. */
+function Arrow({ flip = false }: { flip?: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      className={`h-4 w-4 ${flip ? '-scale-x-100' : ''}`}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M6 3 2.5 6.5 6 10" />
+      <path d="M3 6.5h6.5a4 4 0 0 1 0 8H7" />
+    </svg>
+  );
+}
 
 function confirmReplace(): boolean {
   return (
@@ -34,7 +55,7 @@ async function copyShareLink(): Promise<void> {
   }
 }
 
-/** Undo, redo, share, new, import and export, plus the Ctrl+Z / Ctrl+Y shortcuts. */
+/** Undo and redo buttons, the Lab menu (share, export, import, new), plus the Ctrl+Z / Ctrl+Y shortcuts. */
 export function LabMenu() {
   const fileInput = useRef<HTMLInputElement>(null);
   const { canUndo, canRedo } = useHistory();
@@ -63,46 +84,107 @@ export function LabMenu() {
     }
   };
 
+  const [open, setOpen] = useState(false);
+  const pick = (action: () => void) => () => {
+    setOpen(false);
+    action();
+  };
+
   return (
     <div className="flex items-center gap-2">
-      <button
-        type="button"
-        className={button}
-        onClick={undo}
-        disabled={!canUndo}
-        title="Undo (Ctrl+Z)"
-      >
-        Undo
-      </button>
-      <button
-        type="button"
-        className={button}
-        onClick={redo}
-        disabled={!canRedo}
-        title="Redo (Ctrl+Y)"
-      >
-        Redo
-      </button>
-      <button type="button" className={button} onClick={() => void copyShareLink()}>
-        Share link
-      </button>
-      <button
-        type="button"
-        className={button}
-        onClick={() => {
-          if (confirmReplace()) {
-            loadLab({ net: new Network(), layout: {}, tasks: { ...getLab().tasks, active: null } });
-          }
+      <div className="flex gap-1">
+        <button
+          type="button"
+          className={icon}
+          onClick={undo}
+          disabled={!canUndo}
+          title="Undo (Ctrl+Z)"
+          aria-label="Undo"
+        >
+          <Arrow />
+        </button>
+        <button
+          type="button"
+          className={icon}
+          onClick={redo}
+          disabled={!canRedo}
+          title="Redo (Ctrl+Y)"
+          aria-label="Redo"
+        >
+          <Arrow flip />
+        </button>
+      </div>
+      <div
+        className="relative"
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') setOpen(false);
         }}
       >
-        New lab
-      </button>
-      <button type="button" className={button} onClick={() => fileInput.current?.click()}>
-        Import
-      </button>
-      <button type="button" className={button} onClick={downloadLab}>
-        Export
-      </button>
+        <button
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label="Lab menu"
+          onClick={() => setOpen(!open)}
+          className="flex h-7 shrink-0 items-center gap-1 rounded border border-(--nf-border) px-3 text-xs max-sm:px-2 hover:border-(--nf-accent) focus-visible:outline-2 focus-visible:outline-(--nf-accent)"
+        >
+          Lab
+          <svg viewBox="0 0 10 6" className="h-1.5 w-2.5" fill="currentColor" aria-hidden>
+            <path d="M0 0h10L5 6z" />
+          </svg>
+        </button>
+        {open && (
+          <>
+            {/* A click anywhere else closes the menu. */}
+            <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+            <div
+              role="menu"
+              aria-label="Lab"
+              className="absolute right-0 z-50 mt-1 w-40 rounded-lg border border-(--nf-border) bg-(--nf-surface) py-1 text-xs shadow-xl"
+            >
+              <button
+                type="button"
+                role="menuitem"
+                className={item}
+                onClick={pick(() => void copyShareLink())}
+              >
+                Share link
+              </button>
+              <button type="button" role="menuitem" className={item} onClick={pick(downloadLab)}>
+                Export
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className={item}
+                onClick={() => {
+                  setOpen(false);
+                  fileInput.current?.click();
+                }}
+              >
+                Import
+              </button>
+              <hr className="my-1 border-(--nf-border)" />
+              <button
+                type="button"
+                role="menuitem"
+                className={item}
+                onClick={pick(() => {
+                  if (confirmReplace()) {
+                    loadLab({
+                      net: new Network(),
+                      layout: {},
+                      tasks: { ...getLab().tasks, active: null },
+                    });
+                  }
+                })}
+              >
+                New lab
+              </button>
+            </div>
+          </>
+        )}
+      </div>
       <input
         ref={fileInput}
         type="file"
