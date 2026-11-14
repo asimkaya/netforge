@@ -7,7 +7,7 @@ import { LONG_LINK, encodeLab, shareUrl } from './share.ts';
 import { downloadLab } from './storage.ts';
 
 const button =
-  'rounded border border-(--nf-border) px-3 py-1 text-xs hover:border-(--nf-accent) focus-visible:outline-2 focus-visible:outline-(--nf-accent) disabled:opacity-40 disabled:hover:border-(--nf-border)';
+  'shrink-0 rounded border border-(--nf-border) px-3 py-1 text-xs whitespace-nowrap hover:border-(--nf-accent) focus-visible:outline-2 focus-visible:outline-(--nf-accent) disabled:opacity-40 disabled:hover:border-(--nf-border)';
 
 function confirmReplace(): boolean {
   return (

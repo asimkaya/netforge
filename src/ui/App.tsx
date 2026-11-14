@@ -1,4 +1,5 @@
 import { ReactFlowProvider } from '@xyflow/react';
+import { useState } from 'react';
 import { Canvas } from './Canvas.tsx';
 import { useRealtimeClock } from './clock.ts';
 import { LabMenu } from './LabMenu.tsx';
@@ -48,21 +49,32 @@ export function App() {
   const { net, mode, notice } = useLab();
   useRealtimeClock(net, mode);
   useTaskProgress();
+  // The side panel starts closed on narrow screens, where it would cover the canvas.
+  const [panel, setPanel] = useState(() => window.matchMedia('(min-width: 768px)').matches);
 
   return (
     <ReactFlowProvider>
       <div className="flex h-full flex-col">
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-(--nf-border) bg-(--nf-surface) px-4">
-          <img src="/favicon.svg" alt="" className="h-6 w-6" />
-          <h1 className="text-base font-semibold tracking-tight">NetForge</h1>
-          <div className="ml-6">
+        <header className="flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-b border-(--nf-border) bg-(--nf-surface) px-4">
+          <img src="/favicon.svg" alt="" className="h-6 w-6 shrink-0" />
+          <h1 className="text-base font-semibold tracking-tight max-sm:hidden">NetForge</h1>
+          <div className="shrink-0 sm:ml-6">
             <ModeSwitch mode={mode} />
           </div>
-          <div className="ml-auto">
+          <div className="ml-auto flex shrink-0 items-center gap-2">
             <LabMenu />
+            <button
+              type="button"
+              aria-pressed={panel}
+              onClick={() => setPanel(!panel)}
+              title={panel ? 'Hide the task panel' : 'Show the task panel'}
+              className="shrink-0 rounded border border-(--nf-border) px-3 py-1 text-xs whitespace-nowrap hover:border-(--nf-accent) focus-visible:outline-2 focus-visible:outline-(--nf-accent) aria-pressed:border-(--nf-accent)"
+            >
+              Tasks
+            </button>
           </div>
         </header>
-        <div className="flex min-h-0 flex-1">
+        <div className="relative flex min-h-0 flex-1">
           <Palette />
           <main className="flex min-w-0 flex-1 flex-col">
             <div className="relative min-h-0 flex-1">
@@ -79,9 +91,12 @@ export function App() {
             </div>
             {mode === 'simulation' && <SimPanel />}
           </main>
-          <aside className="w-72 shrink-0 overflow-y-auto border-l border-(--nf-border) bg-(--nf-surface)">
-            <Sidebar />
-          </aside>
+          {panel && (
+            // On narrow screens the panel floats over the canvas instead of squeezing it.
+            <aside className="w-72 max-w-full shrink-0 overflow-y-auto border-l border-(--nf-border) bg-(--nf-surface) max-md:absolute max-md:inset-y-0 max-md:right-0 max-md:z-30 max-md:shadow-2xl">
+              <Sidebar />
+            </aside>
+          )}
         </div>
       </div>
     </ReactFlowProvider>

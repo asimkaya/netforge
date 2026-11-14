@@ -1,9 +1,9 @@
-import { useReactFlow } from '@xyflow/react';
+import { getViewportForBounds, useReactFlow } from '@xyflow/react';
 import { SPECS, type SpecId } from '../engine/specs.ts';
 import { DRAG_MIME } from './Canvas.tsx';
 import { SpecArt } from './icons.tsx';
 import { addDevice, getLab } from './lab.ts';
-import { freeSpot } from './placement.ts';
+import { FOOTPRINT, freeSpot } from './placement.ts';
 
 /** Device palette: drag onto the canvas, or click to add near the center. */
 export function Palette() {
@@ -21,6 +21,23 @@ export function Palette() {
     });
     const at = freeSpot(spec, center, placed);
     addDevice(spec, at);
+    if (!pane) return;
+    // The free spot can be outside the view: zoom out so the new device is never lost.
+    const size = FOOTPRINT[spec];
+    const from = flow.screenToFlowPosition({ x: pane.x, y: pane.y });
+    const to = flow.screenToFlowPosition({ x: pane.right, y: pane.bottom });
+    if (at.x >= from.x && at.y >= from.y && at.x + size.w <= to.x && at.y + size.h <= to.y) return;
+    const all = [...placed, { spec, at }];
+    const x = Math.min(...all.map((p) => p.at.x));
+    const y = Math.min(...all.map((p) => p.at.y));
+    const bounds = {
+      x,
+      y,
+      width: Math.max(...all.map((p) => p.at.x + FOOTPRINT[p.spec].w)) - x,
+      height: Math.max(...all.map((p) => p.at.y + FOOTPRINT[p.spec].h)) - y,
+    };
+    // No animation: a cable drag may start right after the click.
+    void flow.setViewport(getViewportForBounds(bounds, pane.width, pane.height, 0.2, 1, 0.1));
   };
 
   return (
