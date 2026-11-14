@@ -58,7 +58,8 @@ function essence(net: Network) {
     // The Internet cloud is simulator-only: the export gives it a comment, not commands.
     devices: json.devices
       .filter((d) => d.spec !== 'internet')
-      .map((d) => ({ ...d, files: normalize(d.files) })),
+      // Leases are runtime state: a script cannot carry them.
+      .map((d) => ({ ...d, leases: undefined, files: normalize(d.files) })),
     links: json.links
       .map((l) => [`${l.a.device}/${l.a.port}`, `${l.b.device}/${l.b.port}`].sort().join(' '))
       .sort(),

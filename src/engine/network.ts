@@ -45,6 +45,8 @@ export interface NetworkSnapshot {
       radvd?: string[];
       sshd?: string[];
     };
+    /** Active DHCP leases of a running dnsmasq, with the seconds each has left. */
+    leases?: { mac: string; ip: string; prefix: number; hostname?: string; seconds: number }[];
     /** Files on the device (absolute path to text). */
     files?: Record<string, string>;
     /** IPv6 settings: static addresses per interface, static routes, forwarding. */
@@ -496,6 +498,17 @@ export class Network implements Fabric {
               },
             }
           : {}),
+        ...(d.dnsmasq?.activeLeases().length
+          ? {
+              leases: d.dnsmasq.activeLeases().map((l) => ({
+                mac: l.mac,
+                ip: formatIp(l.ip),
+                prefix: l.prefix,
+                ...(l.hostname === undefined ? {} : { hostname: l.hostname }),
+                seconds: Math.max(1, Math.round((l.expires - this.scheduler.now) / 1000)),
+              })),
+            }
+          : {}),
         ...(d.fs ? { files: d.fs.toJSON() } : {}),
         ...(d.vlanPorts.some((p) => p.parent)
           ? {
@@ -641,6 +654,18 @@ export class Network implements Fabric {
       if (d.services?.dnsmasq) {
         const started = device.startDnsmasq(d.services.dnsmasq);
         if (typeof started === 'string') throw new Error(`${d.id}: ${started}`);
+        for (const l of d.leases ?? []) {
+          const ip = parseIp(l.ip);
+          if (ip === null) throw new Error(`${d.id}: bad lease address ${l.ip}`);
+          device.dnsmasq?.leases.push({
+            mac: l.mac,
+            ip,
+            prefix: l.prefix,
+            hostname: l.hostname,
+            offered: false,
+            expires: net.scheduler.now + l.seconds * 1000,
+          });
+        }
       }
       if (d.services?.dhcrelay) {
         const started = device.startDhcrelay(d.services.dhcrelay);

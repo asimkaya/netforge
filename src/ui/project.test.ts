@@ -193,6 +193,33 @@ describe('lab files', () => {
     expect(() => parseProject(bad)).toThrow(/IPv6 address is invalid/);
   });
 
+  it('keeps DHCP leases across a save; version 13 files have none and still load', () => {
+    const net = new Network();
+    const r1 = net.addDevice('router');
+    const pc = net.addDevice('pc');
+    net.connect(r1.ports[0] as never, pc.ports[0] as never);
+    const say = (d: typeof pc, line: string) =>
+      run(net, d, line, { out: () => {}, exit: () => {} });
+    say(r1, 'ip addr add 192.168.1.1/24 dev eth0');
+    say(r1, 'dnsmasq --dhcp-range=192.168.1.100,192.168.1.199');
+    say(pc, 'dhclient eth0');
+    net.scheduler.runUntil(net.scheduler.now + 10_000);
+    expect(r1.dnsmasq?.activeLeases()).toHaveLength(1);
+    const text = serializeProject({ net, layout: {}, tasks: emptyProgress() });
+    const loaded = parseProject(text).net;
+    expect(
+      loaded.devices
+        .get(r1.id)
+        ?.dnsmasq?.activeLeases()
+        .map((l) => l.hostname),
+    ).toEqual([pc.name]);
+    const old = mutate(text, (f) => {
+      f.version = 13;
+      for (const d of f.network.devices) delete d.leases;
+    });
+    expect(parseProject(old).net.devices.get(r1.id)?.dnsmasq?.activeLeases()).toEqual([]);
+  });
+
   it('rejects files from a newer version', () => {
     const { text } = sample();
     expect(() => parseProject(mutate(text, (f) => (f.version = 99)))).toThrow(/newer version/);

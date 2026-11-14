@@ -7,7 +7,7 @@ import type { Point } from './lab.ts';
 
 export const PROJECT_FORMAT = 'netforge-lab';
 /** Bump on any incompatible change and add a migration for the previous version. */
-export const PROJECT_VERSION = 13;
+export const PROJECT_VERSION = 14;
 
 export interface TaskProgress {
   /** Id of the task being played, if any. */
@@ -259,6 +259,21 @@ function readWireguard(value: unknown, what: string) {
 }
 
 /** Device files: sizes are checked again when the engine writes them. */
+function readLeases(value: unknown, what: string) {
+  return arr(value, `${what} DHCP leases`).map((v) => {
+    const l = obj(v, `${what} DHCP lease`);
+    return {
+      mac: str(l.mac, `${what} lease MAC address`, MAC),
+      ip: str(l.ip, `${what} lease address`, IP),
+      prefix: count(l.prefix, `${what} lease prefix`),
+      ...(l.hostname === undefined
+        ? {}
+        : { hostname: str(l.hostname, `${what} lease name`, NAME) }),
+      seconds: count(l.seconds, `${what} lease time`),
+    };
+  });
+}
+
 function readFiles(value: unknown, what: string): Record<string, string> {
   const files: Record<string, string> = {};
   for (const [path, text] of Object.entries(obj(value, `${what} files`))) {
@@ -293,6 +308,7 @@ function readSnapshot(value: unknown): NetworkSnapshot {
       ...(d.services === undefined
         ? {}
         : { services: readServices(d.services, `device #${i + 1}`) }),
+      ...(d.leases === undefined ? {} : { leases: readLeases(d.leases, `device #${i + 1}`) }),
       ...(d.files === undefined ? {} : { files: readFiles(d.files, `device #${i + 1}`) }),
       ...(d.vlanPorts === undefined
         ? {}
@@ -529,6 +545,8 @@ const MIGRATIONS: Record<number, (file: Json) => Json> = {
   11: (file) => file,
   // v13 adds canvas notes and zones (`notes`, `zones`).
   12: (file) => ({ notes: [], zones: [], ...file }),
+  // v14 adds the DHCP leases of a running dnsmasq (`leases`); older files have none.
+  13: (file) => file,
   // v2: devices name a spec instead of a kind; switches gain two SFP uplinks (eth8, eth9);
   // per-kind name counters become per-prefix counters.
   1: (file) => {

@@ -40,7 +40,7 @@ describe('notes and zones in the save format', () => {
     const loaded = parseProject(old);
     expect(loaded.notes).toEqual([]);
     expect(loaded.zones).toEqual([]);
-    expect(PROJECT_VERSION).toBe(13);
+    expect(PROJECT_VERSION).toBe(14);
   });
 
   it('rejects bad notes and zones', () => {
