@@ -48,7 +48,8 @@ comes next.
   `ssh.ts` (sshd and client), `pcap.ts` (frames as bytes, pcap files), `dnsmasq.ts` (DHCP
   and DNS server),
   `dhcp.ts` (dhclient), `dns.ts` (resolver), `tcp.ts` (TCP), `http.ts` (httpd, client),
-  `mail.ts` (SMTP, POP3), `wifi.ts` (hostapd, association, range), `fs.ts` (device
+  `drops.ts` (the record of discarded packets and why) with `explain.ts` (turns it into the
+  "Why did this fail?" answer), `mail.ts` (SMTP, POP3), `wifi.ts` (hostapd, association, range), `fs.ts` (device
   files), and the Linux-style commands in `shell.ts` with `shell-files.ts`,
   `shell-services.ts`, `shell-firewall.ts`, `shell-routing.ts`, `shell-ip6.ts` and
   `shell-wireguard.ts`. Commands may be interactive: a `Process` can take input lines and
