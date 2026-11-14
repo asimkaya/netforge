@@ -113,3 +113,45 @@ test('the palette is grouped and fits a 1440x900 window without scrolling', asyn
   const fits = await palette.evaluate((el) => el.scrollHeight <= el.clientHeight);
   expect(fits).toBe(true);
 });
+
+test('a new note and zone land clear of the devices of a ready network', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('tab', { name: 'Networks' }).click();
+  await page.getByRole('button', { name: 'Open Small office' }).click();
+  await expect(page.getByTestId('device-sw1')).toBeVisible();
+  await page.getByRole('button', { name: 'Add Zone' }).click();
+  await page.getByRole('button', { name: 'Add Note' }).click();
+  const zone = page.getByTestId('zone-z1');
+  const boxes = [];
+  for (const item of [zone, page.getByTestId('note-n1')]) {
+    const box = await item.boundingBox();
+    if (!box) throw new Error('cannot see the new item');
+    boxes.push(box);
+  }
+  const devices = page.locator('[data-testid^="device-"]');
+  for (let i = 0; i < (await devices.count()); i++) {
+    const d = await devices.nth(i).boundingBox();
+    if (!d) continue;
+    for (const b of boxes) {
+      const apart =
+        b.x + b.width <= d.x ||
+        d.x + d.width <= b.x ||
+        b.y + b.height <= d.y ||
+        d.y + d.height <= b.y;
+      expect(apart).toBe(true);
+    }
+  }
+  const title = zone.getByText('Zone', { exact: true });
+  await expect(title).toBeVisible();
+  const t = await title.boundingBox();
+  if (!t) throw new Error('cannot see the zone title');
+  const top = await page.evaluate(
+    ([x, y]) =>
+      document
+        .elementFromPoint(x ?? 0, y ?? 0)
+        ?.closest('[data-testid]')
+        ?.getAttribute('data-testid'),
+    [t.x + t.width / 2, t.y + t.height / 2],
+  );
+  expect(top).toBe('zone-z1');
+});

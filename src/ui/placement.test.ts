@@ -1,6 +1,31 @@
 import { describe, expect, it } from 'vitest';
 import type { SpecId } from '../engine/specs.ts';
-import { FOOTPRINT, freeSpot } from './placement.ts';
+import { FOOTPRINT, freeRect, freeSpot } from './placement.ts';
+
+describe('freeRect', () => {
+  const devices = [
+    { x: -110, y: -60, w: 220, h: 100 },
+    { x: -235, y: 90, w: 470, h: 140 },
+    { x: -300, y: -200, w: 180, h: 120 },
+  ];
+
+  it('keeps a note and a zone clear of devices in the middle', () => {
+    for (const size of [
+      { w: 200, h: 80 },
+      { w: 320, h: 200 },
+    ]) {
+      const at = freeRect(size, { x: 0, y: 0 }, devices);
+      const hit = devices.some(
+        (r) => at.x < r.x + r.w && r.x < at.x + size.w && at.y < r.y + r.h && r.y < at.y + size.h,
+      );
+      expect(hit).toBe(false);
+    }
+  });
+
+  it('uses the center when the canvas is empty', () => {
+    expect(freeRect({ w: 320, h: 200 }, { x: 500, y: 300 }, [])).toEqual({ x: 340, y: 200 });
+  });
+});
 
 describe('freeSpot', () => {
   it('puts gear above the center and PCs below, never overlapping', () => {

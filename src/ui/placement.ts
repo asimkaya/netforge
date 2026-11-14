@@ -29,16 +29,59 @@ function overlaps(a: Point, aSpec: SpecId, b: Placed): boolean {
   return a.x < b.at.x + sb.w && b.at.x < a.x + sa.w && a.y < b.at.y + sb.h && b.at.y < a.y + sa.h;
 }
 
-/** The rectangle that holds all the given devices, for fitting the view to them. */
-export function boundsOf(placed: readonly Placed[]) {
-  const x = Math.min(...placed.map((p) => p.at.x));
-  const y = Math.min(...placed.map((p) => p.at.y));
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** The rectangle that holds all the given rectangles, for fitting the view to them. */
+export function boundsOfRects(rects: readonly Rect[]) {
+  const x = Math.min(...rects.map((r) => r.x));
+  const y = Math.min(...rects.map((r) => r.y));
   return {
     x,
     y,
-    width: Math.max(...placed.map((p) => p.at.x + FOOTPRINT[p.spec].w)) - x,
-    height: Math.max(...placed.map((p) => p.at.y + FOOTPRINT[p.spec].h)) - y,
+    width: Math.max(...rects.map((r) => r.x + r.w)) - x,
+    height: Math.max(...rects.map((r) => r.y + r.h)) - y,
   };
+}
+
+/** The rectangle that holds all the given devices, for fitting the view to them. */
+export function boundsOf(placed: readonly Placed[]) {
+  return boundsOfRects(placed.map((p) => ({ ...p.at, ...FOOTPRINT[p.spec] })));
+}
+
+/**
+ * A free spot for a note or zone of this size near `center`: the closest grid position that
+ * overlaps none of `taken`, preferring spots to the right of or below the existing content.
+ */
+export function freeRect(size: { w: number; h: number }, center: Point, taken: readonly Rect[]) {
+  const gap = 20;
+  const step = 40;
+  let best: Point | null = null;
+  let bestCost = Infinity;
+  for (let dy = -1200; dy <= 1200; dy += step) {
+    for (let dx = -1200; dx <= 1200; dx += step) {
+      const cost = Math.abs(dx) * (dx < 0 ? 2 : 1) + Math.abs(dy) * (dy < 0 ? 2 : 1);
+      if (cost >= bestCost) continue;
+      const x = center.x - size.w / 2 + dx;
+      const y = center.y - size.h / 2 + dy;
+      const hit = taken.some(
+        (r) =>
+          x < r.x + r.w + gap &&
+          r.x < x + size.w + gap &&
+          y < r.y + r.h + gap &&
+          r.y < y + size.h + gap,
+      );
+      if (!hit) {
+        best = { x, y };
+        bestCost = cost;
+      }
+    }
+  }
+  return best ?? { x: center.x, y: center.y + 1300 };
 }
 
 /**

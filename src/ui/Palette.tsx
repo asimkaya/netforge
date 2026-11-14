@@ -4,8 +4,11 @@ import { DRAG_MIME } from './Canvas.tsx';
 import { SpecArt } from './icons.tsx';
 import { LIMITS } from './annotations.ts';
 import { addDevice, addNote, addZone, getLab } from './lab.ts';
-import { FOOTPRINT, boundsOf, freeSpot } from './placement.ts';
+import { FOOTPRINT, boundsOfRects, freeRect, freeSpot, type Rect } from './placement.ts';
 import { useTaskFocus } from './taskProgress.ts';
+
+/** A note's height follows its text; this is the room kept free for an empty one. */
+const NOTE_HEIGHT = 80;
 
 const TILE =
   'flex flex-col items-center gap-0.5 rounded p-1 text-center text-xs leading-tight hover:bg-(--nf-raised)';
@@ -23,11 +26,36 @@ export function Palette() {
   const flow = useReactFlow();
   const focus = useTaskFocus();
 
-  const addAtCenter = (spec: SpecId) => {
+  const viewCenter = () => {
     const pane = document.querySelector('.react-flow')?.getBoundingClientRect();
     const center = pane
       ? flow.screenToFlowPosition({ x: pane.x + pane.width / 2, y: pane.y + pane.height / 2 })
       : { x: 0, y: 0 };
+    return { pane, center };
+  };
+
+  const deviceRects = (): Rect[] => {
+    const { layout, net } = getLab();
+    return [...net.devices.values()].flatMap((d) => {
+      const at = layout[d.id];
+      return at ? [{ ...at, ...FOOTPRINT[d.spec.id] }] : [];
+    });
+  };
+
+  /** The new item can be outside the view: zoom out so it is never lost. */
+  const reveal = (pane: DOMRect | undefined, item: Rect, others: readonly Rect[]) => {
+    if (!pane) return;
+    const from = flow.screenToFlowPosition({ x: pane.x, y: pane.y });
+    const to = flow.screenToFlowPosition({ x: pane.right, y: pane.bottom });
+    if (item.x >= from.x && item.y >= from.y && item.x + item.w <= to.x && item.y + item.h <= to.y)
+      return;
+    const bounds = boundsOfRects([...others, item]);
+    // No animation: a cable drag may start right after the click.
+    void flow.setViewport(getViewportForBounds(bounds, pane.width, pane.height, 0.2, 1, 0.1));
+  };
+
+  const addAtCenter = (spec: SpecId) => {
+    const { pane, center } = viewCenter();
     const { layout, net } = getLab();
     const placed = [...net.devices.values()].flatMap((d) => {
       const at = layout[d.id];
@@ -35,33 +63,26 @@ export function Palette() {
     });
     const at = freeSpot(spec, center, placed);
     addDevice(spec, at);
-    if (!pane) return;
-    // The free spot can be outside the view: zoom out so the new device is never lost.
-    const size = FOOTPRINT[spec];
-    const from = flow.screenToFlowPosition({ x: pane.x, y: pane.y });
-    const to = flow.screenToFlowPosition({ x: pane.right, y: pane.bottom });
-    if (at.x >= from.x && at.y >= from.y && at.x + size.w <= to.x && at.y + size.h <= to.y) return;
-    const bounds = boundsOf([...placed, { spec, at }]);
-    // No animation: a cable drag may start right after the click.
-    void flow.setViewport(getViewportForBounds(bounds, pane.width, pane.height, 0.2, 1, 0.1));
+    reveal(pane, { ...at, ...FOOTPRINT[spec] }, deviceRects());
   };
 
-  /** Notes and zones go to the middle of the view, a little lower for each one already there. */
+  /** Notes and zones go to the free spot nearest the middle of the view. */
   const addAnnotation = (kind: 'note' | 'zone') => {
-    const pane = document.querySelector('.react-flow')?.getBoundingClientRect();
-    const center = pane
-      ? flow.screenToFlowPosition({ x: pane.x + pane.width / 2, y: pane.y + pane.height / 2 })
-      : { x: 0, y: 0 };
+    const { pane, center } = viewCenter();
     const { notes, zones } = getLab();
-    const shift = ((kind === 'note' ? notes.length : zones.length) % 5) * 24;
-    if (kind === 'note') {
-      addNote({ x: center.x - LIMITS.noteWidth.start / 2 + shift, y: center.y - 30 + shift });
-    } else {
-      addZone({
-        x: center.x - LIMITS.zoneWidth.start / 2 + shift,
-        y: center.y - LIMITS.zoneHeight.start / 2 + shift,
-      });
-    }
+    const taken: Rect[] = [
+      ...deviceRects(),
+      ...notes.map((n) => ({ x: n.x, y: n.y, w: n.w, h: NOTE_HEIGHT })),
+      ...zones,
+    ];
+    const size =
+      kind === 'note'
+        ? { w: LIMITS.noteWidth.start, h: NOTE_HEIGHT }
+        : { w: LIMITS.zoneWidth.start, h: LIMITS.zoneHeight.start };
+    const at = freeRect(size, center, taken);
+    if (kind === 'note') addNote(at);
+    else addZone(at);
+    reveal(pane, { ...at, ...size }, taken);
   };
 
   const deviceButton = (id: SpecId) => {
