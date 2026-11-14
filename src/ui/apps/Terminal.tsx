@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import {
+  closeExplanation,
   completeInput,
+  explainLastFailure,
   interruptCommand,
   prompt,
   runCommand,
@@ -9,9 +11,13 @@ import {
   useLab,
 } from '../lab.ts';
 
+/** Secondary button on the terminal's dark surface. */
+const SECONDARY =
+  'rounded border border-(--nf-border) px-3 py-1 text-xs text-(--nf-term-text) hover:bg-(--nf-raised) hover:text-(--nf-text)';
+
 /** A device's shell. Up/Down browse history, Tab completes, Ctrl+C stops a command. */
 export function Terminal({ deviceId }: { deviceId: string }) {
-  const { net } = useLab();
+  const { net, why } = useLab();
   const device = net.devices.get(deviceId);
   const s = session(deviceId);
   const [input, setInput] = useState('');
@@ -37,6 +43,8 @@ export function Terminal({ deviceId }: { deviceId: string }) {
   if (!device) return null;
 
   const onKeyDown = (e: KeyboardEvent) => {
+    // Keys on the explanation's buttons are theirs, not the shell's.
+    if (e.target instanceof HTMLButtonElement) return;
     if (e.ctrlKey && e.key.toLowerCase() === 'c' && running) {
       e.preventDefault();
       interruptCommand(deviceId);
@@ -67,6 +75,8 @@ export function Terminal({ deviceId }: { deviceId: string }) {
     }
   };
 
+  const explanation = why?.terminal === deviceId ? why.explanation : null;
+
   return (
     <section
       className="flex h-full min-h-0 flex-col bg-(--nf-term-bg)"
@@ -93,6 +103,15 @@ export function Terminal({ deviceId }: { deviceId: string }) {
             </div>
           );
         })}
+        {s.failed && !running && !explanation && (
+          <button
+            type="button"
+            className={`${SECONDARY} my-1 block font-sans`}
+            onClick={() => explainLastFailure(deviceId)}
+          >
+            Why did this fail?
+          </button>
+        )}
         <label className="flex">
           {typing && (
             <span className="nf-prompt text-(--nf-term-prompt)">
@@ -111,6 +130,38 @@ export function Terminal({ deviceId }: { deviceId: string }) {
           />
         </label>
       </div>
+      {explanation && (
+        <div
+          role="region"
+          aria-label="Failure explanation"
+          className="max-h-44 shrink-0 overflow-y-auto border-t border-(--nf-hw-edge) px-3 py-2 text-[13px] leading-5 text-(--nf-term-text)"
+        >
+          <p className="font-semibold">What went wrong</p>
+          <p className="mt-1">{explanation.text}</p>
+          {explanation.fix && (
+            <code className="mt-2 block rounded bg-(--nf-hw) px-2 py-1 font-mono text-xs break-all text-(--nf-hw-text)">
+              {explanation.fix}
+            </code>
+          )}
+          <div className="mt-2 flex gap-2">
+            {explanation.fix && (
+              <button
+                type="button"
+                className="rounded bg-(--nf-accent) px-3 py-1 text-xs font-semibold text-(--nf-on-accent) hover:opacity-90"
+                onClick={() => {
+                  setInput(explanation.fix ?? '');
+                  inputRef.current?.focus();
+                }}
+              >
+                Copy to input
+              </button>
+            )}
+            <button type="button" className={SECONDARY} onClick={closeExplanation}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

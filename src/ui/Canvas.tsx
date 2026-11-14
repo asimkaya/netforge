@@ -56,7 +56,7 @@ function cableVlanColor(l: Link): string | null {
 }
 
 export function Canvas({ onShowPanel }: { onShowPanel: (tab?: Tab) => void }) {
-  const { net, layout, selected, mode } = useLab();
+  const { net, layout, selected, mode, why } = useLab();
   const [selectedCable, setSelectedCable] = useState<string | null>(null);
   const [menu, setMenu] = useState<PortMenuState | null>(null);
   const [deviceMenu, setDeviceMenu] = useState<DeviceMenuState | null>(null);
@@ -91,7 +91,8 @@ export function Canvas({ onShowPanel }: { onShowPanel: (tab?: Tab) => void }) {
         deviceId: d.id,
         version: net.version,
         activity: activity[d.id] ?? {},
-        focused: focus?.devices.includes(d.id) ?? false,
+        // Task highlights and the device a failure explanation points at.
+        focused: (focus?.devices.includes(d.id) ?? false) || why?.explanation.deviceId === d.id,
       },
       ...(size ? { measured: size } : {}),
     };

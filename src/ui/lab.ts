@@ -1,4 +1,10 @@
 import { useSyncExternalStore } from 'react';
+import {
+  commandFailed,
+  explainFailure,
+  type CommandRun,
+  type Explanation,
+} from '../engine/explain.ts';
 import { Network } from '../engine/network.ts';
 import type { Port } from '../engine/port.ts';
 import { complete, run, type Process } from '../engine/shell.ts';
@@ -21,6 +27,10 @@ export interface TerminalSession {
   process: Process | null;
   /** Lines typed while a command was running; they run when it exits, like type-ahead. */
   queue: string[];
+  /** The latest command if it failed (ping, curl...) and "Why did this fail?" can explain it. */
+  failed: CommandRun | null;
+  /** The running command was stopped with Ctrl+C, so its result says nothing. */
+  interrupted: boolean;
 }
 
 export type WindowTab = 'physical' | 'config' | 'desktop' | 'cli';
@@ -56,6 +66,8 @@ export interface LabState {
   /** Short message shown as a toast. */
   notice: string | null;
   tasks: TaskProgress;
+  /** The explanation shown under a terminal, until it is closed or the next command runs. */
+  why: { terminal: string; explanation: Explanation } | null;
 }
 
 /**
@@ -90,6 +102,7 @@ function freshState({ net, layout, tasks }: Project): LabState {
     mode: 'realtime',
     commands: [],
     notice: null,
+    why: null,
   };
 }
 
@@ -185,6 +198,7 @@ export function removeDevice(id: string): void {
     layout,
     selected: state.selected === id ? null : state.selected,
     windows: state.windows.filter((w) => w.device !== id),
+    ...(state.why?.terminal === id || state.why?.explanation.deviceId === id ? { why: null } : {}),
   });
 }
 
@@ -244,7 +258,10 @@ export function openTerminal(id: string): void {
 }
 
 export function closeWindow(id: string): void {
-  update({ windows: state.windows.filter((w) => w.device !== id) });
+  update({
+    windows: state.windows.filter((w) => w.device !== id),
+    ...(state.why?.terminal === id ? { why: null } : {}),
+  });
 }
 
 export function focusWindow(id: string): void {
@@ -287,7 +304,7 @@ export function setMode(mode: Mode): void {
 export function session(id: string): TerminalSession {
   let s = sessions.get(id);
   if (!s) {
-    s = { lines: [], history: [], process: null, queue: [] };
+    s = { lines: [], history: [], process: null, queue: [], failed: null, interrupted: false };
     sessions.set(id, s);
   }
   return s;
@@ -306,6 +323,9 @@ export function runCommand(id: string, line: string): void {
     return;
   }
   s.lines.push(`${prompt(device.name)}${line}`);
+  s.failed = null;
+  s.interrupted = false;
+  if (state.why?.terminal === id) state = { ...state, why: null };
   const trimmed = line.trim();
   if (trimmed) s.history.push(trimmed);
   if (trimmed === 'clear') {
@@ -315,15 +335,22 @@ export function runCommand(id: string, line: string): void {
     // A command may exit before run() returns (ping with no route): then it must not
     // be kept as the running process.
     let exited = false;
+    const output: string[] = [];
+    const after = state.net.dropSeq;
     const proc = run(state.net, device, trimmed, {
       history: s.history,
       out: (text) => {
         s.lines.push(text);
+        output.push(text);
+        if (output.length > MAX_CAPTURED) output.shift();
         emit();
       },
       exit: () => {
         exited = true;
         s.process = null;
+        if (!s.interrupted && commandFailed(trimmed, output)) {
+          s.failed = { line: trimmed, output, after, until: state.net.dropSeq };
+        }
         const next = s.queue.shift();
         if (next !== undefined) runCommand(id, next);
         emit();
@@ -363,6 +390,7 @@ export function interruptCommand(id: string): void {
   const s = sessions.get(id);
   if (!s?.process) return;
   s.lines.push('^C');
+  s.interrupted = true;
   s.queue = [];
   if (s.process.signal) {
     // Interactive programs (ssh) handle Ctrl+C themselves and keep running.
@@ -384,6 +412,22 @@ export function sendInput(id: string, line: string): void {
   if (!secret && line.trim()) s.history.push(line.trim());
   proc.input(line);
   emit();
+}
+
+/** Lines of output kept to decide whether a command failed. */
+const MAX_CAPTURED = 400;
+
+/** Explains the failed command of a terminal in a panel there, and points at the culprit. */
+export function explainLastFailure(id: string): void {
+  const failed = sessions.get(id)?.failed;
+  const device = state.net.devices.get(id);
+  if (!failed || !device) return;
+  const explanation = explainFailure(state.net, device, failed);
+  if (explanation) update({ why: { terminal: id, explanation } });
+}
+
+export function closeExplanation(): void {
+  if (state.why) update({ why: null });
 }
 
 export function prompt(name: string): string {
