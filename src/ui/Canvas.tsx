@@ -313,6 +313,8 @@ export function Canvas({ onShowPanel }: { onShowPanel: (tab?: Tab) => void }) {
         connectionLineStyle={{ stroke: 'var(--nf-accent)', strokeWidth: 2.5 }}
         deleteKeyCode={['Delete', 'Backspace']}
         defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+        // React Flow stops at 0.5 by default, too close to fit a lab of a hundred devices.
+        minZoom={0.1}
         maxZoom={2}
         aria-label="Network topology canvas"
       >

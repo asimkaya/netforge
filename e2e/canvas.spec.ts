@@ -155,3 +155,21 @@ test('a new note and zone land clear of the devices of a ready network', async (
   );
   expect(top).toBe('zone-z1');
 });
+
+test('Fit View shows every device of a big lab', async ({ page }) => {
+  await page.goto('/');
+  const addPc = page.getByRole('button', { name: 'Add PC', exact: true });
+  for (let i = 0; i < 150; i++) await addPc.click();
+  await page.getByRole('button', { name: 'Fit View' }).click();
+  const pane = await page.locator('.react-flow').boundingBox();
+  if (!pane) throw new Error('no canvas');
+  for (const name of ['pc1', 'pc75', 'pc150']) {
+    const box = await page.getByTestId(`device-${name}`).boundingBox();
+    if (!box) throw new Error(`no ${name}`);
+    // One pixel of slack for sub-pixel rounding at the edge.
+    expect(box.x).toBeGreaterThanOrEqual(pane.x - 1);
+    expect(box.y).toBeGreaterThanOrEqual(pane.y - 1);
+    expect(box.x + box.width).toBeLessThanOrEqual(pane.x + pane.width + 1);
+    expect(box.y + box.height).toBeLessThanOrEqual(pane.y + pane.height + 1);
+  }
+});
