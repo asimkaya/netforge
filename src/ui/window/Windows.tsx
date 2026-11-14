@@ -14,6 +14,7 @@ import {
 } from '../lab.ts';
 import { ConfigTab, DesktopTab, PhysicalTab } from './tabs.tsx';
 import { Terminal } from '../apps/Terminal.tsx';
+import { ErrorBoundary, WindowCrash } from '../ErrorBoundary.tsx';
 
 const TAB_LABEL: Record<WindowTab, string> = {
   physical: 'Physical',
@@ -135,10 +136,16 @@ function Window({ win, bounds }: { win: DeviceWindow; bounds: () => DOMRect | un
         ))}
       </div>
       <div role="tabpanel" aria-label={TAB_LABEL[win.tab]} className="min-h-0 flex-1 overflow-auto">
-        {win.tab === 'physical' && <PhysicalTab device={device} />}
-        {win.tab === 'config' && <ConfigTab device={device} />}
-        {win.tab === 'desktop' && <DesktopTab device={device} app={win.app} />}
-        {win.tab === 'cli' && <Terminal deviceId={device.id} />}
+        {/* Keyed by the view, so switching tab or app clears an error shown for another view. */}
+        <ErrorBoundary
+          key={`${win.tab}/${win.app ?? ''}`}
+          fallback={(error, retry) => <WindowCrash error={error} retry={retry} />}
+        >
+          {win.tab === 'physical' && <PhysicalTab device={device} />}
+          {win.tab === 'config' && <ConfigTab device={device} />}
+          {win.tab === 'desktop' && <DesktopTab device={device} app={win.app} />}
+          {win.tab === 'cli' && <Terminal deviceId={device.id} />}
+        </ErrorBoundary>
       </div>
     </section>
   );
