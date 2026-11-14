@@ -25,10 +25,13 @@ test('a finished task makes a report that "Check a report" confirms, and edits a
   const text = await readFile(await file.path(), 'utf8');
   expect(text).toContain('Ada Lovelace');
 
-  // The name is remembered: the next report downloads at once.
-  const again = page.waitForEvent('download');
+  // The name is remembered and can be changed for the next report.
   await labMenu(page, 'Download progress report');
-  await again;
+  await expect(prompt.getByLabel(/Your name/)).toHaveValue('Ada Lovelace');
+  await prompt.getByLabel(/Your name/).fill('Grace Hopper');
+  const again = page.waitForEvent('download');
+  await prompt.getByRole('button', { name: 'Download report' }).click();
+  expect(await readFile((await (await again).path()) ?? '', 'utf8')).toContain('Grace Hopper');
   await expect(prompt).toHaveCount(0);
 
   const checkInput = page.getByLabel('Check a report file');

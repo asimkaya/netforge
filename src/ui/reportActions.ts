@@ -21,7 +21,7 @@ export function show(next: Panel): void {
 }
 
 /** The remembered name; null if none was ever given (an empty string means "no name"). */
-function rememberedName(): string | null {
+export function rememberedName(): string | null {
   try {
     return localStorage.getItem(NAME_KEY);
   } catch {
@@ -48,11 +48,12 @@ export async function save(name: string): Promise<void> {
   }
 }
 
-/** Lab menu and end of a task: downloads the report, asking for a name the first time. */
+/**
+ * Lab menu and end of a task: asks for the name (filled in with the remembered one, so it can
+ * be corrected, e.g. on a shared classroom computer), then downloads the report.
+ */
 export function downloadReport(): void {
-  const name = rememberedName();
-  if (name === null) show({ kind: 'name' });
-  else void save(name);
+  show({ kind: 'name' });
 }
 
 /** Lab menu → Check a report: reads the picked file and shows what it says. */

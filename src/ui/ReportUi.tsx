@@ -2,7 +2,14 @@ import { useState, useSyncExternalStore, type FormEvent, type KeyboardEvent } fr
 import { loadLab, notify } from './lab.ts';
 import { parseProject } from './project.ts';
 import type { CheckedReport, ReportEntry } from './report.ts';
-import { getPanel, rememberName, save, show, subscribePanel } from './reportActions.ts';
+import {
+  getPanel,
+  rememberName,
+  rememberedName,
+  save,
+  show,
+  subscribePanel,
+} from './reportActions.ts';
 import { confirmReplace } from './storage.ts';
 
 const PRIMARY =
@@ -19,7 +26,7 @@ const closeOnEscape = (e: KeyboardEvent<HTMLElement>) => {
 };
 
 function NamePrompt() {
-  const [name, setName] = useState('');
+  const [name, setName] = useState(() => rememberedName() ?? '');
   const submit = (e: FormEvent) => {
     e.preventDefault();
     rememberName(name.trim());
@@ -44,7 +51,7 @@ function NamePrompt() {
           className={FIELD}
         />
       </label>
-      <p className="text-(--nf-muted)">NetForge asks once and remembers it in this browser.</p>
+      <p className="text-(--nf-muted)">Remembered in this browser for the next report.</p>
       <div className="flex gap-2">
         <button type="submit" className={PRIMARY}>
           Download report
