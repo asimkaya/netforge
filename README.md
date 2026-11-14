@@ -9,7 +9,8 @@ Build, wire and debug computer networks right in your browser. No install, no ac
 NetForge is an open-source network simulator for learning. Drop hosts, switches and
 routers on a canvas, connect them, configure them from a Linux-style shell, and watch
 packets travel hop by hop. Guided tasks take you from "two machines that can ping each
-other" to VLANs, routing, NAT, firewalls and VPNs.
+other" to VLANs, routing, NAT, firewalls and VPNs. NetForge works offline after the first
+visit.
 
 > **Status:** Phases 0–6 are done: PCs, laptops, phones, servers, switches, access points,
 > Linux routers and an Internet cloud; Wi-Fi, VLANs, Spanning Tree, static and OSPF

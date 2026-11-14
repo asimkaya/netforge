@@ -50,7 +50,7 @@ comes next.
   `dhcp.ts` (dhclient), `dns.ts` (resolver), `tcp.ts` (TCP), `http.ts` (httpd, client),
   `drops.ts` (the record of discarded packets and why) with `explain.ts` (turns it into the
   "Why did this fail?" answer), `mail.ts` (SMTP, POP3), `wifi.ts` (hostapd, association, range), `fs.ts` (device
-  files), and the Linux-style commands in `shell.ts` with `shell-files.ts`,
+  files), `script.ts` (a lab as the Linux commands that configure it), and the Linux-style commands in `shell.ts` with `shell-files.ts`,
   `shell-services.ts`, `shell-firewall.ts`, `shell-routing.ts`, `shell-ip6.ts` and
   `shell-wireguard.ts`. Commands may be interactive: a `Process` can take input lines and
   show its own prompt (ssh), and pipelines pass output lines as `stdin`.
@@ -74,7 +74,7 @@ comes next.
   VLANs, STP, OSPF and the firewall) and their apps in `apps/` (Terminal, IP Configuration,
   Web Browser, Text Editor, Mail, Packet Capture, Wi-Fi).
 - `history.ts` keeps undo snapshots of the lab file format; `share.ts` packs a lab into a
-  `#lab=` link; `placement.ts` finds a free spot for new devices. Apps call the same engine methods as the shell, so the GUI and the
+  `#lab=` link; `placement.ts` finds a free spot for new devices; `report.ts` builds and checks the progress report (one HTML file with a verification code and an embedded lab). Apps call the same engine methods as the shell, so the GUI and the
   CLI never disagree.
 - `net.locate` is set by the UI store to device centers on the canvas; Wi-Fi range uses it,
   and moving a device re-checks range.
@@ -99,6 +99,8 @@ comes next.
   Copy and paste (`src/ui/clipboard.ts`) work on the network snapshot, so new device
   settings are copied without extra code.
 - `src/ui/storage.ts` autosaves to IndexedDB and exports/imports files.
+- `public/sw.js` is a small service worker that caches the app for offline use (registered by
+  `src/ui/offline.ts` in production builds only); `vite.config.ts` stamps it with the build id.
 - Bump `PROJECT_VERSION` on incompatible changes and migrate older files. Never break old
   save files.
 
