@@ -418,6 +418,11 @@ export class Network implements Fabric {
     });
   }
 
+  /** Sequence number of the latest drop: a command's drops are the ones after its start. */
+  get dropSeq(): number {
+    return this.#counters.drop;
+  }
+
   drop(
     device: Device,
     port: Port | null,
