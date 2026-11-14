@@ -31,6 +31,25 @@ test('Ctrl+C stops a running ping', async ({ page }) => {
   await expect(win(page, 'pc1').getByRole('textbox', { name: 'Command' })).toBeFocused();
 });
 
+test('the terminal keeps working after a command that fails at once, and Tab completes', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await add(page, 'PC');
+  // No route: ping gives up before it really starts. The prompt must come back.
+  await run(page, 'pc1', 'ping -c 1 8.8.8.8');
+  const log = win(page, 'pc1').getByRole('log');
+  await expect(log).toContainText('ping: connect: Network is unreachable');
+  await run(page, 'pc1', 'ping -c 1 127.0.0.1; echo done');
+  await expect(log).toContainText('1 packets transmitted, 1 received');
+  await expect(log).toContainText('done');
+  const input = win(page, 'pc1').getByRole('textbox', { name: 'Command' });
+  await input.fill('tracer');
+  await input.press('Tab');
+  await expect(input).toHaveValue('traceroute ');
+  await expect(input).toBeFocused();
+});
+
 test('a second cable that would form a loop is refused with a message', async ({ page }) => {
   await page.goto('/');
   await add(page, 'Switch', 2);

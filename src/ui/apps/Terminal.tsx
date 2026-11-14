@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { interruptCommand, prompt, runCommand, sendInput, session, useLab } from '../lab.ts';
+import {
+  completeInput,
+  interruptCommand,
+  prompt,
+  runCommand,
+  sendInput,
+  session,
+  useLab,
+} from '../lab.ts';
 
-/** A device's shell. Up/Down browse history, Ctrl+C stops a command. */
+/** A device's shell. Up/Down browse history, Tab completes, Ctrl+C stops a command. */
 export function Terminal({ deviceId }: { deviceId: string }) {
   const { net } = useLab();
   const device = net.devices.get(deviceId);
@@ -34,12 +42,20 @@ export function Terminal({ deviceId }: { deviceId: string }) {
       interruptCommand(deviceId);
       return;
     }
-    if (!typing) return;
+    if (e.key === 'Tab' && !e.ctrlKey && !e.altKey) {
+      // Tab belongs to the shell: it must not move focus out of the terminal.
+      e.preventDefault();
+      if (!running) setInput(completeInput(deviceId, input));
+      return;
+    }
     if (e.key === 'Enter') {
-      if (running) sendInput(deviceId, input);
+      // While a command runs, the line is typed ahead and runs when it exits.
+      if (running && typing) sendInput(deviceId, input);
       else runCommand(deviceId, input);
       setInput('');
       setHistoryIndex(null);
+    } else if (!typing) {
+      return;
     } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault();
       const { history } = s;
@@ -70,29 +86,21 @@ export function Terminal({ deviceId }: { deviceId: string }) {
         {s.lines.map((line, i) => (
           <div key={i}>{line || ' '}</div>
         ))}
-        {running && !typing ? (
-          // Keeps keyboard focus inside the terminal so Ctrl+C reaches it.
+        <label className="flex">
+          {typing && (
+            <span className="text-emerald-400">{programPrompt ?? prompt(device.name)}</span>
+          )}
           <input
             ref={inputRef}
-            className="h-0 w-0 opacity-0"
-            aria-label="Running command"
-            readOnly
+            value={input}
+            type={secret ? 'password' : 'text'}
+            onChange={(e) => setInput(e.target.value)}
+            className="min-w-0 flex-1 bg-transparent outline-none"
+            spellCheck={false}
+            autoComplete="off"
+            aria-label={secret ? 'Password' : 'Command'}
           />
-        ) : (
-          <label className="flex">
-            <span className="text-emerald-400">{programPrompt ?? prompt(device.name)}</span>
-            <input
-              ref={inputRef}
-              value={input}
-              type={secret ? 'password' : 'text'}
-              onChange={(e) => setInput(e.target.value)}
-              className="min-w-0 flex-1 bg-transparent outline-none"
-              spellCheck={false}
-              autoComplete="off"
-              aria-label={secret ? 'Password' : 'Command'}
-            />
-          </label>
-        )}
+        </label>
       </div>
     </section>
   );

@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { Network } from '../engine/network.ts';
 import type { Port } from '../engine/port.ts';
-import { run, type Process } from '../engine/shell.ts';
+import { complete, run, type Process } from '../engine/shell.ts';
 import type { SpecId } from '../engine/specs.ts';
 import { checkWireless } from '../engine/wifi.ts';
 import { FOOTPRINT } from './placement.ts';
@@ -18,6 +18,8 @@ export interface TerminalSession {
   lines: string[];
   history: string[];
   process: Process | null;
+  /** Lines typed while a command was running; they run when it exits, like type-ahead. */
+  queue: string[];
 }
 
 export type WindowTab = 'physical' | 'config' | 'desktop' | 'cli';
@@ -126,6 +128,7 @@ export function useLab(): LabState {
 /** Replaces the whole lab (new task, import, restore from storage). */
 export function loadLab(project: Project, options: { keepWindows?: boolean } = {}): void {
   for (const session of sessions.values()) {
+    session.queue = [];
     session.process?.interrupt();
     session.process = null;
   }
@@ -171,7 +174,9 @@ export function moveDevice(id: string, to: Point): void {
 export function removeDevice(id: string): void {
   const device = state.net.devices.get(id);
   if (!device) return;
-  sessions.get(id)?.process?.interrupt();
+  const old = sessions.get(id);
+  if (old) old.queue = [];
+  old?.process?.interrupt();
   sessions.delete(id);
   const layout = Object.fromEntries(Object.entries(state.layout).filter(([key]) => key !== id));
   state.net.removeDevice(device);
@@ -269,7 +274,7 @@ export function setMode(mode: Mode): void {
 export function session(id: string): TerminalSession {
   let s = sessions.get(id);
   if (!s) {
-    s = { lines: [], history: [], process: null };
+    s = { lines: [], history: [], process: null, queue: [] };
     sessions.set(id, s);
   }
   return s;
@@ -279,7 +284,14 @@ export function session(id: string): TerminalSession {
 export function runCommand(id: string, line: string): void {
   const device = state.net.devices.get(id);
   const s = session(id);
-  if (!device || s.process) return;
+  if (!device) return;
+  if (s.process) {
+    // Typed ahead: echo it now, run it when the current command exits.
+    s.lines.push(line);
+    s.queue.push(line);
+    emit();
+    return;
+  }
   s.lines.push(`${prompt(device.name)}${line}`);
   const trimmed = line.trim();
   if (trimmed) s.history.push(trimmed);
@@ -287,25 +299,58 @@ export function runCommand(id: string, line: string): void {
     s.lines = [];
   } else if (trimmed) {
     state.commands = [...state.commands, { device: id, line: trimmed }];
+    // A command may exit before run() returns (ping with no route): then it must not
+    // be kept as the running process.
+    let exited = false;
     const proc = run(state.net, device, trimmed, {
+      history: s.history,
       out: (text) => {
         s.lines.push(text);
         emit();
       },
       exit: () => {
+        exited = true;
         s.process = null;
+        const next = s.queue.shift();
+        if (next !== undefined) runCommand(id, next);
         emit();
       },
     });
-    if (proc) s.process = proc;
+    if (proc && !exited) s.process = proc;
+  }
+  if (!s.process) {
+    const next = s.queue.shift();
+    if (next !== undefined) runCommand(id, next);
   }
   emit();
+}
+
+/**
+ * Tab in a terminal: returns the input with its last word completed as far as the
+ * candidates agree, and lists them when there are several, like bash.
+ */
+export function completeInput(id: string, input: string): string {
+  const device = state.net.devices.get(id);
+  if (!device) return input;
+  const found = complete(device, input);
+  const [first] = found;
+  if (first === undefined) return input;
+  const last = input.split(/\s+/).at(-1) ?? '';
+  let common = first;
+  for (const c of found) while (!c.startsWith(common)) common = common.slice(0, -1);
+  if (found.length > 1 && common === last) {
+    session(id).lines.push(`${prompt(device.name)}${input}`, found.join('  '));
+    emit();
+  }
+  const done = found.length === 1 && !common.endsWith('/') ? ' ' : '';
+  return input.slice(0, input.length - last.length) + common + done;
 }
 
 export function interruptCommand(id: string): void {
   const s = sessions.get(id);
   if (!s?.process) return;
   s.lines.push('^C');
+  s.queue = [];
   if (s.process.signal) {
     // Interactive programs (ssh) handle Ctrl+C themselves and keep running.
     s.process.signal();
