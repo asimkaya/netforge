@@ -1,9 +1,11 @@
 import { useReactFlow } from '@xyflow/react';
 import { useState, type ReactNode } from 'react';
 import type { CustomTask } from '../tasks/custom.ts';
+import { CHALLENGES } from '../tasks/challenges.ts';
 import { TASKS, findTask, type Task } from '../tasks/tasks.ts';
 import { TaskEditor } from './TaskEditor.tsx';
 import { continueTask, getLab, loadLab, notify, setTasks, useLab } from './lab.ts';
+import { loadChallenge } from './challengeStart.ts';
 import { SCENARIOS } from './scenarios.ts';
 import { loadStart, showAll } from './taskStart.ts';
 
@@ -317,10 +319,70 @@ function Scenarios() {
   );
 }
 
-export type Tab = 'tasks' | 'networks';
+function Troubleshooting() {
+  const { tasks } = useLab();
+  const flow = useReactFlow();
+  const isDone = (id: string) => (tasks.steps[id] ?? 0) >= (findTask(id)?.steps.length ?? 1);
+  const doneCount = CHALLENGES.filter((c) => isDone(c.id)).length;
+  const next = CHALLENGES.find((c) => !isDone(c.id));
+  return (
+    <div className="space-y-4">
+      <div className="space-y-1">
+        <p className="text-xs text-(--nf-muted)">
+          Each challenge hands you a network that used to work. Reproduce the complaint, find the
+          fault and fix it. The failure explanation in the terminal and three hints are there to
+          help.
+        </p>
+        <div className="flex items-center gap-2 text-xs text-(--nf-muted)">
+          <div className="flex-1">
+            <Progress value={doneCount} max={CHALLENGES.length} />
+          </div>
+          {doneCount}/{CHALLENGES.length} fixed
+        </div>
+      </div>
+      <ul className="divide-y divide-(--nf-border) border-y border-(--nf-border)">
+        {CHALLENGES.map((c) => {
+          const done = isDone(c.id);
+          return (
+            <li key={c.id} className="relative py-3 pl-3" aria-label={c.title}>
+              {c === next && (
+                <span aria-hidden className="absolute inset-y-0 left-0 w-[3px] bg-(--nf-accent)" />
+              )}
+              <p className="text-xs text-(--nf-muted)">{c.level}</p>
+              <h3
+                className={`flex items-center gap-1 font-semibold ${done ? 'text-(--nf-muted)' : ''}`}
+              >
+                {done && (
+                  <span className="text-(--nf-ok)">
+                    <Check label="completed" />
+                  </span>
+                )}
+                {c.title}
+              </h3>
+              <p className="mt-0.5 text-xs text-(--nf-muted)">{c.symptom}</p>
+              <div className="mt-2">
+                <ReplaceButton
+                  primary={c === next}
+                  onConfirm={() => loadChallenge(c, flow)}
+                  replaceLabel="Load the broken network"
+                  label={`${done ? 'Play again' : 'Start'}: ${c.title}`}
+                >
+                  {done ? 'Play again' : 'Start'}
+                </ReplaceButton>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+export type Tab = 'tasks' | 'networks' | 'troubleshooting';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'tasks', label: 'Guided tasks' },
   { id: 'networks', label: 'Ready networks' },
+  { id: 'troubleshooting', label: 'Troubleshooting' },
 ];
 
 function Home({
@@ -353,7 +415,9 @@ function Home({
           </button>
         ))}
       </div>
-      {tab === 'tasks' ? <GuidedTasks onEdit={onEdit} /> : <Scenarios />}
+      {tab === 'tasks' && <GuidedTasks onEdit={onEdit} />}
+      {tab === 'networks' && <Scenarios />}
+      {tab === 'troubleshooting' && <Troubleshooting />}
     </div>
   );
 }
@@ -361,12 +425,16 @@ function Home({
 function ActiveTask() {
   const { tasks } = useLab();
   const [hintFor, setHintFor] = useState<number | null>(null);
+  // Challenges reveal their hints one by one.
+  const [hintsShown, setHintsShown] = useState(0);
   const task = findTask(tasks.active, tasks.custom);
   if (!task) return null;
   const completed = tasks.steps[task.id] ?? 0;
   const finished = completed >= task.steps.length;
   const quit = () => setTasks({ ...tasks, active: null });
-  const following = TASKS[TASKS.findIndex((t) => t.id === task.id) + 1];
+  const at = TASKS.findIndex((t) => t.id === task.id);
+  const following = at < 0 ? undefined : TASKS[at + 1];
+  const hints = task.hints ?? [];
 
   return (
     <section className="space-y-3 p-4 text-sm" aria-label="Current task">
@@ -380,6 +448,12 @@ function ActiveTask() {
         </span>
       </div>
       <Progress value={completed} max={task.steps.length} />
+      {task.symptom && (
+        <p className="border-l-[3px] border-(--nf-warn) bg-(--nf-raised) p-2 text-xs">
+          <span className="font-semibold">The complaint: </span>
+          {task.symptom}
+        </p>
+      )}
       <ol>
         {task.steps.map((step, i) => {
           const state = i < completed ? 'done' : i === completed ? 'current' : 'todo';
@@ -434,6 +508,21 @@ function ActiveTask() {
           );
         })}
       </ol>
+      {!finished && hints.length > 0 && (
+        <div className="space-y-2 text-xs">
+          {hints.slice(0, hintsShown).map((hint, i) => (
+            <p key={hint} className="border-l border-(--nf-border) pl-3 text-(--nf-muted)">
+              <span className="font-semibold text-(--nf-text)">Hint {i + 1}: </span>
+              <Rich text={hint} />
+            </p>
+          ))}
+          {hintsShown < hints.length && (
+            <button type="button" onClick={() => setHintsShown(hintsShown + 1)} className={LINK}>
+              {hintsShown === 0 ? 'Show a hint' : 'Show another hint'}
+            </button>
+          )}
+        </div>
+      )}
       {finished && (
         <div className="space-y-2 border-l-[3px] border-(--nf-ok) bg-(--nf-raised) p-3 text-xs">
           <p role="status">
