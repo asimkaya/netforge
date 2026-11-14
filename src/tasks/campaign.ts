@@ -14,7 +14,7 @@ export const ACTS: Act[] = [
     title: 'Act 2: The office grows',
     taskIds: ['two-networks', 'dhcp', 'vlans', 'inter-vlan'],
   },
-  { id: 'branches', title: 'Act 3: Branches and the Internet', taskIds: ['ospf', 'nat', 'vpn'] },
+  { id: 'branches', title: 'Act 3: Beyond the office', taskIds: ['ospf', 'nat', 'vpn'] },
 ];
 
 export type ChapterState = 'done' | 'available' | 'locked';

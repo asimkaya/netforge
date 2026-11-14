@@ -25,12 +25,13 @@ async function finish(page: Page, ids: string[]) {
 test('a newcomer completes the first guided task', async ({ page }) => {
   await page.goto('/');
   await taskCenter(page);
-  await page.getByRole('button', { name: 'Start: Two computers, one cable' }).click();
+  await page.getByRole('button', { name: 'Start: Day one: connect two desks' }).click();
   await expect(page.getByRole('dialog', { name: 'Task center' })).toHaveCount(0);
 
   const task = page.getByRole('region', { name: 'Current task' });
   const current = task.locator('[aria-current="step"]');
   await expect(task).toContainText('0/5');
+  await expect(task).toContainText('From Maya, office manager');
   await expect(current).toContainText('Add two PCs');
   // The step points at what to use: the PC in the palette glows.
   const addPc = page.getByRole('button', { name: 'Add PC' });
@@ -62,7 +63,7 @@ test('a newcomer completes the first guided task', async ({ page }) => {
   await expect(page.getByRole('region', { name: 'Current task' })).toContainText('5/5');
 
   // The next task goes on with the learner's own network: nothing is cleared, nothing asked.
-  await page.getByRole('button', { name: 'Next task: Meet the switch' }).click();
+  await page.getByRole('button', { name: 'Next task: Room for a third desk' }).click();
   await expect(page.getByRole('alertdialog')).toHaveCount(0);
   await expect(page.getByTestId('device-pc1')).toBeVisible();
   await expect(page.getByTestId('device-pc2')).toBeVisible();
@@ -96,25 +97,25 @@ test('starting a task on a busy canvas asks which network to use', async ({ page
     page.getByRole('button', { name: new RegExp(`^(Start|Play again): ${name}$`) }).click();
 
   // Cancel changes nothing.
-  await start('Reach the Internet through NAT');
+  await start('Get the office online');
   await ask.getByRole('button', { name: 'Cancel' }).click();
   await expect(ask).toHaveCount(0);
   await expect(page.getByRole('dialog', { name: 'Task center' })).toBeVisible();
 
   // Continue: the task runs on the devices that are there.
-  await start('Two computers, one cable');
+  await start('Day one: connect two desks');
   await ask.getByRole('button', { name: 'Continue on my network' }).click();
   const task = page.getByRole('region', { name: 'Current task' });
-  await expect(task).toContainText('Two computers, one cable');
+  await expect(task).toContainText('Day one: connect two desks');
   await expect(page.getByTestId('device-pc1')).toBeVisible();
   // Leaving the task goes back to the Task center.
   await page.getByRole('button', { name: 'Leave task (keep the lab)' }).click();
   await expect(page.getByRole('dialog', { name: 'Task center' })).toBeVisible();
 
   // Load the starting network: the lab becomes what the earlier tasks build.
-  await start('Reach the Internet through NAT');
+  await start('Get the office online');
   await ask.getByRole('button', { name: 'Load the starting network' }).click();
-  await expect(task).toContainText('Reach the Internet through NAT');
+  await expect(task).toContainText('Get the office online');
   await expect(task).toContainText('0/5');
   await expect(task.locator('[aria-current="step"]')).toContainText('Add the Internet');
   // Devices that only exist in that network.
@@ -126,10 +127,10 @@ test('starting a task on a busy canvas asks which network to use', async ({ page
 
 test('an empty canvas starts a later task from its prepared network', async ({ page }) => {
   await page.goto('/');
-  // A lab file with the chapters before it done unlocks "Route between VLANs".
+  // A lab file with the chapters before it done unlocks "Let the teams talk again".
   await finish(page, ['first-ping', 'meet-the-switch', 'two-networks', 'dhcp', 'vlans']);
   await taskCenter(page);
-  await page.getByRole('button', { name: 'Start: Route between VLANs' }).click();
+  await page.getByRole('button', { name: 'Start: Let the teams talk again' }).click();
   await expect(page.getByRole('alertdialog')).toHaveCount(0);
   await expect(page.getByTestId('device-sw1')).toBeVisible();
   await expect(page.getByTestId('device-r1')).toBeVisible();
@@ -163,14 +164,14 @@ test('the Task center is a campaign map where later chapters stay locked', async
   await expect(center).toBeVisible();
   await expect(center).toHaveAttribute('aria-modal', 'true');
   await expect(center).toBeFocused();
-  for (const act of ['Act 1: Your first day', 'Act 2: The office grows', 'Act 3: Branches']) {
+  for (const act of ['Act 1: Your first day', 'Act 2: The office grows', 'Act 3: Beyond']) {
     await expect(center.getByRole('region', { name: new RegExp(act) })).toBeVisible();
   }
   await expect(center).toContainText('0/9 chapters done');
 
   // Chapter 2 is locked: it says what to finish first and has no Start button.
-  const locked = center.getByRole('listitem', { name: 'Meet the switch' });
-  await expect(locked).toContainText('Finish Two computers, one cable first');
+  const locked = center.getByRole('listitem', { name: 'Room for a third desk' });
+  await expect(locked).toContainText('Finish Day one: connect two desks first');
   await expect(locked.getByRole('button')).toHaveCount(0);
 
   // Escape closes the popup and focus goes back to the opener.
@@ -180,7 +181,7 @@ test('the Task center is a campaign map where later chapters stay locked', async
 
   // Starting chapter 1 closes the popup and shows the task in the side panel.
   await opener.click();
-  await page.getByRole('button', { name: 'Start: Two computers, one cable' }).click();
+  await page.getByRole('button', { name: 'Start: Day one: connect two desks' }).click();
   await expect(center).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'Current task' })).toContainText('0/5');
 });

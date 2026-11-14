@@ -24,6 +24,8 @@ export interface Task {
   id: string;
   title: string;
   summary: string;
+  /** A short in-game message from a colleague who asks for the work. */
+  brief?: { from: string; text: string };
   steps: TaskStep[];
   /** Shown when every step is done. */
   done: string;
@@ -262,8 +264,13 @@ function tunnelOf(router: Device) {
 export const TASKS: Task[] = [
   {
     id: 'first-ping',
-    title: 'Two computers, one cable',
-    summary: 'Build the smallest possible network and send your first ping.',
+    title: 'Day one: connect two desks',
+    summary:
+      'Build the smallest possible network, two computers and one cable, and send your first ping.',
+    brief: {
+      from: 'Maya, office manager',
+      text: 'Welcome aboard! Two of us just got new desks and we want to share files between them. Could you get the two computers talking to each other?',
+    },
     steps: [
       {
         title: 'Add two PCs',
@@ -298,13 +305,17 @@ export const TASKS: Task[] = [
         check: ({ net }) => cabledHostPairs(net).some(([a, b]) => pinged(a, [b]) || pinged(b, [a])),
       },
     ],
-    done: 'Congratulations! You have two computers that can talk to each other. Before the first ping, the PC used ARP to find the other PC’s MAC address. Switch to Simulation mode and ping again to watch it happen. Next task: a third computer means you need a switch, and your network keeps growing.',
+    done: 'Maya: “Thanks, our two desks are talking!” Congratulations! You have two computers that can talk to each other. Before the first ping, the PC used ARP to find the other PC’s MAC address. Switch to Simulation mode and ping again to watch it happen. Next task: a third computer means you need a switch, and your network keeps growing.',
   },
   {
     id: 'meet-the-switch',
-    title: 'Meet the switch',
+    title: 'Room for a third desk',
     summary:
       'Replace the cable with a switch, add a third computer and see what the switch learns.',
+    brief: {
+      from: 'Maya, office manager',
+      text: 'Someone new joins on Monday, and one cable between two computers will not stretch to three. Can you set up a way for everybody to plug in?',
+    },
     steps: [
       {
         title: 'Add a switch',
@@ -353,12 +364,16 @@ export const TASKS: Task[] = [
           ),
       },
     ],
-    done: 'Well done! A switch learns which MAC address lives behind which port by reading the source of every frame. Unknown destinations and broadcasts (like ARP requests) go out of every other port. Next task: a second network, joined to this one by a router.',
+    done: 'Maya: “Monday is saved, thank you!” Well done! A switch learns which MAC address lives behind which port by reading the source of every frame. Unknown destinations and broadcasts (like ARP requests) go out of every other port. Next task: a second network, joined to this one by a router.',
   },
   {
     id: 'two-networks',
-    title: 'Two networks, one router',
+    title: 'Open the back office',
     summary: 'Join your switch network to a second network with a router and trace the path.',
+    brief: {
+      from: 'Sam, founder',
+      text: 'We rented the room next door for the back office. It needs its own network, but people there still have to reach our computers. Can you link the two?',
+    },
     steps: [
       {
         title: 'Add a router and a fourth PC',
@@ -422,12 +437,16 @@ export const TASKS: Task[] = [
         check: (ctx) => ran(ctx, /^traceroute\s/, isPc),
       },
     ],
-    done: 'You routed between two networks! The PC saw that the destination was not in its own network, so it sent the packet to its gateway. The router looked up its routing table, lowered the TTL and passed it on. Next task: stop typing addresses by hand.',
+    done: 'Sam: “The back office is connected, great work!” You routed between two networks! The PC saw that the destination was not in its own network, so it sent the packet to its gateway. The router looked up its routing table, lowered the TTL and passed it on. Next task: stop typing addresses by hand.',
   },
   {
     id: 'dhcp',
-    title: 'Automatic addresses with DHCP',
-    summary: 'Let the router hand out addresses, then reach a PC by its name.',
+    title: 'No more sticky notes',
+    summary: 'Let the router hand out addresses with DHCP, then reach a PC by its name.',
+    brief: {
+      from: 'Maya, office manager',
+      text: 'Everyone keeps typing addresses from sticky notes and getting them wrong. Can the network give out addresses by itself, and let us use names instead of numbers?',
+    },
     steps: [
       {
         title: 'Start a DHCP server on the router',
@@ -457,12 +476,16 @@ export const TASKS: Task[] = [
           dhcpSegments(ctx.net).some((s) => s.pcs.some((pc) => pinged(pc, s.pcs))),
       },
     ],
-    done: 'No typing addresses by hand! The PCs broadcast a DHCP Discover, the server offered an address with a gateway and DNS server, and the PCs took it. The server remembered their names, so DNS could answer for them. Next task: split sw1 into separate networks.',
+    done: 'Maya: “No more sticky notes, thank you!” No typing addresses by hand! The PCs broadcast a DHCP Discover, the server offered an address with a gateway and DNS server, and the PCs took it. The server remembered their names, so DNS could answer for them. Next task: split sw1 into separate networks.',
   },
   {
     id: 'vlans',
-    title: 'Split a switch with VLANs',
-    summary: 'Turn one switch into two separate networks without new hardware.',
+    title: 'Keep accounting private',
+    summary: 'Turn one switch into two separate networks with VLANs, without new hardware.',
+    brief: {
+      from: 'Sam, founder',
+      text: 'Accounting works on the same switch as everyone else, and I want their computers kept apart from the rest for privacy. I would rather not buy a second switch.',
+    },
     steps: [
       {
         title: 'Turn on VLAN filtering',
@@ -504,12 +527,16 @@ export const TASKS: Task[] = [
           }),
       },
     ],
-    done: 'No reply: the switch now keeps VLAN 10 and VLAN 20 apart, as if they were two switches. Even ARP broadcasts stay inside their VLAN. To connect VLANs you need a router: give it VLAN interfaces (Router → Config → VLAN interfaces) on a trunk port. That is the next task.',
+    done: 'Sam: “Accounting is private now, perfect.” No reply: the switch now keeps VLAN 10 and VLAN 20 apart, as if they were two switches. Even ARP broadcasts stay inside their VLAN. To connect VLANs you need a router: give it VLAN interfaces (Router → Config → VLAN interfaces) on a trunk port. That is the next task.',
   },
   {
     id: 'inter-vlan',
-    title: 'Route between VLANs',
+    title: 'Let the teams talk again',
     summary: 'Connect the two VLANs through one router cable, a “router on a stick”.',
+    brief: {
+      from: 'Maya, office manager',
+      text: 'Now accounting cannot reach the shared files at all. Can you let the two teams talk again, but only through one controlled point?',
+    },
     steps: [
       {
         title: 'Give each VLAN its own network',
@@ -563,13 +590,17 @@ export const TASKS: Task[] = [
           }),
       },
     ],
-    done: 'The router received each packet tagged with VLAN 10 on eth0.10, routed it, and sent it back down the same cable tagged with VLAN 20. One physical port, two logical networks. Next task: a branch office with a second router.',
+    done: 'Maya: “The teams can share files again, thanks!” The router received each packet tagged with VLAN 10 on eth0.10, routed it, and sent it back down the same cable tagged with VLAN 20. One physical port, two logical networks. Next task: a branch office with a second router.',
   },
   {
     id: 'ospf',
-    title: 'Let routers find the way (OSPF)',
+    title: 'Open the branch office',
     summary:
-      'Add a branch office behind a second router and let the routers learn each other’s networks.',
+      'Add a branch office behind a second router and let the routers learn each other’s networks with OSPF.',
+    brief: {
+      from: 'Priya, branch manager',
+      text: 'We are opening a branch across town and my team needs to reach the headquarters computers. Please connect our router to yours, and have them find each other’s networks on their own.',
+    },
     steps: [
       {
         title: 'Add a second router',
@@ -623,12 +654,16 @@ export const TASKS: Task[] = [
           }),
       },
     ],
-    done: 'Nobody typed a route: the routers said hello, swapped link-state advertisements, and each ran Dijkstra’s shortest path algorithm. Add a third router and a backup link, unplug a cable and watch them reroute. Next task: connect headquarters to the Internet.',
+    done: 'Priya: “The branch is up and running, thank you!” Nobody typed a route: the routers said hello, swapped link-state advertisements, and each ran Dijkstra’s shortest path algorithm. Add a third router and a backup link, unplug a cable and watch them reroute. Next task: connect headquarters to the Internet.',
   },
   {
     id: 'nat',
-    title: 'Reach the Internet through NAT',
-    summary: 'Share one public address with the whole office, then add a firewall.',
+    title: 'Get the office online',
+    summary: 'Share one public address with the whole office using NAT, then add a firewall.',
+    brief: {
+      from: 'Sam, founder',
+      text: 'Everybody needs the Internet, but we pay for only one public address, and I do not want strangers from outside walking in. Can you set that up?',
+    },
     steps: [
       {
         title: 'Add the Internet and connect r1 to it',
@@ -679,12 +714,16 @@ export const TASKS: Task[] = [
           }),
       },
     ],
-    done: 'Your PCs used the router’s public address: NAT rewrote each packet on the way out and remembered the connection (conntrack) to rewrite the replies. The firewall now drops anything that starts outside, while replies to your own connections still come back. Next task: a second office, joined to this one through the Internet.',
+    done: 'Sam: “We are online and safe, excellent!” Your PCs used the router’s public address: NAT rewrote each packet on the way out and remembered the connection (conntrack) to rewrite the replies. The firewall now drops anything that starts outside, while replies to your own connections still come back. Next task: a second office, joined to this one through the Internet.',
   },
   {
     id: 'vpn',
-    title: 'Join two offices with a VPN',
-    summary: 'Connect headquarters to a remote office across the Internet with WireGuard.',
+    title: 'Join the offices with a private tunnel',
+    summary: 'Connect headquarters to a remote office across the Internet with a WireGuard VPN.',
+    brief: {
+      from: 'Priya, branch manager',
+      text: 'My team sends customer files to headquarters over the open Internet and that worries me. Can you build a private, encrypted link between our two offices?',
+    },
     steps: [
       {
         title: 'Add a router and a PC for a remote office',
@@ -751,7 +790,7 @@ export const TASKS: Task[] = [
         },
       },
     ],
-    done: 'Your ping travelled inside an encrypted UDP packet from one router’s public address to the other. The Internet only saw WireGuard traffic; each router accepted the inner packet only because it came from the other office’s allowed IPs. You built a whole company network, one chapter at a time.',
+    done: 'Priya: “Our files travel safely now, thank you!” Your ping travelled inside an encrypted UDP packet from one router’s public address to the other. The Internet only saw WireGuard traffic; each router accepted the inner packet only because it came from the other office’s allowed IPs. You built a whole company network, one chapter at a time.',
   },
 ];
 

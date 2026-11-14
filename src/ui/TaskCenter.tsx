@@ -160,6 +160,11 @@ function Campaign({ onStarted, onEdit }: Actions) {
                     )}
                   </div>
                   <p className="text-xs text-(--nf-muted)">{t.summary}</p>
+                  {t.brief && (
+                    <p className="line-clamp-2 text-xs italic text-(--nf-muted)">
+                      ✉ {t.brief.from}: “{t.brief.text}”
+                    </p>
+                  )}
                   <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
                     {state === 'locked' ? (
                       <span className="text-xs text-(--nf-muted)">

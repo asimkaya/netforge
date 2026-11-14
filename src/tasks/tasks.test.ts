@@ -26,6 +26,13 @@ describe('tasks', () => {
     for (const t of TASKS) expect(t.steps.length).toBeGreaterThan(0);
   });
 
+  it('every chapter has a brief from a colleague', () => {
+    for (const t of TASKS) {
+      expect(t.brief?.from, t.id).toBeTruthy();
+      expect(t.brief?.text, t.id).toBeTruthy();
+    }
+  });
+
   it('first-ping completes step by step as the user builds the network', () => {
     const t = task('first-ping');
     const net = new Network();

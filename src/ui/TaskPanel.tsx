@@ -47,6 +47,12 @@ function ActiveTask({ onLeave, onHide }: { onLeave: () => void; onHide: () => vo
         </span>
       </div>
       <Progress value={completed} max={task.steps.length} />
+      {task.brief && (
+        <blockquote className="rounded border border-(--nf-border) bg-(--nf-raised) p-3 text-xs">
+          <p className="mb-1 font-semibold">✉ From {task.brief.from}</p>
+          <p>{task.brief.text}</p>
+        </blockquote>
+      )}
       {task.symptom && (
         <p className="border-l-[3px] border-(--nf-warn) bg-(--nf-raised) p-2 text-xs">
           <span className="font-semibold">The complaint: </span>

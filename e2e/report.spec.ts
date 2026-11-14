@@ -7,7 +7,7 @@ test('a finished task makes a report that "Check a report" confirms, and edits a
 }) => {
   await page.goto('/');
   await taskCenter(page);
-  await page.getByRole('button', { name: 'Start: Two computers, one cable' }).click();
+  await page.getByRole('button', { name: 'Start: Day one: connect two desks' }).click();
   await add(page, 'PC', 2);
   await connect(page, 'pc1', 'pc2');
   await run(page, 'pc1', 'ip addr add 192.168.1.10/24 dev eth0');
@@ -45,7 +45,7 @@ test('a finished task makes a report that "Check a report" confirms, and edits a
   await expect(result).toContainText('Not edited');
   await expect(result).toContainText('Ada Lovelace');
   await expect(
-    result.getByRole('listitem').filter({ hasText: 'Two computers, one cable' }),
+    result.getByRole('listitem').filter({ hasText: 'Day one: connect two desks' }),
   ).toContainText('Done');
   await expect(result).toContainText('does not prove who did the work');
 

@@ -37,7 +37,7 @@ function twoSites(): Project {
 
 const BASES: Record<ChallengeBase, () => Project> = {
   office: () => SCENARIOS.find((s) => s.id === 'office')?.build() ?? new Lab().done(),
-  // The network the guided tasks have built once "Route between VLANs" is finished.
+  // The network the guided tasks have built once "Let the teams talk again" is finished.
   vlans: () => startOf('ospf'),
   'two-sites': twoSites,
 };
