@@ -29,5 +29,6 @@ Audience: beginners who know what a computer and a cable are.
 8. Reach the "internet" through NAT.
 9. Block traffic with a firewall.
 10. Site-to-site VPN with WireGuard.
-11. Troubleshooting: here is a broken network, find the fault (teachers can build these
-    with the task editor).
+11. Troubleshooting: here is a broken network, find the fault. Available as eight
+    challenges in the Troubleshooting tab; teachers can also build their own with the task
+    editor.

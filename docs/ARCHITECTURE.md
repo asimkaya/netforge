@@ -85,6 +85,9 @@ comes next.
 
 - Pure TypeScript. A task is a list of steps; each step's `check` reads the live network
   and the commands the user ran. Steps complete in order and stay complete.
+- `challenges.ts` defines the troubleshooting challenges (a fault, its repair, and the checks)
+  and turns each into a task; `src/ui/challengeStart.ts` generates the broken network by
+  applying the scripted fault to a working one.
 - `custom.ts` turns tasks written in the task editor (data with declarative checks, saved
   in the lab file) into playable tasks.
 
