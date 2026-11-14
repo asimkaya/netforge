@@ -58,22 +58,22 @@ export function Browser({ device }: { device: Device }) {
           Go
         </button>
       </form>
-      <div className="min-h-0 flex-1 overflow-auto bg-white">
+      <div className="min-h-0 flex-1 overflow-auto bg-(--nf-surface)">
         {view.kind === 'idle' && (
-          <p className="p-4 text-sm text-slate-600">
+          <p className="p-4 text-sm text-(--nf-muted)">
             Type the address of a web server, like <code>http://10.0.0.80/</code>, and press Go.
           </p>
         )}
         {view.kind === 'loading' && (
-          <p className="p-4 text-sm text-slate-600" role="status">
+          <p className="p-4 text-sm text-(--nf-muted)" role="status">
             Connecting to {view.url}…
           </p>
         )}
         {view.kind === 'error' && (
-          <div className="space-y-2 p-4 text-sm text-slate-800" role="alert">
+          <div className="space-y-2 p-4 text-sm text-(--nf-text)" role="alert">
             <h3 className="text-lg font-semibold">This site can’t be reached</h3>
             <p>{view.message}</p>
-            <p className="text-slate-500">
+            <p className="text-(--nf-muted)">
               Check the address, the server’s web service, your gateway and DNS settings.
             </p>
           </div>
@@ -93,7 +93,8 @@ export function Browser({ device }: { device: Device }) {
           className="border-t border-(--nf-border) px-2 py-1 font-mono text-[11px] text-(--nf-muted)"
           aria-label="Response status"
         >
-          HTTP {view.response.status} {view.response.statusText} · {view.response.body.length} bytes
+          HTTP {view.response.status} {view.response.statusText}
+          <span className="ml-3">{view.response.body.length} bytes</span>
         </p>
       )}
     </div>

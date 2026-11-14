@@ -48,9 +48,7 @@ export function Wifi({ device }: { device: Device }) {
           <span>Not connected.</span>
         )}
       </div>
-      <h3 className="text-[10px] font-semibold tracking-wider text-(--nf-muted) uppercase">
-        Networks in range
-      </h3>
+      <h3 className="text-sm font-semibold">Networks in range</h3>
       {networks.length === 0 && (
         <p className="text-(--nf-muted)">
           No networks. Move closer to an access point (inside its dashed circle).
@@ -61,9 +59,9 @@ export function Wifi({ device }: { device: Device }) {
           <li key={n.ap.id} className="rounded border border-(--nf-border) p-2">
             <div className="flex items-center gap-2">
               <span className="font-semibold">{n.ssid}</span>
-              <span className="text-(--nf-muted)">
-                {n.signal}% · {n.secured ? 'WPA2' : 'open'} · {n.ap.name}
-              </span>
+              <span className="text-(--nf-muted)">{n.signal}%</span>
+              <span className="text-(--nf-muted)">{n.secured ? 'WPA2' : 'open'}</span>
+              <span className="text-(--nf-muted)">{n.ap.name}</span>
               {current !== n.ap && (
                 <button
                   type="button"

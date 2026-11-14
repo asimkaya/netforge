@@ -35,10 +35,8 @@ export function Palette() {
   };
 
   return (
-    <aside className="flex w-24 shrink-0 flex-col gap-2 overflow-y-auto border-r border-(--nf-border) bg-(--nf-surface) p-2">
-      <h2 className="px-1 text-[10px] font-semibold tracking-wider text-(--nf-muted) uppercase">
-        Devices
-      </h2>
+    <aside className="flex w-24 shrink-0 flex-col gap-1 overflow-y-auto border-r border-(--nf-border) bg-(--nf-surface) p-2">
+      <h2 className="px-1 pb-1 text-base font-semibold">Devices</h2>
       {Object.values(SPECS).map((spec) => (
         <button
           key={spec.id}
@@ -50,10 +48,11 @@ export function Palette() {
           }}
           onClick={() => addAtCenter(spec.id)}
           title={`${spec.description}. Drag onto the canvas or click to add.`}
-          className={`flex cursor-grab flex-col items-center gap-1 rounded-lg border border-(--nf-border) p-2 text-xs hover:border-(--nf-accent) focus-visible:outline-2 focus-visible:outline-(--nf-accent) ${focus?.palette.includes(spec.id) ? 'nf-focus' : ''}`}
+          aria-label={`Add ${spec.label}`}
+          className={`flex cursor-grab flex-col items-center gap-1 rounded p-2 text-xs hover:bg-(--nf-raised) ${focus?.palette.includes(spec.id) ? 'nf-focus' : ''}`}
         >
           <SpecArt spec={spec.id} className="h-8 w-10" />
-          Add {spec.label}
+          {spec.label}
         </button>
       ))}
     </aside>

@@ -58,7 +58,7 @@ function PortV6({ device, port }: { device: Device; port: Port }) {
         </button>
       </form>
       {error && (
-        <p role="alert" className="text-red-400">
+        <p role="alert" className="text-(--nf-bad)">
           {error}
         </p>
       )}
@@ -74,7 +74,7 @@ export function Ipv6Box({ device }: { device: Device }) {
   const routers = v6.routes().filter((r) => r.proto === 'ra' || r.dst.prefix === 0);
   return (
     <section className="space-y-2 text-xs">
-      <h3 className="text-[10px] font-semibold tracking-wider text-(--nf-muted) uppercase">
+      <h3 className="text-sm font-semibold">
         IPv6 (<code>ip -6 addr</code>)
       </h3>
       <p className="text-(--nf-muted)">
@@ -140,9 +140,7 @@ export function RadvdSection({ device }: { device: Device }) {
 
   return (
     <section aria-label="IPv6 router advertisements (radvd)" className="space-y-2 text-xs">
-      <h3 className="text-[10px] font-semibold tracking-wider text-(--nf-muted) uppercase">
-        IPv6 router advertisements (radvd)
-      </h3>
+      <h3 className="text-sm font-semibold">IPv6 router advertisements (radvd)</h3>
       <p className="text-(--nf-muted)">
         Give a /64 prefix per network; hosts there build their own IPv6 address and use this router
         as gateway. The router takes the ::1 address of each prefix.

@@ -16,7 +16,7 @@ import { PROTOCOL_COLORS } from './theme.ts';
 const PLAY_INTERVAL_MS = 700;
 
 const button =
-  'rounded border border-(--nf-border) px-3 py-1 text-xs hover:border-(--nf-accent) disabled:opacity-40 disabled:hover:border-(--nf-border)';
+  'rounded border border-(--nf-border) px-3 py-1 text-xs hover:bg-(--nf-raised) disabled:opacity-40 disabled:hover:bg-transparent';
 
 type Field = [string, string];
 
@@ -320,8 +320,10 @@ export function SimPanel() {
             Clear list
           </button>
           <span className="ml-2 text-xs text-(--nf-muted)">
-            Time {net.scheduler.now.toFixed(2)} ms ·{' '}
-            {pending ? 'events waiting' : 'nothing to do: run a command, e.g. ping'}
+            Time {net.scheduler.now.toFixed(2)} ms
+            <span className="ml-3">
+              {pending ? 'events waiting' : 'nothing to do: run a command, e.g. ping'}
+            </span>
           </span>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -338,7 +340,7 @@ export function SimPanel() {
                 <tr
                   key={e.seq}
                   onClick={() => setChosen(e.seq)}
-                  className={`cursor-pointer hover:bg-(--nf-border) ${e === shown ? 'bg-(--nf-border)' : ''}`}
+                  className={`cursor-pointer hover:bg-(--nf-raised) ${e === shown ? 'bg-(--nf-border)' : ''}`}
                   aria-selected={e === shown}
                 >
                   <td className="px-3 py-0.5">{e.time.toFixed(2)}</td>

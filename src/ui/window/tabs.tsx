@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { Device } from '../../engine/device.ts';
 import { PORT_TYPE_LABEL, hasCarrier, peerOf, type Port } from '../../engine/port.ts';
 import { Browser } from '../apps/Browser.tsx';
@@ -26,9 +26,9 @@ import { cable, hasDesktop, removeDevice, setWindowView, useLab, type AppId } fr
 const HOSTNAME = /^[A-Za-z0-9][A-Za-z0-9-]{0,62}$/;
 
 function led(port: Port): { color: string; label: string } {
-  if (hasCarrier(port)) return { color: 'bg-emerald-400', label: 'link up' };
-  if (port.link) return { color: 'bg-amber-500', label: 'no carrier' };
-  return { color: 'bg-slate-600', label: 'no cable' };
+  if (hasCarrier(port)) return { color: 'bg-(--nf-ok)', label: 'link up' };
+  if (port.link) return { color: 'bg-(--nf-warn)', label: 'no carrier' };
+  return { color: 'bg-(--nf-muted)', label: 'no cable' };
 }
 
 /** Keyboard-friendly way to cable a free port: pick the other end from a list. */
@@ -47,7 +47,7 @@ function ConnectSelect({ port }: { port: Port }) {
         const target = device && name ? net.devices.get(device)?.port(name) : undefined;
         if (target) cable(port, target);
       }}
-      className="rounded border border-(--nf-border) bg-(--nf-bg) px-1 py-0.5 text-xs"
+      className="rounded border border-(--nf-border) bg-(--nf-surface) px-1 py-0.5 text-xs"
     >
       <option value="">Connect to…</option>
       {options.map((p) => (
@@ -97,7 +97,7 @@ export function PhysicalTab({ device }: { device: Device }) {
                         <button
                           type="button"
                           onClick={() => port.link && net.disconnect(port.link)}
-                          className="rounded border border-(--nf-border) px-1.5 hover:border-red-500 hover:text-red-400"
+                          className="rounded border border-(--nf-border) px-1.5 hover:border-(--nf-bad) hover:text-(--nf-bad)"
                           aria-label={`Unplug the cable from ${port.name}`}
                         >
                           Unplug
@@ -152,11 +152,11 @@ function NameField({ device }: { device: Device }) {
         onBlur={commit}
         onKeyDown={(e) => e.key === 'Enter' && commit()}
         aria-invalid={!valid}
-        className={`mt-1 w-full max-w-xs rounded border bg-(--nf-bg) px-2 py-1 font-mono text-sm text-(--nf-text) ${
-          valid ? 'border-(--nf-border)' : 'border-red-500'
+        className={`mt-1 w-full max-w-xs rounded border bg-(--nf-surface) px-2 py-1 font-mono text-sm text-(--nf-text) ${
+          valid ? 'border-(--nf-border)' : 'border-(--nf-bad)'
         }`}
       />
-      {!valid && <span className="block text-red-400">Letters, digits and dashes only.</span>}
+      {!valid && <span className="block text-(--nf-bad)">Letters, digits and dashes only.</span>}
     </label>
   );
 }
@@ -210,7 +210,7 @@ export function ConfigTab({ device }: { device: Device }) {
       <button
         type="button"
         onClick={() => removeDevice(device.id)}
-        className="rounded border border-(--nf-border) px-3 py-1.5 text-xs hover:border-red-500 hover:text-red-400"
+        className="rounded border border-(--nf-border) px-3 py-1.5 text-xs hover:border-(--nf-bad) hover:text-(--nf-bad)"
       >
         Delete device
       </button>
@@ -218,17 +218,98 @@ export function ConfigTab({ device }: { device: Device }) {
   );
 }
 
-const APPS: { id: AppId; label: string; icon: string; hint: string }[] = [
-  { id: 'terminal', label: 'Terminal', icon: '>_', hint: 'Linux shell: ip, ping, …' },
-  { id: 'ipconfig', label: 'IP Configuration', icon: '⚙', hint: 'Set addresses without commands' },
-  { id: 'browser', label: 'Web Browser', icon: '◎', hint: 'Open web pages over HTTP' },
-  { id: 'editor', label: 'Text Editor', icon: '✎', hint: 'Edit files, like web pages' },
-  { id: 'mail', label: 'Mail', icon: '✉', hint: 'Send and read email (SMTP, POP3)' },
-  { id: 'wifi', label: 'Wi-Fi', icon: '((•))', hint: 'Join a wireless network' },
+/** Small line drawings for the desktop apps (stroke follows the text colour). */
+function AppIcon({ children }: { children: ReactNode }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-6 w-6"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      {children}
+    </svg>
+  );
+}
+
+const APPS: { id: AppId; label: string; icon: ReactNode; hint: string }[] = [
+  {
+    id: 'terminal',
+    label: 'Terminal',
+    icon: (
+      <AppIcon>
+        <path d="m5 8 4 4-4 4M12 17h7" />
+      </AppIcon>
+    ),
+    hint: 'Linux shell: ip, ping, …',
+  },
+  {
+    id: 'ipconfig',
+    label: 'IP Configuration',
+    icon: (
+      <AppIcon>
+        <path d="M5 7h14M5 12h14M5 17h14" />
+        <circle cx="9" cy="7" r="2" fill="var(--nf-term-bg)" />
+        <circle cx="15" cy="12" r="2" fill="var(--nf-term-bg)" />
+        <circle cx="8" cy="17" r="2" fill="var(--nf-term-bg)" />
+      </AppIcon>
+    ),
+    hint: 'Set addresses without commands',
+  },
+  {
+    id: 'browser',
+    label: 'Web Browser',
+    icon: (
+      <AppIcon>
+        <circle cx="12" cy="12" r="8" />
+        <path d="M4 12h16M12 4c3 3 3 13 0 16M12 4c-3 3-3 13 0 16" />
+      </AppIcon>
+    ),
+    hint: 'Open web pages over HTTP',
+  },
+  {
+    id: 'editor',
+    label: 'Text Editor',
+    icon: (
+      <AppIcon>
+        <path d="M6 4h8l4 4v12H6zM14 4v4h4M9 13h6M9 16h6" />
+      </AppIcon>
+    ),
+    hint: 'Edit files, like web pages',
+  },
+  {
+    id: 'mail',
+    label: 'Mail',
+    icon: (
+      <AppIcon>
+        <rect x="4" y="6" width="16" height="12" rx="1" />
+        <path d="m4 7 8 6 8-6" />
+      </AppIcon>
+    ),
+    hint: 'Send and read email (SMTP, POP3)',
+  },
+  {
+    id: 'wifi',
+    label: 'Wi-Fi',
+    icon: (
+      <AppIcon>
+        <path d="M4 10a11 11 0 0 1 16 0M7 13.5a7 7 0 0 1 10 0M10 17a3 3 0 0 1 4 0" />
+      </AppIcon>
+    ),
+    hint: 'Join a wireless network',
+  },
   {
     id: 'capture',
     label: 'Packet Capture',
-    icon: '≋',
+    icon: (
+      <AppIcon>
+        <path d="M3 12h4l2-6 4 12 2-6h6" />
+      </AppIcon>
+    ),
     hint: 'See every frame this device sends and receives',
   },
 ];
@@ -262,7 +343,7 @@ export function DesktopTab({ device, app }: { device: Device; app: AppId | null 
           <button
             type="button"
             onClick={() => setWindowView(device.id, { app: null })}
-            className="rounded px-2 py-0.5 hover:bg-(--nf-border)"
+            className="rounded px-2 py-0.5 hover:bg-(--nf-raised)"
           >
             ← Desktop
           </button>
@@ -283,10 +364,10 @@ export function DesktopTab({ device, app }: { device: Device; app: AppId | null 
               type="button"
               onClick={() => setWindowView(device.id, { app: a.id })}
               title={a.hint}
-              className="flex w-full flex-col items-center gap-2 rounded-lg p-3 text-xs hover:bg-(--nf-border) focus-visible:outline-2 focus-visible:outline-(--nf-accent)"
+              className="flex w-full flex-col items-center gap-2 rounded p-3 text-xs hover:bg-(--nf-raised)"
             >
               <span
-                className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#0b1f36] font-mono text-lg text-(--nf-accent)"
+                className="flex h-12 w-12 items-center justify-center rounded bg-(--nf-term-bg) text-(--nf-term-prompt)"
                 aria-hidden
               >
                 {a.icon}

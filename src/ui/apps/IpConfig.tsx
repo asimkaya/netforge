@@ -6,11 +6,12 @@ import { hasCarrier, type Port } from '../../engine/port.ts';
 import { getLab } from '../lab.ts';
 import { Ipv6Box } from './Ipv6Config.tsx';
 
-export const FIELD = 'rounded border border-(--nf-border) bg-(--nf-bg) px-2 py-1 font-mono text-xs';
+export const FIELD =
+  'rounded border border-(--nf-border) bg-(--nf-surface) px-2 py-1 font-mono text-xs text-(--nf-text)';
 export const PRIMARY =
-  'rounded bg-(--nf-accent) px-3 py-1 text-xs font-semibold text-slate-950 hover:opacity-90 disabled:opacity-50';
+  'rounded bg-(--nf-accent) px-3 py-1 text-xs font-semibold text-(--nf-on-accent) hover:opacity-90 disabled:opacity-50';
 export const SECONDARY =
-  'rounded border border-(--nf-border) px-3 py-1 text-xs hover:border-(--nf-accent)';
+  'rounded border border-(--nf-border) px-3 py-1 text-xs hover:bg-(--nf-raised)';
 const DEFAULT_ROUTE = { ip: 0, prefix: 0 };
 
 /** "Obtain an address automatically": runs dhclient on the first interface and shows its log. */
@@ -39,7 +40,7 @@ function DhcpBox({ device }: { device: Device }) {
     }
   };
   return (
-    <section className="space-y-2 rounded-lg border border-(--nf-border) p-3 text-xs">
+    <section className="space-y-2 border-t border-(--nf-border) pt-3 first:border-t-0 first:pt-0 text-xs">
       <h3 className="text-sm font-semibold">Automatic (DHCP)</h3>
       {lease && (
         <p>
@@ -63,15 +64,14 @@ function DhcpBox({ device }: { device: Device }) {
       </div>
       {log.length > 0 && (
         <pre
-          className="rounded bg-[#05080f] p-2 font-mono text-[11px] whitespace-pre-wrap text-slate-300"
+          className="rounded bg-(--nf-term-bg) p-2 font-mono text-[12px] whitespace-pre-wrap text-(--nf-term-text)"
           aria-label="DHCP log"
         >
           {log.join('\n')}
         </pre>
       )}
       <p className="text-(--nf-muted)">
-        Same as the terminal command{' '}
-        <code className="font-mono text-emerald-300">dhclient {port.name}</code>
+        Same as the terminal command <code className="font-mono">dhclient {port.name}</code>
       </p>
     </section>
   );
@@ -129,7 +129,7 @@ function GatewayDns({ device }: { device: Device }) {
   };
 
   return (
-    <section className="space-y-2 rounded-lg border border-(--nf-border) p-3 text-xs">
+    <section className="space-y-2 border-t border-(--nf-border) pt-3 first:border-t-0 first:pt-0 text-xs">
       <h3 className="text-sm font-semibold">Gateway and DNS</h3>
       <form onSubmit={saveGateway} className="flex flex-wrap items-end gap-2">
         <label className="flex flex-col gap-1">
@@ -215,10 +215,10 @@ export function PortForm({ device, port }: { device: Device; port: Port }) {
   };
 
   return (
-    <section className="space-y-2 rounded-lg border border-(--nf-border) p-3">
+    <section className="space-y-2 border-t border-(--nf-border) pt-3 first:border-t-0 first:pt-0">
       <h3 className="flex items-center gap-2 text-sm font-semibold">
         <span
-          className={`h-2 w-2 rounded-full ${hasCarrier(port) ? 'bg-emerald-400' : 'bg-slate-600'}`}
+          className={`h-2 w-2 rounded-full ${hasCarrier(port) ? 'bg-(--nf-ok)' : 'bg-(--nf-muted)'}`}
           aria-hidden
         />
         <span className="font-mono">{port.name}</span>
@@ -239,7 +239,7 @@ export function PortForm({ device, port }: { device: Device; port: Port }) {
               <button
                 type="button"
                 onClick={() => ip.removeAddress(port, a)}
-                className="rounded border border-(--nf-border) px-2 py-0.5 hover:border-red-500 hover:text-red-400"
+                className="rounded border border-(--nf-border) px-2 py-0.5 hover:border-(--nf-bad) hover:text-(--nf-bad)"
                 aria-label={`Remove ${formatCidr(a)} from ${port.name}`}
               >
                 Remove
@@ -260,7 +260,7 @@ export function PortForm({ device, port }: { device: Device; port: Port }) {
             }}
             placeholder="192.168.1.10"
             aria-invalid={error !== null}
-            className="w-36 rounded border border-(--nf-border) bg-(--nf-bg) px-2 py-1 font-mono"
+            className="w-36 rounded border border-(--nf-border) bg-(--nf-surface) px-2 py-1 font-mono"
           />
         </label>
         <label className="flex flex-col gap-1">
@@ -268,7 +268,7 @@ export function PortForm({ device, port }: { device: Device; port: Port }) {
           <select
             value={prefix}
             onChange={(e) => setPrefix(Number(e.target.value))}
-            className="rounded border border-(--nf-border) bg-(--nf-bg) px-1 py-1 font-mono"
+            className="rounded border border-(--nf-border) bg-(--nf-surface) px-1 py-1 font-mono"
           >
             {PREFIXES.map((p) => (
               <option key={p} value={p}>
@@ -277,10 +277,7 @@ export function PortForm({ device, port }: { device: Device; port: Port }) {
             ))}
           </select>
         </label>
-        <button
-          type="submit"
-          className="rounded bg-(--nf-accent) px-3 py-1 font-semibold text-slate-950 hover:opacity-90"
-        >
+        <button type="submit" className={PRIMARY}>
           {addrs.length > 0 ? 'Change address' : 'Add address'}
         </button>
         {addrs.length > 0 && (
@@ -295,17 +292,17 @@ export function PortForm({ device, port }: { device: Device; port: Port }) {
         )}
       </form>
       {error && (
-        <p role="alert" className="text-xs text-red-400">
+        <p role="alert" className="text-xs text-(--nf-bad)">
           {error}
         </p>
       )}
       {warning && (
-        <p role="status" className="text-xs text-amber-400">
+        <p role="status" className="border-l-[3px] border-(--nf-warn) pl-2 text-xs">
           {warning}
         </p>
       )}
       <p className="text-xs text-(--nf-muted)">
-        Same as the terminal command <code className="font-mono text-emerald-300">{command}</code>
+        Same as the terminal command <code className="font-mono">{command}</code>
       </p>
     </section>
   );
@@ -324,7 +321,7 @@ export function IpConfig({ device }: { device: Device }) {
       <GatewayDns device={device} />
       <Ipv6Box device={device} />
       <section className="space-y-1 text-xs">
-        <h3 className="text-[10px] font-semibold tracking-wider text-(--nf-muted) uppercase">
+        <h3 className="text-sm font-semibold">
           Known neighbors (ARP table, <code>ip neigh</code>)
         </h3>
         {neighbors.length === 0 ? (

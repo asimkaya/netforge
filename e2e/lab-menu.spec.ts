@@ -9,10 +9,23 @@ test('the Lab menu closes on Escape and holds the file actions', async ({ page }
     'Share link',
     'Export',
     'Import',
+    'Dark theme',
     'New lab',
   ]);
   await page.keyboard.press('Escape');
   await expect(menu).toHaveCount(0);
   await labMenu(page, 'Share link');
   await expect(page.getByRole('status')).toContainText('ink');
+});
+
+test('the dark theme is chosen from the Lab menu and survives a reload', async ({ page }) => {
+  await page.goto('/');
+  const html = page.locator('html');
+  await expect(html).toHaveAttribute('data-theme', 'light');
+  await labMenu(page, 'Dark theme');
+  await expect(html).toHaveAttribute('data-theme', 'dark');
+  await page.reload();
+  await expect(html).toHaveAttribute('data-theme', 'dark');
+  await labMenu(page, 'Light theme');
+  await expect(html).toHaveAttribute('data-theme', 'light');
 });

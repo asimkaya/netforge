@@ -73,7 +73,7 @@ function PortVlanRow({ bridge, port }: { bridge: Bridge; port: Port }) {
         aria-label={`${port.name} VLANs`}
         aria-invalid={!valid}
         placeholder={mode === 'access' ? '10' : '10,20'}
-        className={`${FIELD} w-24 ${valid ? '' : 'border-red-500'}`}
+        className={`${FIELD} w-24 ${valid ? '' : 'border-(--nf-bad)'}`}
       />
       <button type="submit" disabled={!valid} className={SECONDARY}>
         Set
@@ -151,7 +151,8 @@ export function VlanInterfacesSection({ device }: { device: Device }) {
           <li key={p.name} className="flex items-center gap-2">
             <span className="font-mono">{p.name}</span>
             <span className="text-(--nf-muted)">
-              VLAN {p.vid} on {p.parent?.name} · {device.ip?.addrsOn(p).length ?? 0} address(es)
+              VLAN {p.vid} on {p.parent?.name}
+              <span className="ml-3">{device.ip?.addrsOn(p).length ?? 0} address(es)</span>
             </span>
             <button
               type="button"
@@ -191,7 +192,7 @@ export function VlanInterfacesSection({ device }: { device: Device }) {
         {vids?.[0] ?? 'VID'}; ip link set {parent}.{vids?.[0] ?? 'VID'} up
       </code>
       {error && (
-        <p role="alert" className="text-xs text-red-400">
+        <p role="alert" className="text-xs text-(--nf-bad)">
           {error}
         </p>
       )}
@@ -236,7 +237,7 @@ export function StpSection({ device }: { device: Device }) {
         </code>
       </label>
       {error && (
-        <p role="alert" className="text-xs text-red-400">
+        <p role="alert" className="text-xs text-(--nf-bad)">
           {error}
         </p>
       )}

@@ -97,7 +97,8 @@ export function WireguardSection({ device }: { device: Device }) {
             </code>
           </p>
           <p className="text-(--nf-muted)">
-            {NAME} {ip.addrsOn(port).map(formatCidr).join(', ')} · listening on UDP {wg.listenPort}
+            {NAME} {ip.addrsOn(port).map(formatCidr).join(', ')}
+            <span className="ml-3">listening on UDP {wg.listenPort}</span>
           </p>
           {wg.peers.length > 0 && (
             <ul aria-label="WireGuard peers" className="space-y-1">
@@ -105,9 +106,11 @@ export function WireguardSection({ device }: { device: Device }) {
                 <li key={p.publicKey} className="rounded border border-(--nf-border) p-2">
                   <code className="break-all">{p.publicKey}</code>
                   <div className="text-(--nf-muted)">
-                    {p.endpoint ? `${formatIp(p.endpoint.ip)}:${p.endpoint.port}` : 'no endpoint'} ·
-                    allowed {p.allowedIps.map(formatCidr).join(', ')} ·{' '}
-                    {p.lastHandshake === null ? 'no handshake yet' : 'handshake done'}
+                    {p.endpoint ? `${formatIp(p.endpoint.ip)}:${p.endpoint.port}` : 'no endpoint'}
+                    <span className="ml-3">allowed {p.allowedIps.map(formatCidr).join(', ')}</span>
+                    <span className="ml-3">
+                      {p.lastHandshake === null ? 'no handshake yet' : 'handshake done'}
+                    </span>
                   </div>
                   <button
                     type="button"
@@ -158,7 +161,7 @@ export function WireguardSection({ device }: { device: Device }) {
         </div>
       )}
       {error && (
-        <p role="alert" className="text-xs text-red-400">
+        <p role="alert" className="text-xs text-(--nf-bad)">
           {error}
         </p>
       )}

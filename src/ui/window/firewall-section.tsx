@@ -189,7 +189,7 @@ export function FirewallSection({ device }: { device: Device }) {
           placeholder={
             'table ip filter {\n\tchain forward {\n\t\ttype filter hook forward priority filter; policy drop;\n\t\tct state established,related accept\n\t\tiifname "eth0" accept\n\t}\n}'
           }
-          className={`${FIELD} mt-1 block w-full text-(--nf-text)`}
+          className="mt-1 block w-full rounded border border-(--nf-hw-edge) bg-(--nf-term-bg) px-2 py-1 font-mono text-xs text-(--nf-term-text)"
         />
       </label>
       <div className="flex gap-2">

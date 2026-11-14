@@ -236,7 +236,7 @@ export function TaskEditor({
         {task.steps.map((step, i) => (
           <li
             key={i}
-            className="space-y-2 rounded border border-(--nf-border) p-2"
+            className="space-y-2 border-t border-(--nf-border) pt-3"
             aria-label={`Step ${i + 1}`}
           >
             <div className="flex items-center justify-between">
@@ -318,7 +318,10 @@ export function TaskEditor({
         />
       </label>
       {issues.length > 0 && (
-        <ul className="list-inside list-disc text-amber-400" aria-label="Problems">
+        <ul
+          className="list-inside list-disc border-l-[3px] border-(--nf-warn) pl-2"
+          aria-label="Problems"
+        >
           {issues.map((p) => (
             <li key={p}>{p}</li>
           ))}

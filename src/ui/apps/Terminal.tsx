@@ -69,15 +69,15 @@ export function Terminal({ deviceId }: { deviceId: string }) {
 
   return (
     <section
-      className="flex h-full min-h-0 flex-col bg-[#05080f]"
+      className="flex h-full min-h-0 flex-col bg-(--nf-term-bg)"
       aria-label={`Terminal of ${device.name}`}
       onKeyDown={onKeyDown}
     >
-      <p className="border-b border-(--nf-border) px-3 py-1 text-xs text-(--nf-muted)">
-        Type “help” for commands{running ? ' · Ctrl+C to stop' : ''}
+      <p className="border-b border-(--nf-hw-edge) px-3 py-1 text-xs text-(--nf-hw-muted)">
+        Type “help” for commands{running && <span className="ml-3">Ctrl+C to stop</span>}
       </p>
       <div
-        className="min-h-0 flex-1 overflow-y-auto px-3 py-2 font-mono text-[13px] leading-5 whitespace-pre-wrap text-slate-200"
+        className="min-h-0 flex-1 overflow-y-auto px-3 py-2 font-mono text-[13px] leading-5 whitespace-pre-wrap text-(--nf-term-text)"
         ref={logRef}
         onClick={() => inputRef.current?.focus()}
         role="log"
@@ -88,14 +88,16 @@ export function Terminal({ deviceId }: { deviceId: string }) {
           const m = /^root@[\w.-]+:~# /.exec(line);
           return (
             <div key={i}>
-              {m ? <span className="text-emerald-400">{m[0]}</span> : null}
+              {m ? <span className="nf-prompt text-(--nf-term-prompt)">{m[0]}</span> : null}
               {(m ? line.slice(m[0].length) : line) || ' '}
             </div>
           );
         })}
         <label className="flex">
           {typing && (
-            <span className="text-emerald-400">{programPrompt ?? prompt(device.name)}</span>
+            <span className="nf-prompt text-(--nf-term-prompt)">
+              {programPrompt ?? prompt(device.name)}
+            </span>
           )}
           <input
             ref={inputRef}

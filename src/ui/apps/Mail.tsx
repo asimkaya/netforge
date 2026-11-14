@@ -99,7 +99,7 @@ export function Mail({ device }: { device: Device }) {
             onClick={() => setTab(id)}
             disabled={id !== 'settings' && !configured}
             aria-pressed={tab === id}
-            className={`rounded px-2 py-1 ${tab === id ? 'bg-(--nf-border)' : ''} disabled:opacity-40`}
+            className={`border-b-2 px-2 py-1 ${tab === id ? 'border-(--nf-accent)' : 'border-transparent'} disabled:opacity-40`}
           >
             {label}
           </button>
@@ -153,7 +153,7 @@ export function Mail({ device }: { device: Device }) {
                     <button
                       type="button"
                       onClick={() => setOpen(i)}
-                      className="flex w-full gap-2 px-2 py-1 text-left hover:bg-(--nf-border)"
+                      className="flex w-full gap-2 px-2 py-1 text-left hover:bg-(--nf-raised)"
                     >
                       <span className="w-32 truncate">{m.from}</span>
                       <span className="truncate font-semibold">{m.subject || '(no subject)'}</span>
@@ -166,7 +166,8 @@ export function Mail({ device }: { device: Device }) {
               <article className="space-y-1 rounded border border-(--nf-border) p-2">
                 <h3 className="text-sm font-semibold">{shown.subject || '(no subject)'}</h3>
                 <p className="text-(--nf-muted)">
-                  From {shown.from} to {shown.to} · {shown.date}
+                  From {shown.from} to {shown.to}
+                  <span className="ml-3">{shown.date}</span>
                 </p>
                 <pre className="font-sans whitespace-pre-wrap">{shown.body}</pre>
               </article>

@@ -59,33 +59,53 @@ function Window({ win, bounds }: { win: DeviceWindow; bounds: () => DOMRect | un
       aria-modal={false}
       onPointerDownCapture={() => focusWindow(win.device)}
       style={{ left: win.x, top: win.y, zIndex: win.z }}
-      className="pointer-events-auto absolute flex h-[440px] min-h-[260px] w-[600px] min-w-[360px] resize flex-col overflow-hidden rounded-xl border border-(--nf-border) bg-(--nf-surface) shadow-2xl max-md:!inset-0 max-md:!h-full max-md:!w-full max-md:resize-none max-md:rounded-none"
+      className="pointer-events-auto absolute flex h-[440px] min-h-[260px] w-[600px] min-w-[360px] resize flex-col overflow-hidden rounded-md border border-(--nf-border) bg-(--nf-surface) shadow-lg max-md:!inset-0 max-md:!h-full max-md:!w-full max-md:resize-none max-md:rounded-none"
     >
       <header
-        className="flex cursor-move items-center gap-2 border-b border-(--nf-border) px-3 py-1.5 select-none"
+        className="flex cursor-move items-center gap-2 border-b border-(--nf-border) bg-(--nf-raised) px-3 py-1.5 select-none"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
       >
         <SpecArt spec={device.spec.id} className="h-5 w-6" />
-        <h2 className="text-sm font-semibold">{device.name}</h2>
+        <h2 className="font-label text-base font-semibold">{device.name}</h2>
         <span className="text-xs text-(--nf-muted)">{device.spec.label}</span>
         <div className="ml-auto flex gap-1">
           <button
             type="button"
             onClick={() => minimizeWindow(win.device)}
-            className="rounded px-2 hover:bg-(--nf-border)"
+            className="grid h-6 w-6 place-items-center rounded hover:bg-(--nf-border)"
             aria-label={`Minimize ${device.name}`}
           >
-            –
+            <svg
+              viewBox="0 0 12 12"
+              className="h-3 w-3"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              aria-hidden
+            >
+              <path d="M2 6h8" />
+            </svg>
           </button>
           <button
             type="button"
             onClick={() => closeWindow(win.device)}
-            className="rounded px-2 hover:bg-red-500/30"
+            className="grid h-6 w-6 place-items-center rounded hover:bg-(--nf-bad) hover:text-(--nf-hw-text)"
             aria-label={`Close ${device.name}`}
           >
-            ✕
+            <svg
+              viewBox="0 0 12 12"
+              className="h-3 w-3"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              aria-hidden
+            >
+              <path d="m2.5 2.5 7 7m0-7-7 7" />
+            </svg>
           </button>
         </div>
       </header>
@@ -101,7 +121,7 @@ function Window({ win, bounds }: { win: DeviceWindow; bounds: () => DOMRect | un
             role="tab"
             aria-selected={win.tab === tab}
             onClick={() => setWindowView(win.device, { tab })}
-            className={`border-b-2 px-3 py-1.5 text-xs ${
+            className={`-mb-px border-b-2 px-3 py-1.5 text-sm ${
               win.tab === tab
                 ? 'border-(--nf-accent) text-(--nf-text)'
                 : 'border-transparent text-(--nf-muted) hover:text-(--nf-text)'
@@ -134,7 +154,7 @@ export function Windows() {
       {minimized.length > 0 && (
         <nav
           aria-label="Minimized windows"
-          className="pointer-events-auto absolute bottom-2 left-1/2 flex -translate-x-1/2 gap-1 rounded-lg border border-(--nf-border) bg-(--nf-surface) p-1"
+          className="pointer-events-auto absolute bottom-2 left-1/2 flex -translate-x-1/2 gap-1 rounded-md border border-(--nf-border) bg-(--nf-surface) p-1 shadow-lg"
         >
           {minimized.map((w) => {
             const device = net.devices.get(w.device);
@@ -144,7 +164,7 @@ export function Windows() {
                   key={w.device}
                   type="button"
                   onClick={() => minimizeWindow(w.device, false)}
-                  className="flex items-center gap-1 rounded px-2 py-1 text-xs hover:bg-(--nf-border)"
+                  className="flex items-center gap-1 rounded px-2 py-1 text-xs hover:bg-(--nf-raised)"
                 >
                   <SpecArt spec={device.spec.id} className="h-4 w-5" />
                   {device.name}

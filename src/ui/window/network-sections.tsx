@@ -66,8 +66,8 @@ export function WirelessSection({ device }: { device: Device }) {
         )}
       </form>
       <p className="text-xs text-(--nf-muted)">
-        {config ? `Broadcasting ${config.ssid}` : 'Radio off'} · clients:{' '}
-        {clients.join(', ') || 'none'}
+        {config ? `Broadcasting ${config.ssid}` : 'Radio off'}
+        <span className="ml-3">clients: {clients.join(', ') || 'none'}</span>
       </p>
       {message && (
         <p role="status" className="text-xs text-(--nf-muted)">
@@ -81,9 +81,7 @@ export function WirelessSection({ device }: { device: Device }) {
 export function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="space-y-2" aria-label={title}>
-      <h3 className="text-[10px] font-semibold tracking-wider text-(--nf-muted) uppercase">
-        {title}
-      </h3>
+      <h3 className="text-sm font-semibold">{title}</h3>
       {children}
     </section>
   );
@@ -167,7 +165,7 @@ export function RoutingSection({ device }: { device: Device }) {
                 <button
                   type="button"
                   onClick={() => ip.removeRoute(r.dst)}
-                  className="rounded border border-(--nf-border) px-1.5 hover:border-red-500 hover:text-red-400"
+                  className="rounded border border-(--nf-border) px-1.5 hover:border-(--nf-bad) hover:text-(--nf-bad)"
                   aria-label={`Remove the route to ${r.dst.prefix === 0 ? 'default' : formatCidr(r.dst)}`}
                 >
                   Remove
@@ -253,8 +251,7 @@ export function ServicesSection({ device }: { device: Device }) {
       {server ? (
         <div className="space-y-2 text-xs">
           <p>
-            Running:{' '}
-            <code className="font-mono text-emerald-300">dnsmasq {server.args.join(' ')}</code>
+            Running: <code className="font-mono">dnsmasq {server.args.join(' ')}</code>
           </p>
           <table className="w-full text-left">
             <thead className="text-(--nf-muted)">
@@ -317,12 +314,12 @@ export function ServicesSection({ device }: { device: Device }) {
             Start server
           </button>
           <p className="text-(--nf-muted)">
-            Same as <code className="font-mono text-emerald-300">dnsmasq {args().join(' ')}</code>
+            Same as <code className="font-mono">dnsmasq {args().join(' ')}</code>
           </p>
         </form>
       )}
       {log.length > 0 && (
-        <pre className="rounded bg-[#05080f] p-2 font-mono text-[11px] whitespace-pre-wrap text-slate-300">
+        <pre className="rounded bg-(--nf-term-bg) p-2 font-mono text-[12px] whitespace-pre-wrap text-(--nf-term-text)">
           {log.join('\n')}
         </pre>
       )}
@@ -365,7 +362,7 @@ export function WebServerSection({ device }: { device: Device }) {
         </code>
       </div>
       {error && (
-        <p role="alert" className="text-xs text-red-400">
+        <p role="alert" className="text-xs text-(--nf-bad)">
           {error}
         </p>
       )}
@@ -382,7 +379,7 @@ export function MailServerSection({ device }: { device: Device }) {
     return (
       <div className="flex flex-wrap items-center gap-2">
         <span className="w-48">{label}</span>
-        <span className={running ? 'text-emerald-400' : 'text-(--nf-muted)'}>
+        <span className={running ? 'font-medium' : 'text-(--nf-muted)'}>
           {running ? 'running' : 'stopped'}
         </span>
         <button
@@ -407,7 +404,7 @@ export function MailServerSection({ device }: { device: Device }) {
         <p className="text-(--nf-muted)">Mailboxes are files in /var/mail.</p>
       </div>
       {error && (
-        <p role="alert" className="text-xs text-red-400">
+        <p role="alert" className="text-xs text-(--nf-bad)">
           {error}
         </p>
       )}

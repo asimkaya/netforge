@@ -45,7 +45,7 @@ test('the terminal keeps working after a command that fails at once, and Tab com
   await expect(log).toContainText('done');
   // The prompt of an already-executed command line stays green.
   await expect(
-    log.locator('div > span.text-emerald-400', { hasText: 'root@pc1:~#' }).first(),
+    log.locator('div > span.nf-prompt', { hasText: 'root@pc1:~#' }).first(),
   ).toBeVisible();
   const input = win(page, 'pc1').getByRole('textbox', { name: 'Command' });
   await input.fill('tracer');

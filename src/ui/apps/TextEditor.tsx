@@ -42,9 +42,7 @@ export function TextEditor({ device }: { device: Device }) {
         aria-label="Files"
         className="w-44 shrink-0 overflow-y-auto border-r border-(--nf-border) p-2"
       >
-        <h3 className="mb-1 text-[10px] font-semibold tracking-wider text-(--nf-muted) uppercase">
-          Files
-        </h3>
+        <h3 className="mb-1 text-sm font-semibold">Files</h3>
         {files.length === 0 && <p className="text-(--nf-muted)">No files yet.</p>}
         <ul className="space-y-0.5 font-mono">
           {files.map((f) => (
@@ -52,7 +50,7 @@ export function TextEditor({ device }: { device: Device }) {
               <button
                 type="button"
                 onClick={() => open(f)}
-                className={`w-full truncate rounded px-1 text-left hover:bg-(--nf-border) ${f === path ? 'text-(--nf-accent)' : ''}`}
+                className={`w-full truncate rounded px-1 text-left hover:bg-(--nf-raised) ${f === path ? 'text-(--nf-accent)' : ''}`}
                 title={f}
               >
                 {f}

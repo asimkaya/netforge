@@ -135,7 +135,8 @@ export function OspfSection({ device }: { device: Device }) {
             <ul aria-label="OSPF neighbors" className="font-mono">
               {bird.neighbors.map((n) => (
                 <li key={`${n.port.name}/${n.routerId}`}>
-                  {formatIp(n.routerId)} on {n.port.name} · {n.full ? 'Full' : 'Init'}
+                  {formatIp(n.routerId)} on {n.port.name}{' '}
+                  <span className="ml-3">{n.full ? 'Full' : 'Init'}</span>
                 </li>
               ))}
             </ul>

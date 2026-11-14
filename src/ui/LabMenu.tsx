@@ -5,11 +5,12 @@ import { getLab, loadLab, notify } from './lab.ts';
 import { ProjectError, parseProject, serializeProject } from './project.ts';
 import { LONG_LINK, encodeLab, shareUrl } from './share.ts';
 import { downloadLab } from './storage.ts';
+import { setTheme, useTheme } from './themeMode.ts';
 
 const icon =
-  'grid h-7 w-7 shrink-0 place-items-center rounded border border-(--nf-border) hover:border-(--nf-accent) focus-visible:outline-2 focus-visible:outline-(--nf-accent) disabled:opacity-40 disabled:hover:border-(--nf-border)';
+  'grid h-7 w-7 shrink-0 place-items-center rounded border border-(--nf-border) hover:bg-(--nf-raised) disabled:opacity-40 disabled:hover:bg-transparent';
 const item =
-  'block w-full px-3 py-1.5 text-left hover:bg-(--nf-bg) focus-visible:bg-(--nf-bg) focus-visible:outline-none';
+  'block w-full px-3 py-1.5 text-left hover:bg-(--nf-raised) focus-visible:bg-(--nf-raised) focus-visible:outline-none';
 
 /** A curved arrow; Redo is the same drawing mirrored. */
 function Arrow({ flip = false }: { flip?: boolean }) {
@@ -59,6 +60,7 @@ async function copyShareLink(): Promise<void> {
 export function LabMenu() {
   const fileInput = useRef<HTMLInputElement>(null);
   const { canUndo, canRedo } = useHistory();
+  const theme = useTheme();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -126,7 +128,7 @@ export function LabMenu() {
           aria-expanded={open}
           aria-label="Lab menu"
           onClick={() => setOpen(!open)}
-          className="flex h-7 shrink-0 items-center gap-1 rounded border border-(--nf-border) px-3 text-xs max-sm:px-2 hover:border-(--nf-accent) focus-visible:outline-2 focus-visible:outline-(--nf-accent)"
+          className="flex h-7 shrink-0 items-center gap-1 rounded border border-(--nf-border) px-3 text-xs hover:bg-(--nf-raised) max-sm:px-2"
         >
           Lab
           <svg viewBox="0 0 10 6" className="h-1.5 w-2.5" fill="currentColor" aria-hidden>
@@ -140,7 +142,7 @@ export function LabMenu() {
             <div
               role="menu"
               aria-label="Lab"
-              className="absolute right-0 z-50 mt-1 w-40 rounded-lg border border-(--nf-border) bg-(--nf-surface) py-1 text-xs shadow-xl"
+              className="absolute right-0 z-50 mt-1 w-40 rounded-md border border-(--nf-border) bg-(--nf-surface) py-1 text-xs shadow-lg"
             >
               <button
                 type="button"
@@ -165,6 +167,14 @@ export function LabMenu() {
                 Import
               </button>
               <hr className="my-1 border-(--nf-border)" />
+              <button
+                type="button"
+                role="menuitem"
+                className={item}
+                onClick={pick(() => setTheme(theme === 'dark' ? 'light' : 'dark'))}
+              >
+                {theme === 'dark' ? 'Light theme' : 'Dark theme'}
+              </button>
               <button
                 type="button"
                 role="menuitem"

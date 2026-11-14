@@ -1,25 +1,63 @@
 @import 'tailwindcss';
 @import '@xyflow/react/dist/style.css';
 
-/* Dark is the default theme; light is opt-in via data-theme="light". */
-:root {
-  color-scheme: dark;
-  --nf-bg: #0b1120;
-  --nf-surface: #111a2e;
-  --nf-border: #1e293b;
-  --nf-text: #e2e8f0;
-  --nf-muted: #94a3b8;
-  --nf-accent: #38bdf8;
+@theme {
+  --font-sans: 'Barlow', ui-sans-serif, system-ui, sans-serif;
+  --font-label: 'Barlow Semi Condensed', 'Barlow', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
 }
 
-:root[data-theme='light'] {
+/* Light ("a diagram sheet on a lab bench") is the default; night is opt-in via data-theme="dark". */
+:root {
   color-scheme: light;
-  --nf-bg: #f8fafc;
-  --nf-surface: #ffffff;
-  --nf-border: #e2e8f0;
-  --nf-text: #0f172a;
-  --nf-muted: #475569;
-  --nf-accent: #0284c7;
+  --nf-bg: #eff1ec;
+  --nf-surface: #fafaf7;
+  --nf-raised: #e9ece6;
+  --nf-border: #d3d8d0;
+  --nf-grid: #c4cac2;
+  --nf-text: #1b211f;
+  --nf-muted: #5c6762;
+  --nf-accent: #0b6b4f;
+  --nf-on-accent: #ffffff;
+  --nf-mark: #ffd60a;
+  --nf-ok: #1fa45b;
+  --nf-warn: #c77700;
+  --nf-bad: #c8372d;
+  --nf-hw: #2a2f2d;
+  --nf-hw-edge: #444b48;
+  --nf-hw-text: #ecefea;
+  --nf-hw-muted: #9ba5a0;
+  --nf-socket: #0c0e0d;
+  --nf-cable-copper: #5b6662;
+  --nf-cable-fiber: #e08a00;
+  /* A terminal is always dark. */
+  --nf-term-bg: #0c0f0e;
+  --nf-term-text: #d7ddd8;
+  --nf-term-prompt: #4ade80;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --nf-bg: #141817;
+  --nf-surface: #1b201e;
+  --nf-raised: #232927;
+  --nf-border: #2f3734;
+  --nf-grid: #2a312e;
+  --nf-text: #e4e8e3;
+  --nf-muted: #94a09a;
+  --nf-accent: #3fbf93;
+  --nf-on-accent: #06281f;
+  --nf-mark: #ffd60a;
+  --nf-ok: #34c77b;
+  --nf-warn: #e9a23b;
+  --nf-bad: #f0685e;
+  --nf-hw: #2a302e;
+  --nf-hw-edge: #525c58;
+  --nf-hw-text: #ecefea;
+  --nf-hw-muted: #9ba5a0;
+  --nf-socket: #0b0d0c;
+  --nf-cable-copper: #8a9690;
+  --nf-cable-fiber: #f2a93b;
 }
 
 html,
@@ -33,18 +71,62 @@ body {
   background: var(--nf-bg);
   color: var(--nf-text);
   font-family: var(--font-sans);
+  font-size: 14px;
 }
 
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--nf-accent);
+    outline-offset: 2px;
+  }
+
+  a {
+    color: var(--nf-accent);
+  }
+  a:hover {
+    text-decoration: underline;
+  }
+
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family: var(--font-mono);
+  }
+
+  ::placeholder {
+    color: var(--nf-muted);
+    opacity: 0.8;
+  }
+}
+
+/* React Flow's own chrome follows the tokens, in both themes. */
 .react-flow {
   --xy-background-color: var(--nf-bg);
+  --xy-background-pattern-color: var(--nf-grid);
+  --xy-controls-button-background-color: var(--nf-surface);
+  --xy-controls-button-background-color-hover: var(--nf-raised);
+  --xy-controls-button-color: var(--nf-text);
+  --xy-controls-button-color-hover: var(--nf-text);
+  --xy-controls-button-border-color: var(--nf-border);
+  --xy-controls-box-shadow: 0 1px 3px rgb(0 0 0 / 0.18);
+  --xy-attribution-background-color: color-mix(in srgb, var(--nf-surface) 80%, transparent);
+  --xy-edge-label-background-color: var(--nf-surface);
+  --xy-edge-label-color: var(--nf-text);
+  --xy-minimap-background-color: var(--nf-surface);
+  --xy-minimap-mask-background-color: color-mix(in srgb, var(--nf-bg) 70%, transparent);
+  --xy-minimap-node-background-color: var(--nf-hw);
+}
+.react-flow__attribution a {
+  color: var(--nf-muted);
 }
 
 /* Port LED flash when a frame passes. */
 @keyframes nf-led-blink {
   0%,
   60% {
-    background: #f8fafc;
-    box-shadow: 0 0 6px #22c55e;
+    background: var(--nf-hw-text);
+    box-shadow: 0 0 6px var(--nf-ok);
   }
 }
 .nf-led-blink {
@@ -60,16 +142,20 @@ body {
   animation: nf-cursor 1s steps(1) infinite;
 }
 
-/* What the current task step points at: a soft pulsing ring. */
+/* What the current task step points at: a yellow highlighter ring. The thin dark edge keeps it
+   readable on the light surface; the pulse only moves the outer halo. */
 @keyframes nf-focus {
   50% {
     box-shadow:
-      0 0 0 2px var(--nf-accent),
-      0 0 18px 4px color-mix(in srgb, var(--nf-accent) 55%, transparent);
+      0 0 0 3px var(--nf-mark),
+      0 0 0 4px rgb(0 0 0 / 0.4),
+      0 0 14px 7px color-mix(in srgb, var(--nf-mark) 55%, transparent);
   }
 }
 .nf-focus {
-  box-shadow: 0 0 0 2px var(--nf-accent);
+  box-shadow:
+    0 0 0 3px var(--nf-mark),
+    0 0 0 4px rgb(0 0 0 / 0.4);
   animation: nf-focus 1.6s ease-in-out infinite;
 }
 

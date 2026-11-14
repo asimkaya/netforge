@@ -24,7 +24,7 @@ test('two routers learn each other’s networks with OSPF', async ({ page }) => 
   const ospf = r1.getByRole('region', { name: 'Dynamic routing (OSPF)' });
   await ospf.getByRole('button', { name: 'Start OSPF (bird)' }).click();
   await expect(ospf.getByRole('list', { name: 'OSPF neighbors' })).toContainText(
-    '10.0.0.2 on eth1 · Full',
+    /10\.0\.0\.2 on eth1\s*Full/,
   );
   await expect(ospf.getByRole('list', { name: 'OSPF routes' })).toContainText(
     '192.168.2.0/24 via 10.0.0.2 (eth1), cost 20',

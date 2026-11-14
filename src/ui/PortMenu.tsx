@@ -38,9 +38,9 @@ function useMenu(onClose: () => void) {
 }
 
 const MENU =
-  'absolute z-20 max-h-72 w-60 overflow-y-auto rounded-lg border border-(--nf-border) bg-(--nf-surface) p-1 text-xs shadow-xl';
+  'absolute z-20 max-h-72 w-60 overflow-y-auto rounded-md border border-(--nf-border) bg-(--nf-surface) p-1 text-xs shadow-lg';
 const ITEM =
-  'flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left hover:bg-(--nf-border) focus-visible:bg-(--nf-border) focus-visible:outline-none disabled:opacity-40 disabled:hover:bg-transparent';
+  'flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left hover:bg-(--nf-raised) focus-visible:bg-(--nf-raised) focus-visible:outline-none disabled:opacity-40 disabled:hover:bg-transparent';
 
 export interface DeviceMenuState {
   device: Device;
