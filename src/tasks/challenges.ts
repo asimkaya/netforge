@@ -102,14 +102,7 @@ export const CHALLENGES: readonly Challenge[] = [
     title: 'The server pc2 cannot find',
     symptom: 'pc2 cannot reach the intranet server at 192.168.10.10. The other PCs can.',
     base: 'office',
-    breakIt: [
-      sh(
-        'pc2',
-        'ip addr flush dev eth0',
-        'ip route del default',
-        'ip addr add 192.168.10.101/30 dev eth0',
-      ),
-    ],
+    breakIt: [sh('pc2', 'ip addr flush dev eth0', 'ip addr add 192.168.10.101/30 dev eth0')],
     fix: [sh('pc2', 'ip addr flush dev eth0', 'ip addr add 192.168.10.101/24 dev eth0')],
     device: 'pc2',
     command: `ping -c 1 ${SERVER}`,
@@ -118,10 +111,10 @@ export const CHALLENGES: readonly Challenge[] = [
     proved: (net) => answered(net, 'pc2', SERVER),
     hints: [
       WHY,
-      'The explanation blames a missing default gateway, but a server in the PC’s own network needs none. Read pc2’s address with `ip addr` and compare it with a working PC: which addresses does its network contain?',
+      'The explanation says the route through the gateway is not usable because the gateway is not on pc2’s network. Read pc2’s address with `ip addr` and compare it with a working PC: which addresses does its network contain?',
       'pc2’s address has the wrong prefix length, so the server and the router lie outside the network pc2 thinks it is in.',
     ],
-    done: 'pc2 had the right address but a /30 prefix, so it believed only three other addresses were on its network and sent even the server’s traffic towards a gateway it could not reach. The prefix length is half of an address: a wrong one makes neighbours look like strangers.',
+    done: 'pc2 had the right address but a /30 prefix, so it believed only three other addresses were on its network and treated its default gateway as unreachable and sent even the server’s traffic nowhere. The prefix length is half of an address: a wrong one makes neighbours look like strangers.',
   },
   {
     id: 'fix-no-network',

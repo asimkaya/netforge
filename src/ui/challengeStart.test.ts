@@ -9,7 +9,10 @@ import { Lab } from './labBuilder.ts';
 /** What the explainer says about each fault: the device it points at and a phrase of its text. */
 const EXPECTED: Record<string, { device: string; text: RegExp }> = {
   'fix-no-way-out': { device: 'pc3', text: /could not find the MAC address of its gateway/ },
-  'fix-wrong-prefix': { device: 'pc2', text: /has no default gateway/ },
+  'fix-wrong-prefix': {
+    device: 'pc2',
+    text: /not usable because 192\.168\.10\.1 is not on a network/,
+  },
   'fix-no-network': { device: 'pc4', text: /eth0 is turned off/ },
   'fix-wrong-vlan': { device: 'pc2', text: /same VLAN/ },
   'fix-names': { device: 'srv1', text: /nothing is listening on UDP port 53/ },
