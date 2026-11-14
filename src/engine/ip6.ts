@@ -4,6 +4,7 @@ import {
   ALL_ROUTERS,
   LINK_LOCAL_PREFIX,
   eui64,
+  formatIp6,
   inSubnet6,
   isLinkLocal,
   isMulticast6,
@@ -15,6 +16,7 @@ import {
   type Ip6,
 } from './addr6.ts';
 import type { Fabric } from './device.ts';
+import type { DropWhy } from './drops.ts';
 import type { EthernetFrame, Icmp6Packet, Ipv6Packet } from './packet.ts';
 import { hasCarrier, type Port } from './port.ts';
 
@@ -244,10 +246,23 @@ export class Ip6Stack {
       return null;
     }
     const route = opts.dev ? { port: opts.dev, via: null } : this.routeTo(dst);
-    if (!route) return 'Network is unreachable';
+    if (!route) {
+      const own = this.ports.flatMap((p) => this.addrsOn(p))[0]?.cidr.ip ?? 0n;
+      this.#drop(
+        { reason: 'no-route', forwarded: false },
+        { kind: 'ipv6', src: opts.src ?? own, dst, hopLimit, payload },
+      );
+      return 'Network is unreachable';
+    }
     const src = opts.src ?? this.sourceOn(route.port, dst);
     this.#output(route.port, route.via, { kind: 'ipv6', src, dst, hopLimit, payload });
     return null;
+  }
+
+  /** Records a discarded packet (see drops.ts). */
+  #drop(why: DropWhy, packet: Ipv6Packet, port: Port | null = null): void {
+    const at = port ?? this.ports[0];
+    if (at) this.fabric.drop(at.device, port, why, packet);
   }
 
   #output(port: Port, via: Ip6 | null, packet: Ipv6Packet): void {
@@ -280,7 +295,10 @@ export class Ip6Stack {
     if (this.neighbors.get(`${n.port.name}|${n.ip}`) !== n || n.state !== 'INCOMPLETE') return;
     if (n.probes >= NDP_RETRIES) {
       n.state = 'FAILED';
-      for (const packet of n.queue) this.#unreachable(packet, 'address');
+      for (const packet of n.queue) {
+        this.#drop({ reason: 'arp-failed', nextHop: formatIp6(n.ip) }, packet, n.port);
+        this.#unreachable(packet, 'address');
+      }
       n.queue = [];
       this.fabric.changed();
       return;
@@ -318,19 +336,24 @@ export class Ip6Stack {
       this.#deliver(p, port, frame.src);
       return;
     }
+    if (unicastForUs && !this.forwarding && !isMulticast6(p.dst)) {
+      this.#drop({ reason: 'forwarding-off' }, p, port);
+    }
     if (!unicastForUs || !this.forwarding || isMulticast6(p.dst)) return;
     // Routers never forward link-local traffic.
     if (isLinkLocal(p.src) || isLinkLocal(p.dst)) return;
-    this.#forward(p);
+    this.#forward(p, port);
   }
 
-  #forward(packet: Ipv6Packet): void {
+  #forward(packet: Ipv6Packet, from: Port): void {
     const route = this.routeTo(packet.dst);
     if (!route) {
+      this.#drop({ reason: 'no-route', forwarded: true }, packet);
       this.#unreachable(packet, 'route');
       return;
     }
     if (packet.hopLimit <= 1) {
+      this.#drop({ reason: 'ttl-expired' }, packet, from);
       this.#error(packet, { kind: 'icmp6', type: 'time-exceeded', original: packet });
       return;
     }

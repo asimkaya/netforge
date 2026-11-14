@@ -2,6 +2,7 @@ import {
   BROADCAST_MAC,
   LIMITED_BROADCAST,
   broadcastOf,
+  formatIp,
   inSubnet,
   networkOf,
   type Cidr,
@@ -9,6 +10,7 @@ import {
   type Mac,
 } from './addr.ts';
 import type { Fabric } from './device.ts';
+import type { DropWhy } from './drops.ts';
 import type {
   ArpPacket,
   EthernetFrame,
@@ -97,6 +99,13 @@ export interface UdpSocket {
 interface UdpBinding {
   onData: (datagram: UdpDatagram, from: Ip, ingress: Port) => void;
   onError: ((error: UdpError, original: Ipv4Packet) => void) | undefined;
+}
+
+/** Why a port has no carrier, for explaining a drop. */
+function linkCause(port: Port): 'admin-down' | 'no-cable' | 'peer-down' {
+  const phys = port.parent ?? port;
+  if (!port.adminUp || !phys.adminUp) return 'admin-down';
+  return phys.link ? 'peer-down' : 'no-cable';
 }
 
 /** IPv4 with ARP, routing, ICMP and UDP on the ports that are not bridged. */
@@ -376,16 +385,49 @@ export class IpStack implements TcpHost {
     if (!this.nf.active) {
       if (isLocal(p)) this.#deliver(p, port);
       else if (this.forwarding && unicast) this.#forward(p, port, null);
+      else if (unicast) this.noteDrop({ reason: 'forwarding-off' }, p, port);
       return;
     }
     // Netfilter: prerouting (DNAT), then input for us or forward + postrouting for others.
     const { t, verdict } = this.nf.enter(p, { hook: 'prerouting', in: port, out: null });
-    if (verdict !== 'accept') return;
+    if (verdict !== 'accept') {
+      this.#nfDrop(p, port);
+      return;
+    }
     if (isLocal(t.packet)) {
       const v = this.nf.leave(t, { hook: 'input', in: port, out: null });
       if (v === 'accept') this.#deliver(t.packet, port);
-      else if (v === 'reject') this.#reject(t.packet);
+      else {
+        this.#nfDrop(p, port);
+        if (v === 'reject') this.#reject(t.packet);
+      }
     } else if (this.forwarding && unicast) this.#forward(t.packet, port, t);
+    else if (unicast) this.noteDrop({ reason: 'forwarding-off' }, p, port);
+  }
+
+  /**
+   * Records a discarded packet (see drops.ts). `port` is where it happened; without one the
+   * device's first interface stands in, for drops that have no interface.
+   */
+  noteDrop(why: DropWhy, packet: Ipv4Packet | ArpPacket | null, port: Port | null = null): void {
+    const at = port ?? this.ports[0];
+    if (at) this.fabric.drop(at.device, port, why, packet);
+  }
+
+  /** Records the firewall verdict that was just given. */
+  #nfDrop(packet: Ipv4Packet, port: Port): void {
+    const { lastDecision: d } = this.nf;
+    if (d) this.noteDrop({ reason: 'netfilter', ...d }, packet, port);
+  }
+
+  /** A packet had no route: record whether an interface was down or no route matched. */
+  #noRoute(packet: Ipv4Packet, forwarded: boolean): void {
+    const dead =
+      this.ports.find(
+        (p) => !hasCarrier(p) && this.addrsOn(p).some((a) => inSubnet(packet.dst, a)),
+      ) ?? this.staticRoutes.find((r) => !hasCarrier(r.dev) && inSubnet(packet.dst, r.dst))?.dev;
+    if (dead) this.noteDrop({ reason: 'link-down', cause: linkCause(dead) }, packet, dead);
+    else this.noteDrop({ reason: 'no-route', forwarded }, packet);
   }
 
   /** `reject`: ICMP port unreachable to the sender, the nftables default for IPv4. */
@@ -445,20 +487,35 @@ export class IpStack implements TcpHost {
       return null;
     }
     const route = this.routeTo(dst);
-    if (!route) return 'Network is unreachable';
-    const refused = route.port.tunnel?.check(dst);
-    if (refused) return refused;
+    if (!route) {
+      const from = src ?? this.allAddrs()[0]?.ip ?? 0;
+      this.#noRoute({ kind: 'ipv4', src: from, dst, ttl, payload }, false);
+      return 'Network is unreachable';
+    }
     const packet: Ipv4Packet = { kind: 'ipv4', src: src ?? route.src, dst, ttl, payload };
+    const refused = route.port.tunnel?.check(dst);
+    if (refused) {
+      const reason = refused === 'Destination address required' ? 'wg-no-endpoint' : 'wg-no-peer';
+      this.noteDrop({ reason, iface: route.port.name }, packet, route.port);
+      return refused;
+    }
     if (!this.nf.active) {
       this.#output(route, packet);
       return null;
     }
     const { t, verdict } = this.nf.enter(packet, { hook: 'output', in: null, out: route.port });
-    if (verdict !== 'accept') return 'Operation not permitted';
+    if (verdict !== 'accept') {
+      this.#nfDrop(packet, route.port);
+      return 'Operation not permitted';
+    }
     // DNAT in the output chain can change where the packet goes.
     const out = t.packet.dst === dst ? route : this.routeTo(t.packet.dst);
-    if (!out) return 'Network is unreachable';
+    if (!out) {
+      this.#noRoute(t.packet, false);
+      return 'Network is unreachable';
+    }
     if (this.nf.leave(t, { hook: 'postrouting', in: null, out: out.port }) !== 'accept') {
+      this.#nfDrop(packet, out.port);
       return 'Operation not permitted';
     }
     this.#output(out, t.packet);
@@ -469,10 +526,12 @@ export class IpStack implements TcpHost {
     // Like Linux, look the route up first: no route means "net unreachable" whatever the TTL.
     const route = this.routeTo(packet.dst);
     if (!route) {
+      this.#noRoute(packet, true);
       this.#unreachable(packet, 'net');
       return;
     }
     if (packet.ttl <= 1) {
+      this.noteDrop({ reason: 'ttl-expired' }, packet, from);
       this.#icmpError(packet, { kind: 'icmp', type: 'time-exceeded', original: packet });
       return;
     }
@@ -484,10 +543,13 @@ export class IpStack implements TcpHost {
     t.packet = next;
     const where = { hook: 'forward' as const, in: from, out: route.port };
     const verdict = this.nf.filter(t, where);
+    if (verdict !== 'accept') this.#nfDrop(packet, from);
     if (verdict === 'reject') this.#reject(packet);
     if (verdict !== 'accept') return;
     if (this.nf.leave(t, { ...where, hook: 'postrouting' }) === 'accept') {
       this.#output(route, t.packet);
+    } else {
+      this.#nfDrop(packet, route.port);
     }
   }
 
@@ -526,7 +588,10 @@ export class IpStack implements TcpHost {
     if (this.neighbors.get(n.ip) !== n || n.state !== 'INCOMPLETE') return;
     if (n.probes >= ARP_RETRIES) {
       n.state = 'FAILED';
-      for (const packet of n.queue) this.#unreachable(packet, 'host');
+      for (const packet of n.queue) {
+        this.noteDrop({ reason: 'arp-failed', nextHop: formatIp(n.ip) }, packet, n.port);
+        this.#unreachable(packet, 'host');
+      }
       n.queue = [];
       this.fabric.changed();
       return;
@@ -627,7 +692,10 @@ export class IpStack implements TcpHost {
     if (p.kind === 'udp') {
       const binding = this.#udp.get(p.dstPort);
       if (binding) binding.onData(p, packet.src, port);
-      else if (this.ownsIp(packet.dst)) this.#unreachable(packet, 'port');
+      else if (this.ownsIp(packet.dst)) {
+        this.noteDrop({ reason: 'no-listener' }, packet, port);
+        this.#unreachable(packet, 'port');
+      }
       return;
     }
     switch (p.type) {

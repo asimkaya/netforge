@@ -1,5 +1,6 @@
 import { BROADCAST_MAC, type Mac } from './addr.ts';
 import type { Fabric } from './device.ts';
+import type { DropWhy } from './drops.ts';
 import { untagged, type EthernetFrame } from './packet.ts';
 import { hasCarrier, type Port } from './port.ts';
 import { Stp } from './stp.ts';
@@ -93,9 +94,22 @@ export class Bridge {
       this.stp.receive(port, frame.payload);
       return;
     }
-    if (!this.stp.learns(port)) return;
+    if (!this.stp.learns(port)) {
+      this.#dropStp(port, frame);
+      return;
+    }
     const vid = this.#ingress(port, frame);
-    if (vid === null) return;
+    if (vid === null) {
+      const v = this.vlans.get(port);
+      const vids = [...(v?.vids ?? [])].sort((a, b) => a - b);
+      this.#drop(port, frame, {
+        reason: 'vlan-ingress',
+        vid: frame.vlan ?? null,
+        pvid: v?.pvid ?? null,
+        vids,
+      });
+      return;
+    }
     const now = this.fabric.scheduler.now;
     if (frame.src !== BROADCAST_MAC) {
       const key = `${vid}/${frame.src}`;
@@ -104,21 +118,60 @@ export class Bridge {
     }
     this.#expire();
     // Listening and learning ports learn addresses (learning only) but forward nothing.
-    if (!this.stp.forwards(port)) return;
+    if (!this.stp.forwards(port)) {
+      this.#dropStp(port, frame);
+      return;
+    }
     const local = this.local;
+    let heard = false;
     if (local && (vid === 0 || vid === DEFAULT_VID)) {
       const group = frame.dst === BROADCAST_MAC || /^(01:|33:33:)/.test(frame.dst);
       if (frame.dst === local.port.mac || group) local.receive(untagged(frame));
       if (frame.dst === local.port.mac) return;
+      heard = group;
     }
     const entry = frame.dst === BROADCAST_MAC ? undefined : this.#fdb.get(`${vid}/${frame.dst}`);
     if (entry) {
-      if (entry.port !== port && this.stp.forwards(entry.port))
-        this.#egress(entry.port, frame, vid);
+      if (entry.port === port) return;
+      if (!this.stp.forwards(entry.port)) this.#dropStp(entry.port, frame);
+      else if (!this.#egress(entry.port, frame, vid))
+        this.#dropVlan(port, frame, vid, [entry.port]);
       return;
     }
+    // Flooding: ports outside the VLAN are normal isolation, a drop only when nothing got it.
+    let sent = 0;
+    const refused: Port[] = [];
     for (const out of this.ports) {
-      if (out !== port && hasCarrier(out) && this.stp.forwards(out)) this.#egress(out, frame, vid);
+      if (out === port || !hasCarrier(out) || !this.stp.forwards(out)) continue;
+      if (this.#egress(out, frame, vid)) sent++;
+      else refused.push(out);
+    }
+    if (sent === 0 && !heard && refused.length > 0) this.#dropVlan(port, frame, vid, refused);
+  }
+
+  /** Records a discarded frame worth explaining: ARP and unicast IP, not control traffic. */
+  #drop(port: Port, frame: EthernetFrame, why: DropWhy): void {
+    const p = frame.payload;
+    const worth =
+      p.kind === 'arp' ||
+      (p.kind === 'ipv4' && p.payload.kind !== 'ospf') ||
+      (p.kind === 'ipv6' && !frame.dst.startsWith('33:33:'));
+    if (worth) this.fabric.drop(port.device, port, why, p);
+  }
+
+  #dropVlan(port: Port, frame: EthernetFrame, vid: number, refused: Port[]): void {
+    const others = refused.map((p) => ({
+      port: p.name,
+      vids: [...(this.vlans.get(p)?.vids ?? [])].sort((a, b) => a - b),
+    }));
+    this.#drop(port, frame, { reason: 'vlan-egress', vid, others });
+  }
+
+  /** A port that is not forwarding is only a problem while Spanning Tree converges. */
+  #dropStp(port: Port, frame: EthernetFrame): void {
+    const s = this.stp.ports.get(port);
+    if (s && s.role !== 'alternate') {
+      this.#drop(port, frame, { reason: 'stp-not-forwarding', state: s.state, role: s.role });
     }
   }
 
@@ -148,14 +201,16 @@ export class Bridge {
     return vid !== null && v?.vids.has(vid) ? vid : null;
   }
 
-  #egress(out: Port, frame: EthernetFrame, vid: number): void {
+  /** Sends a frame out of a port; false when the port is not in the frame's VLAN. */
+  #egress(out: Port, frame: EthernetFrame, vid: number): boolean {
     if (!this.vlanFiltering) {
       this.fabric.transmit(out, frame);
-      return;
+      return true;
     }
     const v = this.vlans.get(out);
-    if (!v?.vids.has(vid)) return;
+    if (!v?.vids.has(vid)) return false;
     this.fabric.transmit(out, v.untagged.has(vid) ? untagged(frame) : { ...frame, vlan: vid });
+    return true;
   }
 
   #expire(): void {

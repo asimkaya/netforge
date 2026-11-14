@@ -1,5 +1,6 @@
 import type { Ip } from './addr.ts';
 import type { Fabric } from './device.ts';
+import type { DropWhy } from './drops.ts';
 import type { Ipv4Packet, TcpFlag, TcpSegment, UnreachableCode } from './packet.ts';
 
 /** Linux retries a SYN with doubling waits; three tries here, 1 s then 2 s then 4 s. */
@@ -45,6 +46,8 @@ export interface TcpHost {
   /** Source address the stack would use toward `dst`, or null without a route. */
   sourceFor(dst: Ip): Ip | null;
   sendPacket(dst: Ip, payload: TcpSegment, src: Ip): string | null;
+  /** Records a discarded packet (see drops.ts). */
+  noteDrop(why: DropWhy, packet: Ipv4Packet): void;
 }
 
 class Connection implements TcpConnection {
@@ -238,6 +241,8 @@ export class TcpLayer {
   #accept(packet: Ipv4Packet, seg: TcpSegment): void {
     const accept = this.#listeners.get(seg.dstPort);
     if (!accept || !this.host.ownsIp(packet.dst)) {
+      if (!accept && this.host.ownsIp(packet.dst))
+        this.host.noteDrop({ reason: 'no-listener' }, packet);
       this.#reset(packet, seg);
       return;
     }

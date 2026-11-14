@@ -149,8 +149,21 @@ interface Where {
 
 export type Verdict = 'accept' | 'drop' | 'reject';
 
+/** Which chain, and which rule or policy, gave the last drop or reject verdict. */
+export interface Decision {
+  verdict: 'drop' | 'reject';
+  hook: Hook;
+  family: Table['family'];
+  table: string;
+  chain: string;
+  /** Handle of the rule that decided, or null when the chain's policy did. */
+  rule: number | null;
+}
+
 export class Netfilter {
   tables: Table[] = [];
+  /** The latest drop or reject verdict, for explaining it (see drops.ts). */
+  lastDecision: Decision | null = null;
   #handle = 0;
   readonly #conns = new Map<string, { conn: Conn; dir: 'orig' | 'reply' }>();
 
@@ -312,21 +325,32 @@ export class Netfilter {
   /** Runs the base chains of one hook in priority order. */
   #run(t: Tracked, where: Where): Verdict {
     const chains = this.tables
-      .flatMap((table) => table.chains)
-      .filter((c) => c.base?.hook === where.hook)
-      .sort((a, b) => (a.base?.priority ?? 0) - (b.base?.priority ?? 0));
-    for (const chain of chains) {
+      .flatMap((table) => table.chains.map((chain) => ({ table, chain })))
+      .filter((c) => c.chain.base?.hook === where.hook)
+      .sort((a, b) => (a.chain.base?.priority ?? 0) - (b.chain.base?.priority ?? 0));
+    for (const { table, chain } of chains) {
       const base = chain.base;
       if (!base) continue;
       // NAT chains only see the first packet of a connection.
       if (base.type === 'nat' && !t.fresh) continue;
-      const verdict = this.#chain(chain, base, t, where);
-      if (verdict !== 'accept') return verdict;
+      const [verdict, rule] = this.#chain(chain, base, t, where);
+      if (verdict !== 'accept') {
+        const { family } = table;
+        this.lastDecision = {
+          verdict,
+          hook: where.hook,
+          family,
+          table: table.name,
+          chain: chain.name,
+          rule,
+        };
+        return verdict;
+      }
     }
     return 'accept';
   }
 
-  #chain(chain: Chain, base: BaseChain, t: Tracked, where: Where): Verdict {
+  #chain(chain: Chain, base: BaseChain, t: Tracked, where: Where): [Verdict, number | null] {
     for (const rule of chain.rules) {
       if (!rule.matches.every((m) => this.#matches(m, t, where))) continue;
       if (rule.counter) {
@@ -341,7 +365,7 @@ export class Netfilter {
         case 'accept':
         case 'drop':
         case 'reject':
-          return a.kind;
+          return [a.kind, rule.handle];
         case 'masquerade':
         case 'snat': {
           const addr = a.kind === 'snat' ? a.addr : where.out && this.addressOn(where.out);
@@ -349,17 +373,17 @@ export class Netfilter {
             const port = a.kind === 'snat' && a.port !== null ? a.port : t.conn.reply.dport;
             t.conn.reply = { ...t.conn.reply, dst: addr, dport: port };
           }
-          return 'accept';
+          return ['accept', null];
         }
         case 'dnat':
           if (t.conn) {
             t.conn.reply = { ...t.conn.reply, src: a.addr, sport: a.port ?? t.conn.reply.sport };
             this.#translate(t, 'dst');
           }
-          return 'accept';
+          return ['accept', null];
       }
     }
-    return base.policy;
+    return [base.policy, null];
   }
 
   #matches(m: Match, t: Tracked, where: Where): boolean {

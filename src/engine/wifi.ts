@@ -127,6 +127,11 @@ export function checkWireless(net: Network): void {
     const ap = link.a.device.hostapd ? link.a.device : link.b.device;
     const client = ap === link.a.device ? link.b.device : link.a.device;
     const d = distance(net, ap, client);
-    if (!ap.hostapd || (d !== null && d > WIFI_RANGE)) net.disconnect(link);
+    const outOfRange = d !== null && d > WIFI_RANGE;
+    if (ap.hostapd && outOfRange) {
+      const radio = link.a.device === client ? link.a : link.b;
+      net.drop(client, radio, { reason: 'wifi-out-of-range', ssid: ap.hostapd.ssid }, null);
+    }
+    if (!ap.hostapd || outOfRange) net.disconnect(link);
   }
 }

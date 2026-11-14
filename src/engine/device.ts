@@ -13,7 +13,14 @@ import { Httpd } from './http.ts';
 import { startPop3, startSmtp } from './mail.ts';
 import { startHostapd, type HostapdConfig } from './wifi.ts';
 import { IpStack } from './ip.ts';
-import { untagged, type EthernetFrame } from './packet.ts';
+import type { DropWhy } from './drops.ts';
+import {
+  untagged,
+  type ArpPacket,
+  type EthernetFrame,
+  type Ipv4Packet,
+  type Ipv6Packet,
+} from './packet.ts';
 import { hasCarrier, type Port } from './port.ts';
 import type { Scheduler } from './scheduler.ts';
 import type { DeviceSpec } from './specs.ts';
@@ -23,6 +30,13 @@ export interface Fabric {
   readonly scheduler: Scheduler;
   transmit(from: Port, frame: EthernetFrame): void;
   changed(): void;
+  /** Records that a frame or packet was discarded, and why (see drops.ts). */
+  drop(
+    device: Device,
+    port: Port | null,
+    why: DropWhy,
+    packet: Ipv4Packet | Ipv6Packet | ArpPacket | null,
+  ): void;
 }
 
 /** A device built from a spec: ports plus the stack modules the spec asks for. */

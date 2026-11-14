@@ -1,5 +1,5 @@
-import { parseIp, type Ip } from './addr.ts';
 import type { Device } from './device.ts';
+import { formatIp, parseIp, type Ip } from './addr.ts';
 import { DNS_PORT } from './dnsmasq.ts';
 
 /** How long a query waits for an answer (dig's default +time). */
@@ -23,9 +23,18 @@ export function isHostname(name: string): boolean {
 export function resolve(
   device: Device,
   name: string,
-  done: (result: Resolution) => void,
+  callback: (result: Resolution) => void,
   server?: Ip,
 ): () => void {
+  // A name that cannot be resolved is recorded where the client gives up (see drops.ts).
+  const done = (result: Resolution) => {
+    if (!result.ok) {
+      const server = result.server === null ? null : formatIp(result.server);
+      const why = { name, server };
+      device.fabric.drop(device, null, { reason: `dns-${result.error}` as const, ...why }, null);
+    }
+    callback(result);
+  };
   const literal = parseIp(name);
   if (literal !== null) {
     done({ ok: true, ip: literal, server: null, rtt: 0 });

@@ -6,7 +6,8 @@ import type { Ip6Stack } from './ip6.ts';
 import { isKey } from './wireguard.ts';
 import { formatRuleset, runNft } from './nft.ts';
 import { DEFAULT_PRIORITY, FORWARD_DELAY_MS } from './stp.ts';
-import type { EthernetFrame } from './packet.ts';
+import { DROP_LIMIT, summarize, type Drop, type DropWhy } from './drops.ts';
+import type { ArpPacket, EthernetFrame, Ipv4Packet, Ipv6Packet } from './packet.ts';
 import { MEDIUM_OF, cableError, hasCarrier, peerOf, type Link, type Port } from './port.ts';
 import { Scheduler } from './scheduler.ts';
 import { run } from './shell.ts';
@@ -261,9 +262,18 @@ export class Network implements Fabric {
   readonly devices = new Map<string, Device>();
   readonly links = new Map<string, Link>();
   trace: TraceEntry[] = [];
+  /** The most recent places a frame or packet was discarded; cleared with the trace. */
+  drops: Drop[] = [];
   /** Increments on every observable change; lets the UI re-render cheaply. */
   version = 0;
-  #counters = { device: 0, link: 0, mac: 0, trace: 0, names: {} as Record<string, number> };
+  #counters = {
+    device: 0,
+    link: 0,
+    mac: 0,
+    trace: 0,
+    drop: 0,
+    names: {} as Record<string, number>,
+  };
   #listeners = new Set<() => void>();
 
   subscribe(listener: () => void): () => void {
@@ -408,8 +418,26 @@ export class Network implements Fabric {
     });
   }
 
+  drop(
+    device: Device,
+    port: Port | null,
+    why: DropWhy,
+    packet: Ipv4Packet | Ipv6Packet | ArpPacket | null,
+  ): void {
+    this.drops.push({
+      seq: ++this.#counters.drop,
+      time: this.scheduler.now,
+      device: device.id,
+      port: port?.name ?? null,
+      packet: packet ? summarize(packet) : null,
+      ...why,
+    });
+    if (this.drops.length > DROP_LIMIT) this.drops = this.drops.slice(-DROP_LIMIT);
+  }
+
   clearTrace(): void {
     this.trace = [];
+    this.drops = [];
     this.changed();
   }
 
@@ -627,8 +655,14 @@ export class Network implements Fabric {
       }
       stp.forEach((s) => (s.instant = false));
       net.trace = [];
+      net.drops = [];
     }
-    net.#counters = { ...snapshot.counters, names: { ...snapshot.counters.names }, trace: 0 };
+    net.#counters = {
+      ...snapshot.counters,
+      names: { ...snapshot.counters.names },
+      trace: 0,
+      drop: 0,
+    };
     net.version = 0;
     return net;
   }

@@ -213,12 +213,19 @@ export class WireGuard {
     this.#socket.send(endpoint.ip, endpoint.port, msg);
   }
 
+  #drop(reason: 'wg-unknown-peer' | 'wg-allowed-ips', inner: Ipv4Packet): void {
+    this.stack.noteDrop({ reason, iface: this.port?.name ?? 'wg0' }, inner, this.port);
+  }
+
   #receive(d: UdpDatagram, from: Ip): void {
     const m = d.data;
     if (m.app !== 'wireguard' || m.receiver !== this.publicKey) return;
     // Only configured peers are answered: everything else is silently dropped.
     const peer = this.peers.find((p) => p.publicKey === m.sender);
-    if (!peer) return;
+    if (!peer) {
+      if (m.inner) this.#drop('wg-unknown-peer', m.inner);
+      return;
+    }
     const now = this.fabric.scheduler.now;
     if (m.type === 'initiation') {
       peer.endpoint = { ip: from, port: d.srcPort };
@@ -238,7 +245,10 @@ export class WireGuard {
     const inner = m.inner;
     if (!inner || peer.lastHandshake === null || !this.port) return;
     // Cryptokey routing: the peer may only send from its allowed IPs.
-    if (!peer.allowedIps.some((net) => inSubnet(inner.src, net))) return;
+    if (!peer.allowedIps.some((net) => inSubnet(inner.src, net))) {
+      this.#drop('wg-allowed-ips', inner);
+      return;
+    }
     peer.endpoint = { ip: from, port: d.srcPort };
     peer.rxBytes += 32 + innerLength(inner);
     this.fabric.changed();
