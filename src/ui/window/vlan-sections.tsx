@@ -209,6 +209,7 @@ export function StpSection({ device }: { device: Device }) {
   const bridge = device.bridge;
   const [priority, setPriority] = useState(String(bridge?.stp.priority ?? 32768));
   const [error, setError] = useState<string | null>(null);
+  const [delay, setDelay] = useState(String((bridge?.stp.forwardDelay ?? 15000) / 1000));
   if (!bridge || bridge.ports.some((p) => p.type === 'wifi')) return null;
   const stp = bridge.stp;
   const rootDevice = [...net.devices.values()].find((d) => d.bridge?.stp.bridgeId === stp.rootId);
@@ -222,6 +223,9 @@ export function StpSection({ device }: { device: Device }) {
   };
   const value = Number(priority);
   const validPriority = /^\d+$/.test(priority) && value <= 65535;
+  const seconds = Number(delay);
+  const validDelay = /^\d+(\.\d{1,2})?$/.test(delay) && seconds >= 2 && seconds <= 30;
+  const listenLearn = (stp.forwardDelay * 2) / 1000;
   return (
     <Section title="Spanning Tree (STP)">
       <label className="flex items-center gap-2 text-xs">
@@ -243,8 +247,32 @@ export function StpSection({ device }: { device: Device }) {
       )}
       <p className="text-xs text-(--nf-muted)">
         With STP on every switch, you can add redundant cables: the switches elect a root and block
-        the extra paths. Ports listen and learn for 30 s before forwarding.
+        the extra paths. A port that comes up listens and learns for {listenLearn} s before
+        forwarding; a shorter forward delay makes that wait shorter.
       </p>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (validDelay) stp.setForwardDelay(Math.round(seconds * 100) * 10);
+        }}
+        className="flex items-end gap-2 text-xs"
+      >
+        <label className="flex flex-col gap-1">
+          Forward delay (2 to 30 seconds)
+          <input
+            value={delay}
+            onChange={(e) => setDelay(e.target.value)}
+            aria-invalid={!validDelay}
+            className={`${FIELD} w-24`}
+          />
+        </label>
+        <button type="submit" className={SECONDARY} disabled={!validDelay}>
+          Set
+        </button>
+        <code className="text-(--nf-muted)">
+          ip link set br0 type bridge forward_delay {Math.round(seconds * 100) || 1500}
+        </code>
+      </form>
       {stp.enabled && (
         <>
           <form

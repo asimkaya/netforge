@@ -49,6 +49,8 @@ describe('ready-made scenarios', () => {
     expect(sh(net, 'pc3', 'ping -c 1 mail.corp')).toContain('0 received');
     expect(sh(net, 'pc3', 'curl -I http://intranet.corp/')).toContain('HTTP/1.1 200 OK');
     expect(sh(net, 'phone1', 'ping -c 1 intranet.corp')).toContain('1 received');
+    // Names the router does not know are forwarded to the Internet's DNS server.
+    expect(sh(net, 'pc1', 'ping -c 1 www.example.com')).toContain('1 received');
     // The branch sees the web server through the port forward, and nothing else.
     expect(sh(net, 'pc6', 'curl -s http://192.0.2.100/')).toContain('It works!');
     expect(sh(net, 'laptop1', 'ping -c 1 198.18.0.10')).toContain('1 received');
@@ -57,7 +59,7 @@ describe('ready-made scenarios', () => {
       (l) => [l.a.device.name, l.b.device.name].sort().join() === 'sw1,sw2',
     );
     net.disconnect(fiber ?? (undefined as never));
-    net.scheduler.runUntil(net.scheduler.now + 31_000);
+    net.scheduler.runUntil(net.scheduler.now + 5000);
     expect(sh(net, 'pc1', 'ping -c 1 mail.corp')).toContain('1 received');
   });
 });

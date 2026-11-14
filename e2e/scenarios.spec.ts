@@ -22,3 +22,13 @@ test('ready networks open with one click and work at once', async ({ page }) => 
   await expect(page.getByTestId('device-home1')).toHaveCount(0);
   await expect(page.getByTestId('device-pc4')).toContainText('192.168.10.103/24');
 });
+
+test('the company router forwards Internet names to the Internet DNS server', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('tab', { name: 'Ready networks' }).click();
+  await page.getByRole('button', { name: 'Open Company with VLANs and a branch' }).click();
+  await expect(page.getByRole('status')).toContainText('Opened');
+  const term = await run(page, 'pc1', 'ping -c 1 www.example.com');
+  await expect(term.getByRole('log')).toContainText('PING www.example.com (198.18.0.10)');
+  await expect(term.getByRole('log')).toContainText('1 received');
+});

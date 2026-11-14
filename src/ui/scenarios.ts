@@ -84,10 +84,10 @@ function company(): Project {
   const branchLaptop = lab.add('laptop', 1130, 150);
 
   // Redundant cables need Spanning Tree on every bridge first (the access point is one too).
-  lab.sh(core, 'ip link set br0 type bridge stp_state 1 priority 4096');
-  for (const bridge of [office, classroom, ap]) {
-    lab.sh(bridge, 'ip link set br0 type bridge stp_state 1');
-  }
+  // A forward delay of 2 s (the shortest Linux accepts) lets new ports forward after 4 s, not 30 s.
+  const STP = 'ip link set br0 type bridge stp_state 1 forward_delay 200';
+  lab.sh(core, `${STP} priority 4096`);
+  for (const bridge of [office, classroom, ap]) lab.sh(bridge, STP);
   lab.cable(internet, 'eth0', router, 'eth0');
   lab.cable(internet, 'eth1', branch, 'eth0');
   lab.cable(router, 'eth1', core, 'eth0');
@@ -117,7 +117,7 @@ function company(): Project {
   vlans(core, { eth0: [10, 20, 30], eth8: [10, 20], eth9: [10, 20] }, { eth1: 30, eth2: 30 });
   vlans(office, { eth8: [10, 20], eth7: [10, 20] }, { eth0: 10, eth1: 10, eth2: 10 });
   vlans(classroom, { eth9: [10, 20], eth7: [10, 20] }, { eth0: 20, eth1: 20, eth2: 20 });
-  lab.wait(40_000);
+  lab.wait(6000);
 
   lab.sh(
     router,
@@ -127,7 +127,8 @@ function company(): Project {
       `ip link set eth1.${id} up`,
       `ip addr add 10.0.${id}.1/24 dev eth1.${id}`,
     ]),
-    'dnsmasq --dhcp-range=10.0.10.100,10.0.10.199 --dhcp-range=10.0.20.100,10.0.20.199 --host-record=intranet.corp,10.0.30.10 --host-record=mail.corp,10.0.30.20',
+    // Internet names (www.example.com) are asked of the Internet's DNS server.
+    'dnsmasq --dhcp-range=10.0.10.100,10.0.10.199 --dhcp-range=10.0.20.100,10.0.20.199 --host-record=intranet.corp,10.0.30.10 --host-record=mail.corp,10.0.30.20 --server=192.0.2.1',
     ...NAT,
     // Visitors from the Internet reach the web server; the classroom reaches only its web page.
     'nft add chain ip nat prerouting { type nat hook prerouting priority dstnat ; }',
@@ -151,7 +152,7 @@ function company(): Project {
   lab.sh(phone, `nmcli dev wifi connect NetForge ${WIFI}`);
   lab.sh(branchLaptop, `nmcli dev wifi connect HomeWiFi ${WIFI}`, 'dhclient wlan0');
   // The access point's new Wi-Fi port listens and learns (Spanning Tree) before it forwards.
-  lab.wait(40_000);
+  lab.wait(6000);
   lab.sh(phone, 'dhclient wlan0');
   return lab.done();
 }
@@ -192,8 +193,9 @@ export const SCENARIOS: Scenario[] = [
       'Three switches with VLANs and a redundant cable, a firewall, two servers, Wi-Fi and a branch office behind the Internet.',
     tryIt: [
       'pc1 is in the office VLAN: `ping mail.corp` works. pc3 is in the classroom VLAN: the firewall drops it, but `curl -I http://intranet.corp/` works.',
+      'From pc1 run `ping www.example.com`: r1 forwards names it does not know to the Internet DNS server (`dnsmasq --server=192.0.2.1`).',
       'On r1 run `nft list ruleset` and `ip -4 addr` to see one interface per VLAN.',
-      'Delete the fiber cable between sw1 and sw2, wait 30 s, and ping again: Spanning Tree opens the spare cable.',
+      'Delete the fiber cable between sw1 and sw2, wait 5 s, and ping again: Spanning Tree opens the spare cable (the switches use `forward_delay 200`, so a port forwards after 4 s instead of 30 s).',
       'From pc6 in the branch run `curl http://192.0.2.100/`: the router forwards port 80 to the web server.',
     ],
     build: company,

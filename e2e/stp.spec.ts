@@ -33,3 +33,16 @@ test('Spanning Tree lets two switches share a redundant cable', async ({ page })
   await expect(stp.getByRole('alert')).toContainText('part of a loop');
   await expect(stp.getByLabel('Spanning Tree', { exact: true })).toBeChecked();
 });
+
+test('the forward delay can be shortened from the Config tab', async ({ page }) => {
+  await page.goto('/');
+  await add(page, 'Switch');
+  const sw = await open(page, 'sw1');
+  await sw.getByRole('tab', { name: 'Config' }).click();
+  const stp = sw.getByRole('region', { name: 'Spanning Tree (STP)' });
+  await expect(stp).toContainText('listens and learns for 30 s');
+  await stp.getByLabel('Forward delay (2 to 30 seconds)').fill('2');
+  await stp.getByRole('button', { name: 'Set', exact: true }).first().click();
+  await expect(stp).toContainText('listens and learns for 4 s');
+  await expect(stp).toContainText('forward_delay 200');
+});
