@@ -11,6 +11,7 @@ import { App } from './ui/App.tsx';
 import { AppCrash, ErrorBoundary } from './ui/ErrorBoundary.tsx';
 import './ui/index.css';
 import { startHistory } from './ui/history.ts';
+import { preloadViews } from './ui/lazyViews.ts';
 import { registerServiceWorker } from './ui/offline.ts';
 import { openSharedLink, restoreAutosave, startAutosave } from './ui/storage.ts';
 
@@ -22,6 +23,7 @@ await openSharedLink();
 startAutosave();
 startHistory();
 registerServiceWorker();
+preloadViews();
 
 createRoot(root).render(
   <StrictMode>

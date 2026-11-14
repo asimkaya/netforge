@@ -1,4 +1,4 @@
-import { useRef, type PointerEvent } from 'react';
+import { Suspense, useRef, type PointerEvent } from 'react';
 import { SpecArt } from '../icons.tsx';
 import {
   closeWindow,
@@ -12,8 +12,7 @@ import {
   type DeviceWindow,
   type WindowTab,
 } from '../lab.ts';
-import { ConfigTab, DesktopTab, PhysicalTab } from './tabs.tsx';
-import { Terminal } from '../apps/Terminal.tsx';
+import { ConfigTab, DesktopTab, PhysicalTab, Terminal } from '../lazyViews.ts';
 import { ErrorBoundary, WindowCrash } from '../ErrorBoundary.tsx';
 
 const TAB_LABEL: Record<WindowTab, string> = {
@@ -141,10 +140,12 @@ function Window({ win, bounds }: { win: DeviceWindow; bounds: () => DOMRect | un
           key={`${win.tab}/${win.app ?? ''}`}
           fallback={(error, retry) => <WindowCrash error={error} retry={retry} />}
         >
-          {win.tab === 'physical' && <PhysicalTab device={device} />}
-          {win.tab === 'config' && <ConfigTab device={device} />}
-          {win.tab === 'desktop' && <DesktopTab device={device} app={win.app} />}
-          {win.tab === 'cli' && <Terminal deviceId={device.id} />}
+          <Suspense fallback={<p className="p-4 text-sm text-(--nf-muted)">Loading…</p>}>
+            {win.tab === 'physical' && <PhysicalTab device={device} />}
+            {win.tab === 'config' && <ConfigTab device={device} />}
+            {win.tab === 'desktop' && <DesktopTab device={device} app={win.app} />}
+            {win.tab === 'cli' && <Terminal deviceId={device.id} />}
+          </Suspense>
         </ErrorBoundary>
       </div>
     </section>

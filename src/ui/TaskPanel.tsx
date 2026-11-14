@@ -1,9 +1,9 @@
 import { useReactFlow } from '@xyflow/react';
-import { useState, type ReactNode } from 'react';
+import { Suspense, useState, type ReactNode } from 'react';
 import type { CustomTask } from '../tasks/custom.ts';
 import { CHALLENGES } from '../tasks/challenges.ts';
 import { TASKS, findTask, type Task } from '../tasks/tasks.ts';
-import { TaskEditor } from './TaskEditor.tsx';
+import { TaskEditor } from './lazyViews.ts';
 import { continueTask, getLab, loadLab, notify, setTasks, useLab } from './lab.ts';
 import { loadChallenge } from './challengeStart.ts';
 import { SCENARIOS } from './scenarios.ts';
@@ -579,19 +579,21 @@ export function Sidebar({ tab, setTab }: { tab: Tab; setTab: (tab: Tab) => void 
   const [editing, setEditing] = useState<CustomTask | 'new' | null>(null);
   if (editing) {
     return (
-      <TaskEditor
-        initial={editing === 'new' ? null : editing}
-        onCancel={() => setEditing(null)}
-        onSave={(task) => {
-          const custom = getLab().tasks.custom ?? [];
-          const others = custom.filter((t) => t.id !== task.id);
-          const at = custom.findIndex((t) => t.id === task.id);
-          const next =
-            at < 0 ? [...custom, task] : custom.map((t) => (t.id === task.id ? task : t));
-          setTasks({ ...getLab().tasks, custom: at < 0 ? [...others, task] : next });
-          setEditing(null);
-        }}
-      />
+      <Suspense fallback={<p className="p-4 text-sm text-(--nf-muted)">Loading…</p>}>
+        <TaskEditor
+          initial={editing === 'new' ? null : editing}
+          onCancel={() => setEditing(null)}
+          onSave={(task) => {
+            const custom = getLab().tasks.custom ?? [];
+            const others = custom.filter((t) => t.id !== task.id);
+            const at = custom.findIndex((t) => t.id === task.id);
+            const next =
+              at < 0 ? [...custom, task] : custom.map((t) => (t.id === task.id ? task : t));
+            setTasks({ ...getLab().tasks, custom: at < 0 ? [...others, task] : next });
+            setEditing(null);
+          }}
+        />
+      </Suspense>
     );
   }
   return findTask(tasks.active, tasks.custom) ? (

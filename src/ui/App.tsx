@@ -1,5 +1,5 @@
 import { ReactFlowProvider } from '@xyflow/react';
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { Canvas } from './Canvas.tsx';
 import { useRealtimeClock } from './clock.ts';
 import { LabMenu } from './LabMenu.tsx';
@@ -7,8 +7,8 @@ import { setMode, useLab, type Mode } from './lab.ts';
 import { Palette } from './Palette.tsx';
 import { ReportPanel } from './ReportUi.tsx';
 import { UpdateToast } from './UpdateToast.tsx';
-import { SimPanel } from './SimPanel.tsx';
 import { Coach, Sidebar, type Tab } from './TaskPanel.tsx';
+import { SimPanel } from './lazyViews.ts';
 import { Windows } from './window/Windows.tsx';
 import { useTaskProgress } from './taskProgress.ts';
 
@@ -99,7 +99,11 @@ export function App() {
                 </div>
               )}
             </div>
-            {mode === 'simulation' && <SimPanel />}
+            {mode === 'simulation' && (
+              <Suspense fallback={<p className="p-4 text-sm text-(--nf-muted)">Loading…</p>}>
+                <SimPanel />
+              </Suspense>
+            )}
           </main>
           {panel && (
             // On narrow screens the panel floats over the canvas instead of squeezing it.

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { add } from './helpers.ts';
+import { add, run } from './helpers.ts';
 
 test('the web app manifest names the app and has icons', async ({ page, request }) => {
   await page.goto('/');
@@ -42,5 +42,8 @@ test('after the first visit the app opens and works without a network', async ({
   await expect(page.getByRole('button', { name: /Add PC/ })).toBeVisible();
   await add(page, 'PC', 1);
   await expect(page.getByTestId('device-pc1')).toBeVisible();
+  // Device windows load in their own chunk: it must come from the cache too.
+  const pc1 = await run(page, 'pc1', 'ip addr');
+  await expect(pc1.getByRole('log')).toContainText('1: lo:');
   await context.setOffline(false);
 });
