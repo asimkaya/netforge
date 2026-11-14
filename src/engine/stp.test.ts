@@ -97,6 +97,21 @@ describe('Spanning Tree', () => {
     expect(sh(net, sw2, 'ip link set br0 type bridge priority x')[0]).toMatch(/^Usage/);
   });
 
+  it('opens the blocked port when the designated side loses its way to the root', () => {
+    const { net, sw1, sw2, sw3, pc1 } = triangle();
+    wait(net, 2 * FORWARD_DELAY_MS);
+    expect(states(net, sw3)).toContain('eth1 blocking');
+    // sw2 was designated on the sw2-sw3 cable. Cut its own root link: sw3 must take over.
+    const link = [...net.links.values()].find(
+      (l) => [l.a.device, l.b.device].includes(sw1) && [l.a.device, l.b.device].includes(sw2),
+    );
+    net.disconnect(link ?? (undefined as never));
+    wait(net, 2 * FORWARD_DELAY_MS + 100);
+    expect(states(net, sw3)).toEqual(['eth0 forwarding', 'eth1 forwarding', 'eth7 forwarding']);
+    expect(states(net, sw2)).toEqual(['eth1 forwarding', 'eth7 forwarding']);
+    expect(received(sh(net, pc1, 'ping -c 1 10.0.0.2'))).toBe(true);
+  });
+
   it('keeps STP across a save and load, already converged', () => {
     const { net, sw3, pc1 } = triangle();
     sh(net, sw3, 'ip link set br0 type bridge priority 4096');

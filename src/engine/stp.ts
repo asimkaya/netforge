@@ -188,13 +188,21 @@ export class Stp {
     this.rootId = best?.v.rootId ?? me;
     this.rootCost = best?.v.rootCost ?? 0;
     this.rootPort = best?.port ?? null;
+    const resigned: Port[] = [];
     for (const [port, s] of this.ports) {
+      const was = s.role;
       if (!hasCarrier(port)) s.role = 'disabled';
       else if (port === this.rootPort) s.role = 'root';
       else if (!s.info || compare(this.#offered(port), s.info) < 0) s.role = 'designated';
       else s.role = 'alternate';
+      if (was === 'designated' && (s.role === 'root' || s.role === 'alternate'))
+        resigned.push(port);
       this.#applyRole(s);
     }
+    // We stopped being the designated bridge on these cables. Real bridges notice when our
+    // hellos stop (max age); without hellos, say it once so the neighbor forgets our old
+    // offer and can take over (otherwise its port stays blocked after a failover).
+    for (const port of resigned) this.#send(port);
     return (
       before !== JSON.stringify([this.rootId, this.rootCost, this.rootPort?.name, this.#roles()])
     );
