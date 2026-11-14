@@ -1,12 +1,13 @@
 import { getViewportForBounds, useReactFlow } from '@xyflow/react';
 import { useState, type ReactNode } from 'react';
-import { Network } from '../engine/network.ts';
 import type { CustomTask } from '../tasks/custom.ts';
 import { TASKS, findTask, type Task } from '../tasks/tasks.ts';
 import { TaskEditor } from './TaskEditor.tsx';
-import { getLab, loadLab, notify, setTasks, useLab } from './lab.ts';
+import { continueTask, getLab, loadLab, notify, setTasks, useLab } from './lab.ts';
 import { boundsOf } from './placement.ts';
+import type { Project } from './project.ts';
 import { SCENARIOS, type Scenario } from './scenarios.ts';
+import { startOf } from './taskStart.ts';
 
 const PRIMARY =
   'rounded bg-(--nf-accent) px-3 py-1 text-xs font-semibold text-slate-950 hover:opacity-90';
@@ -36,16 +37,21 @@ function Rich({ text }: { text: string }) {
 
 /**
  * A button for actions that replace the lab. With devices on the canvas it first asks,
- * right where it was clicked, instead of opening a browser dialog.
+ * right where it was clicked, instead of opening a browser dialog. With `keep` it offers a
+ * third way: carry on with the network that is there.
  */
 function ReplaceButton({
   onConfirm,
   label,
+  keep,
+  replaceLabel = 'Replace',
   children,
 }: {
   onConfirm: () => void;
   /** Accessible name, when the visible text alone does not say what it starts. */
   label?: string;
+  keep?: { label: string; onKeep: () => void };
+  replaceLabel?: string;
   children: ReactNode;
 }) {
   const [asking, setAsking] = useState(false);
@@ -61,23 +67,31 @@ function ReplaceButton({
       </button>
     );
   }
+  const answer = (action: () => void) => () => {
+    setAsking(false);
+    action();
+  };
   return (
     <div
       role="alertdialog"
-      aria-label="Replace the network on the canvas?"
+      aria-label={
+        keep ? 'Which network should the task use?' : 'Replace the network on the canvas?'
+      }
       className="w-full space-y-2 rounded border border-amber-500/50 bg-amber-500/10 p-2 text-xs"
     >
-      <p>This replaces the network on the canvas. Export it first (Lab menu) to keep it.</p>
-      <div className="flex gap-2">
-        <button
-          type="button"
-          className={PRIMARY}
-          onClick={() => {
-            setAsking(false);
-            onConfirm();
-          }}
-        >
-          Replace
+      <p>
+        {keep
+          ? 'There are devices on the canvas. Work on them, or start from the network this task expects? Loading it replaces yours: export yours first (Lab menu) to keep it.'
+          : 'This replaces the network on the canvas. Export it first (Lab menu) to keep it.'}
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {keep && (
+          <button type="button" className={PRIMARY} onClick={answer(keep.onKeep)}>
+            {keep.label}
+          </button>
+        )}
+        <button type="button" className={keep ? SECONDARY : PRIMARY} onClick={answer(onConfirm)}>
+          {replaceLabel}
         </button>
         <button type="button" className={SECONDARY} onClick={() => setAsking(false)}>
           Cancel
@@ -87,13 +101,24 @@ function ReplaceButton({
   );
 }
 
-function startTask(id: string): void {
-  const { tasks } = getLab();
-  loadLab({
-    net: new Network(),
-    layout: {},
-    tasks: { active: id, steps: { ...tasks.steps, [id]: 0 } },
+/** Zooms the canvas to show a whole network, whatever the view was looking at before. */
+function showAll(flow: ReturnType<typeof useReactFlow>, project: Project): void {
+  const pane = document.querySelector('.react-flow')?.getBoundingClientRect();
+  const placed = [...project.net.devices.values()].flatMap((d) => {
+    const at = project.layout[d.id];
+    return at ? [{ spec: d.spec.id, at }] : [];
   });
+  if (!pane || placed.length === 0) return;
+  void flow.setViewport(
+    getViewportForBounds(boundsOf(placed), pane.width, pane.height, 0.2, 1, 0.08),
+  );
+}
+
+/** Replaces the lab with the network a task starts from: what the earlier tasks build. */
+function loadStart(id: string, flow: ReturnType<typeof useReactFlow>): void {
+  const project = startOf(id);
+  loadLab({ ...project, tasks: { active: id, steps: { ...getLab().tasks.steps, [id]: 0 } } });
+  showAll(flow, project);
 }
 
 /** Plays one of the lab's own tasks on the network as it is (no clearing). */
@@ -188,6 +213,7 @@ function CustomTasks({ onEdit }: { onEdit: (task: CustomTask | 'new') => void })
 
 function GuidedTasks({ onEdit }: { onEdit: (task: CustomTask | 'new') => void }) {
   const { tasks } = useLab();
+  const flow = useReactFlow();
   const isDone = (t: Task) => (tasks.steps[t.id] ?? 0) >= t.steps.length;
   const doneCount = TASKS.filter(isDone).length;
   const next = TASKS.find((t) => !isDone(t));
@@ -195,7 +221,7 @@ function GuidedTasks({ onEdit }: { onEdit: (task: CustomTask | 'new') => void })
     <div className="space-y-4">
       <div className="space-y-1">
         <p className="text-xs text-(--nf-muted)">
-          Each task builds a network step by step and checks your work.
+          The tasks build one network that grows from task to task, and every step checks your work.
         </p>
         <div className="flex items-center gap-2 text-xs text-(--nf-muted)">
           <div className="flex-1">
@@ -223,7 +249,9 @@ function GuidedTasks({ onEdit }: { onEdit: (task: CustomTask | 'new') => void })
                   <p className="mt-0.5 text-xs text-(--nf-muted)">{t.summary}</p>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <ReplaceButton
-                      onConfirm={() => startTask(t.id)}
+                      onConfirm={() => loadStart(t.id, flow)}
+                      keep={{ label: 'Continue on my network', onKeep: () => continueTask(t.id) }}
+                      replaceLabel="Load the starting network"
                       label={`${done ? 'Play again' : 'Start'}: ${t.title}`}
                     >
                       {done ? 'Play again' : 'Start'}
@@ -256,16 +284,7 @@ function Scenarios() {
     loadLab({ ...project, tasks: { active: null, steps: getLab().tasks.steps } });
     setOpened(scenario.id);
     notify(`Opened "${scenario.title}". Everything is set up: click a device to look inside.`);
-    // Show the whole network, whatever the view was looking at before.
-    const pane = document.querySelector('.react-flow')?.getBoundingClientRect();
-    const placed = [...project.net.devices.values()].flatMap((d) => {
-      const at = project.layout[d.id];
-      return at ? [{ spec: d.spec.id, at }] : [];
-    });
-    if (!pane || placed.length === 0) return;
-    void flow.setViewport(
-      getViewportForBounds(boundsOf(placed), pane.width, pane.height, 0.2, 1, 0.08),
-    );
+    showAll(flow, project);
   };
   return (
     <div className="space-y-3">
@@ -313,13 +332,7 @@ function Home({ onEdit }: { onEdit: (task: CustomTask | 'new') => void }) {
   const [tab, setTab] = useState<Tab>('tasks');
   return (
     <div className="space-y-4 p-4 text-sm">
-      <div className="space-y-1">
-        <h2 className="text-base font-semibold">Welcome to NetForge 👋</h2>
-        <p className="text-xs text-(--nf-muted)">
-          Build networks, wire them up and watch packets move. Learn with a guided task, open a
-          ready network, or just drag devices onto the canvas.
-        </p>
-      </div>
+      <h2 className="text-base font-semibold">Welcome to NetForge 👋</h2>
       <div role="tablist" className="flex rounded-lg border border-(--nf-border) p-0.5 text-xs">
         {TABS.map((t) => (
           <button
@@ -417,9 +430,9 @@ function ActiveTask() {
             <Rich text={task.done} />
           </p>
           {following && (
-            <ReplaceButton onConfirm={() => startTask(following.id)}>
+            <button type="button" className={PRIMARY} onClick={() => continueTask(following.id)}>
               Next task: {following.title}
-            </ReplaceButton>
+            </button>
           )}
         </div>
       )}
@@ -476,5 +489,9 @@ export function Sidebar() {
       />
     );
   }
-  return findTask(tasks.active, tasks.custom) ? <ActiveTask /> : <Home onEdit={setEditing} />;
+  return findTask(tasks.active, tasks.custom) ? (
+    <ActiveTask key={tasks.active} />
+  ) : (
+    <Home onEdit={setEditing} />
+  );
 }

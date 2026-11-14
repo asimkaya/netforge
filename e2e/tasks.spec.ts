@@ -38,21 +38,62 @@ test('a newcomer completes the first guided task', async ({ page }) => {
   await page.waitForTimeout(1000);
   await page.reload();
   await expect(page.getByRole('region', { name: 'Current task' })).toContainText('5/5');
-  await page.getByRole('button', { name: 'Back to all tasks' }).click();
-  await expect(page.getByRole('button', { name: 'Play again' })).toBeVisible();
 
-  // Starting another task with devices on the canvas asks first, in the panel.
-  await page.getByRole('button', { name: 'Start' }).first().click();
-  const ask = page.getByRole('alertdialog');
-  await ask.getByRole('button', { name: 'Cancel' }).click();
+  // The next task goes on with the learner's own network: nothing is cleared, nothing asked.
+  await page.getByRole('button', { name: 'Next task: Meet the switch' }).click();
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
   await expect(page.getByTestId('device-pc1')).toBeVisible();
-  await page.getByRole('button', { name: 'Start' }).first().click();
-  await ask.getByRole('button', { name: 'Replace' }).click();
-  await expect(page.getByTestId('device-pc1')).toHaveCount(0);
-  await expect(page.getByRole('region', { name: 'Current task' })).toContainText('Meet the switch');
+  await expect(page.getByTestId('device-pc2')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Current task' })).toContainText('0/6');
+  await expect(current).toContainText('Add a switch');
+  await expect(page.getByRole('button', { name: 'Add Switch' })).toHaveClass(/nf-focus/);
 
   // With the panel hidden, the current step stays on screen and brings the panel back.
   await page.getByRole('button', { name: 'Tasks' }).click();
   await page.getByRole('button', { name: /Current task step/ }).click();
   await expect(page.getByRole('region', { name: 'Current task' })).toBeVisible();
+});
+
+test('starting a task on a busy canvas asks which network to use', async ({ page }) => {
+  await page.goto('/');
+  await add(page, 'PC');
+  await expect(page.getByTestId('device-pc1')).toBeVisible();
+  const ask = page.getByRole('alertdialog');
+  const start = (name: string) =>
+    page.getByRole('button', { name: `Start: ${name}`, exact: true }).click();
+
+  // Cancel changes nothing.
+  await start('Reach the Internet through NAT');
+  await ask.getByRole('button', { name: 'Cancel' }).click();
+  await expect(ask).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: /Welcome to NetForge/ })).toBeVisible();
+
+  // Continue: the task runs on the devices that are there.
+  await start('Two computers, one cable');
+  await ask.getByRole('button', { name: 'Continue on my network' }).click();
+  const task = page.getByRole('region', { name: 'Current task' });
+  await expect(task).toContainText('Two computers, one cable');
+  await expect(page.getByTestId('device-pc1')).toBeVisible();
+  await page.getByRole('button', { name: 'Leave task (keep the lab)' }).click();
+
+  // Load the starting network: the lab becomes what the earlier tasks build.
+  await start('Reach the Internet through NAT');
+  await ask.getByRole('button', { name: 'Load the starting network' }).click();
+  await expect(task).toContainText('Reach the Internet through NAT');
+  await expect(task).toContainText('0/5');
+  await expect(task.locator('[aria-current="step"]')).toContainText('Add the Internet');
+  // Devices that only exist in that network.
+  await expect(page.getByTestId('device-r2')).toBeVisible();
+  await expect(page.getByTestId('device-pc5')).toBeVisible();
+  await expect(page.getByTestId('device-sw1')).toBeVisible();
+  await expect(page.getByTestId('device-internet1')).toHaveCount(0);
+});
+
+test('an empty canvas starts a later task from its prepared network', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Start: Route between VLANs' }).click();
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  await expect(page.getByTestId('device-sw1')).toBeVisible();
+  await expect(page.getByTestId('device-r1')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Current task' })).toContainText('0/5');
 });

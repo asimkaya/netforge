@@ -40,11 +40,12 @@ interface RouterLink {
   pc: Device;
 }
 
-/** PCs cabled straight to a router port, with that port. */
+/** PCs on a router port, with that port: cabled to it, or to a switch that is cabled to it. */
 function pcsOnRouter(router: Device): RouterLink[] {
   return router.ports.flatMap((port) => {
-    const peer = peerOf(port);
-    return peer && isPc(peer.device) ? [{ port, pc: peer.device }] : [];
+    const peer = peerOf(port)?.device;
+    const pcs = peer && isPc(peer) ? [peer] : peer && isSwitch(peer) ? hostsOn(peer) : [];
+    return pcs.map((pc) => ({ port, pc }));
   });
 }
 
@@ -215,12 +216,44 @@ function ospfPairs(net: Network): [Device, Device][] {
   );
 }
 
+/** The two routers have addresses in one network on the cable between them. */
+function linkAddressed(a: Device, b: Device): boolean {
+  return a.ports.some((p) => {
+    const peer = peerOf(p);
+    return (
+      peer?.device === b &&
+      (a.ip?.addrsOn(p) ?? []).some((x) =>
+        (b.ip?.addrsOn(peer) ?? []).some((y) => sameSubnet(x, y)),
+      )
+    );
+  });
+}
+
+/** Every VLAN's PCs share one network, and no two VLANs share a network. */
+function vlansOwnNetworks(sw: Device): boolean {
+  const groups = vlanGroups(sw);
+  return (
+    groups.length >= 2 &&
+    groups.every(
+      (g, i) =>
+        largestSubnetGroup(g) === g.length &&
+        groups.every((o, j) => i === j || !o.some((y) => g.some((x) => shareSubnet(x, y)))),
+    )
+  );
+}
+
 /** The WireGuard tunnel of a router, once it has a key. */
 function tunnelOf(router: Device) {
   const wg = router.vlanPorts.map((p) => router.wireguard(p)).find((t) => t?.privateKey);
   return wg ?? null;
 }
 
+/**
+ * The nine tasks are chapters of one network that keeps growing: each task's steps ask only
+ * for what is new compared with the finished network of the one before (see solutions.ts,
+ * which scripts every chapter). A step must not be true on that finished network, or the
+ * chapter would complete the moment it starts.
+ */
 export const TASKS: Task[] = [
   {
     id: 'first-ping',
@@ -260,37 +293,47 @@ export const TASKS: Task[] = [
         check: ({ net }) => cabledHostPairs(net).some(([a, b]) => pinged(a, [b]) || pinged(b, [a])),
       },
     ],
-    done: 'Congratulations! You have two computers that can talk to each other. Before the first ping, the PC used ARP to find the other PC’s MAC address. Switch to Simulation mode and ping again to watch it happen.',
+    done: 'Congratulations! You have two computers that can talk to each other. Before the first ping, the PC used ARP to find the other PC’s MAC address. Switch to Simulation mode and ping again to watch it happen. Next task: a third computer means you need a switch, and your network keeps growing.',
   },
   {
     id: 'meet-the-switch',
     title: 'Meet the switch',
-    summary: 'Connect several computers through a switch and see what it learns.',
+    summary:
+      'Replace the cable with a switch, add a third computer and see what the switch learns.',
     steps: [
       {
         title: 'Add a switch',
-        detail: 'Drag a Switch from the left panel onto the canvas.',
+        detail:
+          'Drag a Switch from the left panel onto the canvas. Two computers can share a cable, but a third one needs a switch.',
         check: ({ net }) => switches(net).length > 0,
       },
       {
-        title: 'Connect three PCs to the switch',
+        title: 'Plug both PCs into the switch',
         detail:
-          'Add three PCs and cable each one to the switch. Drop a cable on a switch port to choose it, or on the switch itself to pick from a list.',
+          'First remove the direct cable between pc1 and pc2: click it and press Delete. Then cable pc1 and pc2 to sw1. Drop a cable on a switch port to choose it, or on the switch itself to pick from a list.',
+        check: ({ net }) =>
+          cabledHostPairs(net).length === 0 && switches(net).some((sw) => hostsOn(sw).length >= 2),
+      },
+      {
+        title: 'Add a third PC',
+        detail: 'Drag one more PC onto the canvas and cable it to sw1 as well.',
         check: ({ net }) => switches(net).some((sw) => hostsOn(sw).length >= 3),
       },
       {
-        title: 'Put the three PCs in the same network',
+        title: 'Give the new PC an address in the same network',
         detail:
-          'Give them addresses like `10.0.0.1/24`, `10.0.0.2/24` and `10.0.0.3/24` with `ip addr add … dev eth0`.',
+          'Open pc3 and give it `192.168.1.30/24` with `ip addr add 192.168.1.30/24 dev eth0`, or in IP Configuration.',
+        hint: 'It must start with the same three numbers as pc1 and pc2 (192.168.1) and end with a number nobody uses yet.',
         check: ({ net }) => switches(net).some((sw) => largestSubnetGroup(hostsOn(sw)) >= 3),
       },
       {
-        title: 'Ping across the switch',
-        detail: 'From one PC, ping another one, e.g. `ping 10.0.0.2`.',
+        title: 'Ping the other two PCs from pc3',
+        detail:
+          'In pc3’s terminal run `ping 192.168.1.10`, then `ping 192.168.1.20`. The packets now travel through the switch.',
         check: ({ net }) =>
           switches(net).some((sw) => {
             const group = hostsOn(sw);
-            return group.some((h) => pinged(h, group));
+            return group.some((h) => group.every((o) => o === h || pinged(h, [o])));
           }),
       },
       {
@@ -305,28 +348,30 @@ export const TASKS: Task[] = [
           ),
       },
     ],
-    done: 'Well done! A switch learns which MAC address lives behind which port by reading the source of every frame. Unknown destinations and broadcasts (like ARP requests) go out of every other port.',
+    done: 'Well done! A switch learns which MAC address lives behind which port by reading the source of every frame. Unknown destinations and broadcasts (like ARP requests) go out of every other port. Next task: a second network, joined to this one by a router.',
   },
   {
     id: 'two-networks',
     title: 'Two networks, one router',
-    summary: 'Connect two separate networks with a router and trace the path between them.',
+    summary: 'Join your switch network to a second network with a router and trace the path.',
     steps: [
       {
-        title: 'Add a router and two PCs',
-        detail: 'Drag a Router and two PCs onto the canvas.',
-        check: ({ net }) => routers(net).length > 0 && hosts(net).length >= 2,
+        title: 'Add a router and a fourth PC',
+        detail:
+          'Drag a Router and one more PC onto the canvas. The new PC will live in a second network.',
+        check: ({ net }) => routers(net).length > 0 && hosts(net).length >= 4,
       },
       {
-        title: 'Cable each PC to its own router port',
+        title: 'Cable sw1 and the new PC to the router',
         detail:
-          'Connect one PC to the router’s eth0 and the other to eth1. Each router port is a separate network.',
-        check: ({ net }) => routers(net).some((r) => pcsOnRouter(r).length >= 2),
+          'Connect r1’s `eth0` to sw1 (any switch port) and pc4 to r1’s `eth1`. Each router port is a separate network: sw1 with its three PCs on one, pc4 on the other.',
+        check: ({ net }) =>
+          routers(net).some((r) => new Set(pcsOnRouter(r).map((l) => l.port)).size >= 2),
       },
       {
         title: 'Give the router an address in each network',
         detail:
-          'Open the router, Config tab: give eth0 `192.168.1.1/24` and eth1 `192.168.2.1/24`. Or in its CLI: `ip addr add 192.168.1.1/24 dev eth0`.',
+          'Open r1, Config tab: give `eth0` `192.168.1.1/24` (the network the three PCs already use) and `eth1` `192.168.2.1/24`. Or in its CLI: `ip addr add 192.168.1.1/24 dev eth0`.',
         hint: 'Two different networks: the third number differs (1 and 2).',
         check: ({ net }) =>
           routers(net).some((r) => {
@@ -339,15 +384,14 @@ export const TASKS: Task[] = [
           }),
       },
       {
-        title: 'Give each PC an address in its router port’s network',
-        detail:
-          'For example `192.168.1.10/24` for the PC on eth0 and `192.168.2.10/24` for the PC on eth1.',
+        title: 'Give pc4 an address in its router port’s network',
+        detail: 'pc4 is cabled to `eth1`, so give it `192.168.2.10/24`.',
         check: ({ net }) => routedPair(net, pcInPortNetwork),
       },
       {
-        title: 'Tell each PC where the router is',
+        title: 'Tell every PC where the router is',
         detail:
-          'A PC reaches other networks only through its default gateway. In IP Configuration set it to the router’s address on the PC’s side, or run `ip route add default via 192.168.1.1`.',
+          'A PC reaches other networks only through its default gateway. On pc1, pc2 and pc3 run `ip route add default via 192.168.1.1`; on pc4 run `ip route add default via 192.168.2.1`. IP Configuration has a gateway field too.',
         hint: 'Try a ping before this step: you get “Network is unreachable”. The gateway fixes that.',
         check: ({ net }) =>
           routedPair(net, (r, l) => pcInPortNetwork(r, l) && gatewayIsRouter(r, l)),
@@ -355,7 +399,7 @@ export const TASKS: Task[] = [
       {
         title: 'Ping across the router',
         detail:
-          'From one PC, ping the other one, e.g. `ping 192.168.2.10`. Notice `ttl=63`: the router took one off.',
+          'From pc4, ping a PC in the other network, e.g. `ping 192.168.1.10`. Notice `ttl=63`: the router took one off.',
         check: ({ net }) =>
           routers(net).some((r) => {
             const pcs = pcsOnRouter(r).map((l) => l.pc);
@@ -369,33 +413,21 @@ export const TASKS: Task[] = [
       },
       {
         title: 'See the path with traceroute',
-        detail: 'Run `traceroute 192.168.2.10` on a PC. The first hop is the router.',
+        detail: 'Run `traceroute 192.168.1.10` on pc4. The first hop is the router.',
         check: (ctx) => ran(ctx, /^traceroute\s/, isPc),
       },
     ],
-    done: 'You routed between two networks! The PC saw that the destination was not in its own network, so it sent the packet to its gateway. The router looked up its routing table, lowered the TTL and passed it on.',
+    done: 'You routed between two networks! The PC saw that the destination was not in its own network, so it sent the packet to its gateway. The router looked up its routing table, lowered the TTL and passed it on. Next task: stop typing addresses by hand.',
   },
   {
     id: 'dhcp',
     title: 'Automatic addresses with DHCP',
-    summary: 'Let a DHCP server hand out addresses, then reach a PC by its name.',
+    summary: 'Let the router hand out addresses, then reach a PC by its name.',
     steps: [
-      {
-        title: 'Build a small office network',
-        detail: 'Add a router, a switch and two PCs. Cable the router and both PCs to the switch.',
-        check: ({ net }) => dhcpSegments(net).length > 0,
-      },
-      {
-        title: 'Give the router an address',
-        detail:
-          'On the router port that goes to the switch, set `192.168.1.1/24` (Config tab or `ip addr add`).',
-        check: ({ net }) =>
-          dhcpSegments(net).some((s) => (s.router.ip?.addrsOn(s.port).length ?? 0) > 0),
-      },
       {
         title: 'Start a DHCP server on the router',
         detail:
-          'Router → Config → DHCP and DNS server → Start server. Or in its CLI: `dnsmasq --dhcp-range=192.168.1.100,192.168.1.199`.',
+          'r1 already has `192.168.1.1/24` on the port to sw1. Open r1 → Config → DHCP and DNS server → Start server. Or in its CLI: `dnsmasq --dhcp-range=192.168.1.100,192.168.1.199`.',
         check: ({ net }) =>
           dhcpSegments(net).some((s) => {
             const subnets = s.router.ip?.addrsOn(s.port) ?? [];
@@ -404,9 +436,9 @@ export const TASKS: Task[] = [
           }),
       },
       {
-        title: 'Let both PCs ask for an address',
+        title: 'Let pc1, pc2 and pc3 ask for an address',
         detail:
-          'On each PC: IP Configuration → Get an address automatically, or `dhclient eth0` in the Terminal.',
+          'On each of them: IP Configuration → Get an address automatically. Or in the Terminal run `ip addr flush dev eth0` (forget the address you typed) and then `dhclient eth0`.',
         hint: 'Switch to Simulation mode first to watch the four DHCP messages: Discover, Offer, Request, Ack.',
         check: ({ net }) =>
           dhcpSegments(net).some((s) => (s.router.dnsmasq?.activeLeases().length ?? 0) >= 2),
@@ -414,13 +446,13 @@ export const TASKS: Task[] = [
       {
         title: 'Reach a PC by its name',
         detail:
-          'The DHCP server also answers DNS for its clients. On one PC run `ping pc2` (use the other PC’s name).',
+          'The DHCP server also answers DNS for its clients. On pc1 run `ping pc2` (use the other PC’s name).',
         check: (ctx) =>
           ran(ctx, /^ping\s+(-\S+\s+\S+\s+)*[a-zA-Z][\w.-]*$/, isPc) &&
           dhcpSegments(ctx.net).some((s) => s.pcs.some((pc) => pinged(pc, s.pcs))),
       },
     ],
-    done: 'No typing addresses by hand! The PCs broadcast a DHCP Discover, the server offered an address with a gateway and DNS server, and the PCs took it. The server remembered their names, so DNS could answer for them.',
+    done: 'No typing addresses by hand! The PCs broadcast a DHCP Discover, the server offered an address with a gateway and DNS server, and the PCs took it. The server remembered their names, so DNS could answer for them. Next task: split sw1 into separate networks.',
   },
   {
     id: 'vlans',
@@ -428,22 +460,16 @@ export const TASKS: Task[] = [
     summary: 'Turn one switch into two separate networks without new hardware.',
     steps: [
       {
-        title: 'Connect three PCs in one network',
-        detail:
-          'Add a switch and three PCs, cable them, and give the PCs addresses in one network: `192.168.1.10/24`, `.20` and `.30`.',
-        check: ({ net }) => switches(net).some((sw) => largestSubnetGroup(hostsOn(sw)) >= 3),
-      },
-      {
         title: 'Turn on VLAN filtering',
         detail:
-          'Switch → Config → VLANs → tick VLAN filtering. In its CLI: `ip link set br0 type bridge vlan_filtering 1`.',
+          'Open sw1 → Config → VLANs → tick VLAN filtering. In its CLI: `ip link set br0 type bridge vlan_filtering 1`.',
         hint: 'Until filtering is on, a Linux bridge ignores VLAN settings: every port is in one network.',
         check: ({ net }) => switches(net).some((sw) => sw.bridge?.vlanFiltering),
       },
       {
         title: 'Put two PCs in VLAN 10 and one in VLAN 20',
         detail:
-          'Make the PC ports access ports: two in VLAN 10, one in VLAN 20. In the CLI: `bridge vlan add dev eth0 vid 10 pvid untagged` then `bridge vlan del dev eth0 vid 1`.',
+          'Make the PC ports access ports: pc1 and pc2 in VLAN 10, pc3 in VLAN 20. In the CLI of sw1: `bridge vlan add dev eth0 vid 10 pvid untagged` then `bridge vlan del dev eth0 vid 1` (the PCs are usually on `eth0`, `eth1` and `eth2`). The port to r1 stays in VLAN 1, so r1 is cut off for now.',
         hint: '`pvid` puts untagged frames from the PC into that VLAN; `untagged` sends that VLAN’s frames to the PC without a tag.',
         check: ({ net }) =>
           switches(net).some((sw) => {
@@ -453,14 +479,14 @@ export const TASKS: Task[] = [
       },
       {
         title: 'Ping inside a VLAN',
-        detail: 'Ping from one VLAN 10 PC to the other.',
+        detail:
+          'From pc1 ping pc2 by its address (`ip addr` shows it). Names do not work now: the DNS server on r1 is out of reach.',
         check: ({ net }) =>
           switches(net).some((sw) => vlanGroups(sw).some((g) => g.some((pc) => pinged(pc, g)))),
       },
       {
         title: 'Try to reach the other VLAN',
-        detail:
-          'Now ping the VLAN 20 PC from a VLAN 10 PC. Same network addresses, same switch: does it answer?',
+        detail: 'Now ping pc3 from pc1. Same network addresses, same switch: does it answer?',
         check: (ctx) =>
           switches(ctx.net).some((sw) => {
             const groups = vlanGroups(sw);
@@ -473,36 +499,30 @@ export const TASKS: Task[] = [
           }),
       },
     ],
-    done: 'No reply: the switch now keeps VLAN 10 and VLAN 20 apart, as if they were two switches. Even ARP broadcasts stay inside their VLAN. To connect VLANs you need a router: give it VLAN interfaces (Router → Config → VLAN interfaces) on a trunk port.',
+    done: 'No reply: the switch now keeps VLAN 10 and VLAN 20 apart, as if they were two switches. Even ARP broadcasts stay inside their VLAN. To connect VLANs you need a router: give it VLAN interfaces (Router → Config → VLAN interfaces) on a trunk port. That is the next task.',
   },
   {
     id: 'inter-vlan',
     title: 'Route between VLANs',
-    summary: 'Connect two VLANs through one router port, a "router on a stick".',
+    summary: 'Connect the two VLANs through one router cable, a “router on a stick”.',
     steps: [
       {
-        title: 'Two VLANs, two networks',
+        title: 'Give each VLAN its own network',
         detail:
-          'On a switch with VLAN filtering, put one PC in VLAN 10 (`192.168.10.10/24`) and one in VLAN 20 (`192.168.20.10/24`). Do the "Split a switch with VLANs" task first if this is new.',
-        check: ({ net }) =>
-          switches(net).some((sw) => {
-            const groups = vlanGroups(sw);
-            return groups.some((a) =>
-              groups.some((b) => a !== b && a.some((x) => b.some((y) => !shareSubnet(x, y)))),
-            );
-          }),
+          'On pc1 and pc2 (VLAN 10) run `ip addr flush dev eth0` and `ip route del default` (forget the old address and gateway), then give them `192.168.10.10/24` and `192.168.10.20/24`. Do the same on pc3 (VLAN 20) with `192.168.20.10/24`.',
+        check: ({ net }) => switches(net).some(vlansOwnNetworks),
       },
       {
-        title: 'Cable a router to a trunk port',
+        title: 'Turn the switch port to r1 into a trunk',
         detail:
-          'Cable a router’s `eth0` to the switch, and make that switch port a trunk carrying VLANs 10 and 20 (Config → VLANs → Trunk `10,20`).',
+          'r1 is already cabled to sw1 (port `eth7`). Make that switch port a trunk carrying VLANs 10 and 20: Config → VLANs → Trunk `10,20`. In the CLI: `bridge vlan add dev eth7 vid 10` and `bridge vlan add dev eth7 vid 20`.',
         hint: 'A trunk sends frames with an 802.1Q tag, so one cable can carry many VLANs.',
         check: ({ net }) => trunkRouters(net).length > 0,
       },
       {
-        title: 'Give the router a VLAN interface per VLAN',
+        title: 'Give r1 a VLAN interface per VLAN',
         detail:
-          'Router → Config → VLAN interfaces: add VLAN 10 and VLAN 20 on `eth0`, then give `eth0.10` the address `192.168.10.1/24` and `eth0.20` `192.168.20.1/24`.',
+          'r1 → Config → VLAN interfaces: add VLAN 10 and VLAN 20 on `eth0`, then give `eth0.10` the address `192.168.10.1/24` and `eth0.20` `192.168.20.1/24`.',
         check: ({ net }) =>
           trunkRouters(net).some(
             ({ router }) =>
@@ -513,7 +533,7 @@ export const TASKS: Task[] = [
       {
         title: 'Point the PCs at their gateways',
         detail:
-          'Each PC’s default gateway is the router’s address in its VLAN: `192.168.10.1` and `192.168.20.1`.',
+          'Each PC’s default gateway is r1’s address in its VLAN: `ip route add default via 192.168.10.1` on pc1 and pc2, `ip route add default via 192.168.20.1` on pc3.',
         check: ({ net }) =>
           trunkRouters(net).some(({ router, sw }) => {
             const gateways = new Set(
@@ -530,7 +550,7 @@ export const TASKS: Task[] = [
       {
         title: 'Ping across VLANs',
         detail:
-          'Ping the VLAN 20 PC from the VLAN 10 PC. Watch it in Simulation mode: the frames to the router carry a VLAN tag.',
+          'Ping pc3 from pc1 (`ping 192.168.20.10`). Watch it in Simulation mode: the frames to the router carry a VLAN tag.',
         check: ({ net }) =>
           switches(net).some((sw) => {
             const groups = vlanGroups(sw);
@@ -538,27 +558,35 @@ export const TASKS: Task[] = [
           }),
       },
     ],
-    done: 'The router received each packet tagged with VLAN 10 on eth0.10, routed it, and sent it back down the same cable tagged with VLAN 20. One physical port, two logical networks.',
+    done: 'The router received each packet tagged with VLAN 10 on eth0.10, routed it, and sent it back down the same cable tagged with VLAN 20. One physical port, two logical networks. Next task: a branch office with a second router.',
   },
   {
     id: 'ospf',
     title: 'Let routers find the way (OSPF)',
-    summary: 'Replace hand-written routes with a routing protocol.',
+    summary:
+      'Add a branch office behind a second router and let the routers learn each other’s networks.',
     steps: [
       {
-        title: 'Two routers, two LANs',
-        detail: 'Cable two routers together (`eth1` to `eth1`) and a PC to each router’s `eth0`.',
+        title: 'Add a second router',
+        detail: 'Drag another Router onto the canvas. It will be the branch office’s router.',
+        check: ({ net }) => routers(net).length >= 2,
+      },
+      {
+        title: 'Add a PC and cable the branch',
+        detail: 'Add one more PC (pc5). Cable r1’s `eth2` to r2’s `eth1`, and pc5 to r2’s `eth0`.',
         check: ({ net }) => ospfPairs(net).length > 0,
       },
       {
-        title: 'Address everything',
+        title: 'Address the new link and LAN',
         detail:
-          'Router link: `10.0.0.1/30` and `10.0.0.2/30`. LANs: `192.168.1.0/24` and `192.168.2.0/24`, with each PC using its router as gateway.',
+          'Router link: `10.0.0.1/30` on r1’s `eth2` and `10.0.0.2/30` on r2’s `eth1`. Branch LAN: r2’s `eth0` gets `192.168.3.1/24`, pc5 gets `192.168.3.10/24` and uses `192.168.3.1` as its gateway.',
         check: ({ net }) =>
-          ospfPairs(net).some(([a, b]) =>
-            [a, b].every((r) =>
-              pcsOnRouter(r).some((l) => pcInPortNetwork(r, l) && gatewayIsRouter(r, l)),
-            ),
+          ospfPairs(net).some(
+            ([a, b]) =>
+              linkAddressed(a, b) &&
+              [a, b].every((r) =>
+                pcsOnRouter(r).some((l) => pcInPortNetwork(r, l) && gatewayIsRouter(r, l)),
+              ),
           ),
       },
       {
@@ -573,14 +601,15 @@ export const TASKS: Task[] = [
       },
       {
         title: 'See the learned route',
-        detail: 'On a router run `ip route`: the other LAN appears with `proto bird`.',
+        detail:
+          'On r1 run `ip route`: the branch network `192.168.3.0/24` appears with `proto bird`.',
         check: (ctx) =>
           ran(ctx, /^(ip\s+r(o(u(te?)?)?)?|birdc\s+show\s+route)/, isRouter) &&
           ospfPairs(ctx.net).some(([a]) => (a.bird?.routes.length ?? 0) > 0),
       },
       {
-        title: 'Ping from LAN to LAN',
-        detail: 'Ping one PC from the other.',
+        title: 'Ping the branch from headquarters',
+        detail: 'Ping pc4 from pc5 (`ping 192.168.2.10`). Nobody typed a route.',
         check: ({ net }) =>
           ospfPairs(net).some(([a, b]) => {
             const left = pcsOnRouter(a).map((l) => l.pc);
@@ -589,49 +618,35 @@ export const TASKS: Task[] = [
           }),
       },
     ],
-    done: 'Nobody typed a route: the routers said hello, swapped link-state advertisements, and each ran Dijkstra’s shortest path algorithm. Add a third router and a backup link, unplug a cable and watch them reroute.',
+    done: 'Nobody typed a route: the routers said hello, swapped link-state advertisements, and each ran Dijkstra’s shortest path algorithm. Add a third router and a backup link, unplug a cable and watch them reroute. Next task: connect headquarters to the Internet.',
   },
   {
     id: 'nat',
     title: 'Reach the Internet through NAT',
-    summary: 'Share one public address with a private network, then add a firewall.',
+    summary: 'Share one public address with the whole office, then add a firewall.',
     steps: [
       {
-        title: 'Connect a router to the Internet',
-        detail:
-          'Add the Internet cloud, a router and a PC. Cable the router’s `eth1` to the cloud and the PC to the router’s `eth0`.',
+        title: 'Add the Internet and connect r1 to it',
+        detail: 'Drag the Internet cloud onto the canvas and cable r1’s `eth3` to it.',
         check: ({ net }) => natRouters(net).length > 0,
       },
       {
         title: 'Get a public address from the provider',
-        detail:
-          'In the router’s CLI: `dhclient eth1`. The cloud hands out an address and a default route.',
+        detail: 'In r1’s CLI: `dhclient eth3`. The cloud hands out an address and a default route.',
         check: ({ net }) =>
           natRouters(net).some(({ router, wan }) => (router.ip?.addrsOn(wan).length ?? 0) > 0),
       },
       {
-        title: 'Set up the private network',
-        detail:
-          'Router: `ip addr add 192.168.1.1/24 dev eth0`. PC: `192.168.1.10/24` with gateway `192.168.1.1` (IP Configuration).',
-        check: ({ net }) =>
-          natRouters(net).some(({ router }) =>
-            pcsOnRouter(router).some(
-              (l) => pcInPortNetwork(router, l) && gatewayIsRouter(router, l),
-            ),
-          ),
-      },
-      {
         title: 'Turn on NAT',
         detail:
-          'Router → Config → Firewall and NAT → Share this connection (NAT), with `eth1` as the Internet side. It runs `nft add rule ip nat postrouting oifname "eth1" masquerade`.',
-        hint: 'Without NAT the PC’s packets reach the Internet, but nobody there knows the way back to 192.168.1.0/24.',
+          'r1 → Config → Firewall and NAT → Share this connection (NAT), with `eth3` as the Internet side. It runs `nft add rule ip nat postrouting oifname "eth3" masquerade`.',
+        hint: 'Without NAT the PCs’ packets reach the Internet, but nobody there knows the way back to 192.168.2.0/24.',
         check: ({ net }) =>
           natRouters(net).some(({ router, wan }) => masqueradesOn(router, wan.name)),
       },
       {
-        title: 'Ping the Internet from the PC',
-        detail:
-          'On the PC: `ping 198.18.0.10` (the example website). Then try `conntrack -L` on the router.',
+        title: 'Ping the Internet from a PC',
+        detail: 'On pc4: `ping 198.18.0.10` (the example website). Then try `conntrack -L` on r1.',
         check: ({ net }) =>
           natRouters(net).some(({ router }) =>
             pcsOnRouter(router).some((l) => l.pc.ip?.echoRepliesFrom.has(SITE_IP)),
@@ -640,8 +655,8 @@ export const TASKS: Task[] = [
       {
         title: 'Only let replies in',
         detail:
-          'Add a firewall: a forward chain with policy drop that accepts `ct state established,related` and anything from `eth0`. Paste the hint into the ruleset editor (Config tab), then ping again.',
-        hint: 'table ip filter { chain forward { type filter hook forward priority 0; policy drop; ct state established,related accept; iifname "eth0" accept } }',
+          'Add a firewall on r1: a forward chain with policy drop that accepts `ct state established,related` and anything that does not come from `eth3`. Paste the hint into the ruleset editor (Config tab), then ping again.',
+        hint: 'table ip filter { chain forward { type filter hook forward priority 0; policy drop; ct state established,related accept; iifname != "eth3" accept } }',
         check: ({ net }) =>
           natRouters(net).some(({ router }) => {
             const nf = router.ip?.nf;
@@ -659,25 +674,30 @@ export const TASKS: Task[] = [
           }),
       },
     ],
-    done: 'Your PC used the router’s public address: NAT rewrote each packet on the way out and remembered the connection (conntrack) to rewrite the replies. The firewall now drops anything that starts outside, while replies to your own connections still come back.',
+    done: 'Your PCs used the router’s public address: NAT rewrote each packet on the way out and remembered the connection (conntrack) to rewrite the replies. The firewall now drops anything that starts outside, while replies to your own connections still come back. Next task: a second office, joined to this one through the Internet.',
   },
   {
     id: 'vpn',
     title: 'Join two offices with a VPN',
-    summary: 'Connect two private networks across the Internet with WireGuard.',
+    summary: 'Connect headquarters to a remote office across the Internet with WireGuard.',
     steps: [
       {
-        title: 'Two offices on the Internet',
+        title: 'Add a router and a PC for a remote office',
         detail:
-          'Add the Internet cloud and two routers, each with `eth1` cabled to the cloud and a PC on `eth0`. Run `dhclient eth1` on both routers.',
+          'Drag a Router and a PC onto the canvas (r3 and pc6). Cable pc6 to r3’s `eth0` and r3’s `eth1` to internet1’s `eth1`.',
+        check: ({ net }) => natRouters(net).length >= 2,
+      },
+      {
+        title: 'Get a public address for r3',
+        detail: 'In r3’s CLI: `dhclient eth1`.',
         check: ({ net }) =>
           natRouters(net).filter(({ router, wan }) => (router.ip?.addrsOn(wan).length ?? 0) > 0)
             .length >= 2,
       },
       {
-        title: 'Give each office its own network',
+        title: 'Give the remote office its own network',
         detail:
-          'Office 1: router `192.168.1.1/24`, PC `192.168.1.10/24`. Office 2: router `192.168.2.1/24`, PC `192.168.2.10/24`. Each PC uses its router as gateway.',
+          'r3’s `eth0` gets `192.168.4.1/24`; pc6 gets `192.168.4.10/24` and uses `192.168.4.1` as its gateway.',
         check: ({ net }) =>
           natRouters(net).filter(({ router }) =>
             pcsOnRouter(router).some(
@@ -686,16 +706,17 @@ export const TASKS: Task[] = [
           ).length >= 2,
       },
       {
-        title: 'Create a WireGuard interface on both routers',
+        title: 'Create a WireGuard interface on r1 and r3',
         detail:
-          'Router → Config → WireGuard VPN → Create wg0, with `10.8.0.1/24` on one router and `10.8.0.2/24` on the other.',
+          'Router → Config → WireGuard VPN → Create wg0, with `10.8.0.1/24` on r1 and `10.8.0.2/24` on r3.',
         hint: 'In the CLI: `wg genkey | tee key | wg pubkey`, then write /etc/wireguard/wg0.conf and run `wg-quick up wg0`.',
         check: ({ net }) => natRouters(net).filter(({ router }) => tunnelOf(router)).length >= 2,
       },
       {
         title: 'Make them peers',
         detail:
-          'On each router add the other as a peer: its public key, its public address with port 51820 as endpoint, and its tunnel address and LAN as allowed IPs (e.g. `10.8.0.2/32, 192.168.2.0/24`).',
+          'On each router add the other as a peer: its public key, its public address with port 51820 as endpoint (`ip addr` on the Internet port shows it), and its tunnel address and LAN as allowed IPs. On r1 that is `10.8.0.2/32, 192.168.4.0/24`; on r3 `10.8.0.1/32, 192.168.2.0/24`.',
+        hint: 'The Config tab also adds the route into the tunnel. In the CLI add it yourself: `ip route add 192.168.4.0/24 dev wg0` on r1 and `ip route add 192.168.2.0/24 dev wg0` on r3.',
         check: ({ net }) => {
           const tunnels = natRouters(net).flatMap(({ router }) => {
             const wg = tunnelOf(router);
@@ -714,18 +735,28 @@ export const TASKS: Task[] = [
       {
         title: 'Ping across the tunnel',
         detail:
-          'Ping the PC in the other office. Then open the Internet cloud’s capture: only WireGuard packets cross it.',
+          'Ping pc6 from pc4 (`ping 192.168.4.10`). Then open the Internet cloud’s capture: only WireGuard packets cross it.',
         check: ({ net }) => {
-          const pcs = natRouters(net).flatMap(({ router }) =>
-            tunnelOf(router) ? pcsOnRouter(router).map((l) => l.pc) : [],
+          const offices = natRouters(net).flatMap(({ router }) =>
+            tunnelOf(router) ? [pcsOnRouter(router).map((l) => l.pc)] : [],
           );
-          return pcs.some((pc) => pinged(pc, pcs));
+          return offices.some((a, i) =>
+            offices.some((b, j) => i !== j && a.some((pc) => pinged(pc, b))),
+          );
         },
       },
     ],
-    done: 'Your ping travelled inside an encrypted UDP packet from one router’s public address to the other. The Internet only saw WireGuard traffic; each router accepted the inner packet only because it came from the other office’s allowed IPs.',
+    done: 'Your ping travelled inside an encrypted UDP packet from one router’s public address to the other. The Internet only saw WireGuard traffic; each router accepted the inner packet only because it came from the other office’s allowed IPs. You built a whole company network, one chapter at a time.',
   },
 ];
+
+/** Forgets answered pings, so a task only counts replies that arrive after it starts. */
+export function clearEvidence(net: Network): void {
+  for (const d of net.devices.values()) {
+    d.ip?.echoRepliesFrom.clear();
+    d.ip?.v6.echoRepliesFrom.clear();
+  }
+}
 
 /** A built-in task, or one of the lab's own tasks (from the task editor). */
 export function findTask(id: string | null, custom: readonly CustomTask[] = []): Task | undefined {

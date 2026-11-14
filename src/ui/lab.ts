@@ -4,6 +4,7 @@ import type { Port } from '../engine/port.ts';
 import { complete, run, type Process } from '../engine/shell.ts';
 import type { SpecId } from '../engine/specs.ts';
 import { checkWireless } from '../engine/wifi.ts';
+import { clearEvidence } from '../tasks/tasks.ts';
 import { FOOTPRINT } from './placement.ts';
 import { emptyProgress, type Project, type TaskProgress } from './project.ts';
 
@@ -265,6 +266,18 @@ export function minimizeWindow(id: string, minimized = true): void {
 
 export function setTasks(tasks: TaskProgress): void {
   update({ tasks });
+}
+
+/**
+ * Starts a built-in task on the network as it is. Answered pings and commands from earlier
+ * work are forgotten, so the task's steps only count what the learner does from here on.
+ */
+export function continueTask(id: string): void {
+  clearEvidence(state.net);
+  update({
+    commands: [],
+    tasks: { ...state.tasks, active: id, steps: { ...state.tasks.steps, [id]: 0 } },
+  });
 }
 
 export function setMode(mode: Mode): void {
