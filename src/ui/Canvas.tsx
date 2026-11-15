@@ -23,6 +23,7 @@ import { BODY_HANDLE, DeviceNode, type DeviceNodeType } from './DeviceNode.tsx';
 import {
   addDevice,
   cable,
+  cabledTo,
   exists,
   getLab,
   moveAnnotation,
@@ -221,7 +222,7 @@ export function Canvas({ onShowPanel }: { onShowPanel: (tab?: Tab) => void }) {
       return;
     }
     const target = net.devices.get(to.nodeId);
-    if (!target) return;
+    if (!target || cabledTo(from, target)) return;
     const fits = net.freePortsFor(target, from);
     const only = fits[0];
     if (fits.length === 1 && only) {

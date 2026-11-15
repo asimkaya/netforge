@@ -478,7 +478,7 @@ export const TASKS: Task[] = [
       {
         title: 'Plug both PCs into the switch',
         detail:
-          'First remove the direct cable between pc1 and pc2: click it and press Delete. Then cable pc1 and pc2 to sw1. Drop a cable on a switch port to choose it, or on the switch itself to pick from a list.',
+          'Move the cables off each other and onto sw1. Grab the end of a cable in its port and drag it to a free port on sw1 (or onto the switch itself to pick from a list); the other end stays where it is. Or click the cable and press Delete, then cable pc1 and pc2 to sw1.',
         check: ({ net }) =>
           cabledHostPairs(net).length === 0 && switches(net).some((sw) => hostsOn(sw).length >= 2),
       },

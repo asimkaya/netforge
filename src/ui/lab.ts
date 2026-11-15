@@ -6,6 +6,7 @@ import {
   type Explanation,
 } from '../engine/explain.ts';
 import { Network } from '../engine/network.ts';
+import type { Device } from '../engine/device.ts';
 import type { Port } from '../engine/port.ts';
 import { complete, run, type Process } from '../engine/shell.ts';
 import type { SpecId } from '../engine/specs.ts';
@@ -198,11 +199,29 @@ export function addDevice(spec: SpecId, at: Point): void {
   });
 }
 
-/** Cables two ports; a refused cable is explained in a toast. */
+/** True (with a toast) when `a` is plugged into `device`; moving that end would loop the cable. */
+export function cabledTo(a: Port, device: Device): boolean {
+  const old = a.link;
+  const far = old && (old.a === a ? old.b : old.a);
+  if (!far || far.device !== device || a.device === device) return false;
+  notify(`${a.device.name} ${a.name} is already cabled to ${device.name}.`);
+  return true;
+}
+
+/**
+ * Cables `a` to `b`. When `a` is already plugged, its cable moves: the far end stays put and
+ * only this end is re-plugged into `b`. A refused move puts the old cable back.
+ */
 export function cable(a: Port, b: Port): void {
+  if (cabledTo(a, b.device)) return;
+  const old = a.link;
+  const far = old && (old.a === a ? old.b : old.a);
+  if (old && (a === b || far === b)) return;
   try {
-    state.net.connect(a, b);
+    if (old && far) state.net.disconnect(old);
+    state.net.connect(far ?? a, b);
   } catch (error) {
+    if (far) state.net.connect(far, a);
     notify(error instanceof Error ? error.message : String(error));
   }
 }

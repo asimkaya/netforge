@@ -36,3 +36,16 @@ test('on a tablet, devices are added, cabled and opened by touch', async ({ page
   await page.getByTestId('device-pc1').tap();
   await expect(win(page, 'pc1')).toBeVisible();
 });
+
+test('on a tablet, a plugged cable end is moved by finger', async ({ page }) => {
+  await page.goto('/');
+  const add = page.getByRole('button', { name: 'Add PC', exact: true });
+  await add.tap();
+  await add.tap();
+  await page.getByRole('button', { name: 'Add Switch', exact: true }).tap();
+  await swipe(page, 'port-pc1-eth0', 'port-pc2-eth0');
+  await swipe(page, 'port-pc2-eth0', 'port-sw1-eth3');
+  await expect(
+    page.getByRole('group', { name: 'Cable from pc1 eth0 to sw1 eth3, link up' }),
+  ).toBeAttached();
+});
