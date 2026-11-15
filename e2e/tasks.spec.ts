@@ -205,3 +205,40 @@ test('the Task center is a campaign map where later chapters stay locked', async
   await expect(center).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'Current task' })).toContainText('0/5');
 });
+
+test('a finished checklist explains when earlier work has been undone', async ({ page }) => {
+  await page.goto('/');
+  await finish(page, ['first-ping']);
+  await taskCenter(page);
+  await page.getByRole('button', { name: 'Start: Room for a third desk' }).click();
+  const current = page
+    .getByRole('region', { name: 'Current task' })
+    .locator('[aria-current="step"]');
+  const notice = current.getByText(/Everything on this list is done, but the step is not complete/);
+
+  // The prepared network has pc1 and pc2 on one cable; move that cable to the switch.
+  await add(page, 'Switch');
+  await connect(page, 'pc2/eth0', 'sw1/eth0');
+  await expect(page.locator('.react-flow__edge')).toHaveCount(1);
+  await connect(page, 'pc2/eth0', 'sw1/eth1');
+  await expect(page.locator('.react-flow__edge')).toHaveCount(2);
+  await expect(current).toContainText('Add a third PC');
+  await expect(notice).toHaveCount(0);
+
+  // Unplug pc1: the finished step 2 stays done, but step 3 needs three PCs on the switch.
+  await page
+    .getByRole('group', { name: /^Cable from (pc1 eth0 to sw1 eth0|sw1 eth0 to pc1 eth0),/ })
+    .click({ force: true });
+  await page.keyboard.press('Delete');
+  await expect(page.locator('.react-flow__edge')).toHaveCount(1);
+  await add(page, 'PC');
+  await connect(page, 'pc3', 'sw1/eth2');
+  await expect(current.getByText('2 of 2 done')).toBeVisible();
+  await expect(current).toContainText('Add a third PC');
+  await expect(notice).toBeVisible();
+  await expect(current.getByRole('status')).toBeVisible();
+
+  await connect(page, 'pc1', 'sw1/eth0');
+  await expect(current).toContainText('Give the new PC an address');
+  await expect(notice).toHaveCount(0);
+});

@@ -1,6 +1,6 @@
 import { Suspense, useState } from 'react';
 import type { CustomTask } from '../tasks/custom.ts';
-import { TASKS, findTask } from '../tasks/tasks.ts';
+import { TASKS, findTask, stepDone } from '../tasks/tasks.ts';
 import { TaskEditor } from './lazyViews.ts';
 import { continueTask, getLab, setTasks, useLab } from './lab.ts';
 import { downloadReport } from './reportActions.ts';
@@ -62,6 +62,12 @@ function ActiveTask({ onLeave, onHide }: { onLeave: () => void; onHide: () => vo
       <ol>
         {task.steps.map((step, i) => {
           const state = i < completed ? 'done' : i === completed ? 'current' : 'todo';
+          const ctx = { net, commands };
+          const stuck =
+            state === 'current' &&
+            !!step.parts?.length &&
+            step.parts.every((p) => p.done(ctx)) &&
+            !stepDone(step, ctx);
           return (
             <li
               key={step.title}
@@ -95,6 +101,16 @@ function ActiveTask({ onLeave, onHide }: { onLeave: () => void; onHide: () => vo
                   </p>
                   {step.parts && step.parts.length > 0 && (
                     <PartsList parts={step.parts} ctx={{ net, commands }} />
+                  )}
+                  {stuck && (
+                    <p
+                      role="status"
+                      className="border-l-[3px] border-(--nf-warn) bg-(--nf-raised) p-2 text-(--nf-muted)"
+                    >
+                      Everything on this list is done, but the step is not complete yet. Check that
+                      the work from earlier steps is still in place, for example cables and
+                      addresses.
+                    </p>
                   )}
                   {step.hint &&
                     (hintFor === i ? (
