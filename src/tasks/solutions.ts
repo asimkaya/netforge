@@ -220,6 +220,9 @@ export const SOLUTIONS: Record<string, readonly Action[]> = {
     sh('pc6', 'ip addr add 192.168.4.10/24 dev eth0', 'ip route add default via 192.168.4.1'),
     wireguard('r1', '10.8.0.1'),
     wireguard('r3', '10.8.0.2'),
+    // Each side reads the other's public key from `wg show`.
+    sh('r3', 'wg show'),
+    sh('r1', 'wg show'),
     sh(
       'r1',
       'wg set wg0 peer {pubkey:r3} endpoint 198.51.100.100:51820 allowed-ips 10.8.0.2/32,192.168.4.0/24',

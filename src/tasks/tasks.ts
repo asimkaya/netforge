@@ -1,8 +1,9 @@
-import { formatIp, inSubnet, networkOf, parseIp, type Cidr } from '../engine/addr.ts';
+import { formatIp, inSubnet, networkOf, parseCidr, parseIp, type Cidr } from '../engine/addr.ts';
 import type { Device } from '../engine/device.ts';
 import type { Network } from '../engine/network.ts';
 import { CHALLENGE_TASKS } from './challenges.ts';
 import { compile, type CustomTask } from './custom.ts';
+import type { Rule } from '../engine/netfilter.ts';
 import { peerOf, type Port } from '../engine/port.ts';
 import { isSwitchSpec, SPECS } from '../engine/specs.ts';
 import { associatedAp } from '../engine/wifi.ts';
@@ -83,6 +84,14 @@ function gatewayIsRouter(router: Device, link: RouterLink): boolean {
   const via = link.pc.ip?.staticRoutes.find((r) => r.dst.prefix === 0)?.via;
   if (via === undefined || via === null) return false;
   return (router.ip?.addrsOn(link.port) ?? []).some((a) => a.ip === via);
+}
+
+/** Two PCs on different router ports, in different networks, both passing `check`. */
+function routedPair(net: Network, check: (router: Device, link: RouterLink) => boolean) {
+  return routers(net).some((r) => {
+    const links = pcsOnRouter(r).filter((l) => check(r, l));
+    return links.some((a) => links.some((b) => a.port !== b.port && !shareSubnet(a.pc, b.pc)));
+  });
 }
 
 /** The user ran a command matching `pattern` on a device that passes `on`. */
@@ -330,9 +339,17 @@ function officeAps(net: Network): Device[] {
   });
 }
 
+const clientsOf = (net: Network, ap: Device, spec: 'laptop' | 'phone') =>
+  ofSpec(net, spec).filter((c) => associatedAp(c) === ap);
+
 /** One of `from` has opened a TCP connection to the device. */
 function reachedBy(from: Device[], target: Device): boolean {
   return from.some((c) => addrsOf(target).some((a) => c.ip?.tcp.connectedTo.has(a.ip)));
+}
+
+/** A PC has opened a TCP connection to the device. */
+function reachedByPc(net: Network, target: Device): boolean {
+  return reachedBy(hosts(net), target);
 }
 
 /** A home router's addresses on its Internet port (eth0) and on its LAN and Wi-Fi side (br0). */
@@ -473,6 +490,198 @@ const hasLease = ({ net }: TaskContext, name: string): boolean => {
 /** `ping pc2`: a name instead of an address. */
 const PING_BY_NAME = /^ping\s+(-\S+\s+\S+\s+)*[a-zA-Z][\w.-]*$/;
 
+/** Port `a` ("r1/eth2") is cabled to port `b` ("r2/eth1"), or to any port of device `b` ("sw2"). */
+const cabled = ({ net }: TaskContext, a: string, b: string): boolean => {
+  const [device, port] = a.split('/');
+  const p = device && port ? named(net, device)?.port(port) : undefined;
+  const peer = p && peerOf(p);
+  if (!peer) return false;
+  const [other, otherPort] = b.split('/');
+  return peer.device.name === other && (otherPort === undefined || peer.name === otherPort);
+};
+
+/** The port `port` of device `name` has the address `cidr` ("10.0.0.1/30"). */
+const hasAddr = ({ net }: TaskContext, name: string, port: string, cidr: string): boolean => {
+  const d = named(net, name);
+  const p = d?.port(port);
+  const want = parseCidr(cidr);
+  return (
+    !!d &&
+    !!p &&
+    !!want &&
+    (d.ip?.addrsOn(p) ?? []).some((a) => a.ip === want.ip && a.prefix === want.prefix)
+  );
+};
+
+/** The device has the address `ip` ("192.168.3.10") on any port. */
+const hasIp = ({ net }: TaskContext, name: string, ip: string): boolean => {
+  const d = named(net, name);
+  return !!d && addrsOf(d).some((a) => a.ip === parseIp(ip));
+};
+
+/** The device's default route points at `gateway`. */
+const defaultVia = ({ net }: TaskContext, name: string, gateway: string): boolean => {
+  const via = named(net, name)?.ip?.staticRoutes.find((r) => r.dst.prefix === 0)?.via;
+  return via !== undefined && via !== null && via === parseIp(gateway);
+};
+
+/** A route to `cidr` through the interface `dev` of the device. */
+const routeDev = ({ net }: TaskContext, name: string, dev: string, cidr: string): boolean => {
+  const want = parseCidr(cidr);
+  return (
+    !!want &&
+    (named(net, name)?.ip?.staticRoutes ?? []).some(
+      (r) => r.dev.name === dev && r.dst.ip === want.ip && r.dst.prefix === want.prefix,
+    )
+  );
+};
+
+/** The user pinged an address of `to` from `from` (answered or not). */
+const pingedAddress = (ctx: TaskContext, from: string, to: string): boolean => {
+  const target = named(ctx.net, to);
+  const src = named(ctx.net, from);
+  return (
+    !!target &&
+    !!src &&
+    ctx.commands.some((c) => {
+      const ip =
+        c.device === src.id ? /^ping\s.*?(\d+\.\d+\.\d+\.\d+)\s*$/.exec(c.line)?.[1] : null;
+      return !!ip && addrsOf(target).some((a) => formatIp(a.ip) === ip);
+    })
+  );
+};
+
+/** The device's address is in a router's network on its switch, outside the DHCP ranges. */
+function outsideDhcp(d: Device): boolean {
+  return routerPorts(d).some(({ router, port }) => {
+    const ranges = router.dnsmasq?.config.ranges ?? [];
+    return (router.ip?.addrsOn(port) ?? []).some((a) =>
+      addrsOf(d).some(
+        (b) => sameSubnet(a, b) && !ranges.some((r) => b.ip >= r.start && b.ip <= r.end),
+      ),
+    );
+  });
+}
+
+/** The device's default gateway is a router's address on its switch. */
+function lanGateway(d: Device): boolean {
+  const via = d.ip?.staticRoutes.find((r) => r.dst.prefix === 0)?.via;
+  return routerPorts(d).some(({ router, port }) =>
+    (router.ip?.addrsOn(port) ?? []).some((a) => a.ip === via),
+  );
+}
+
+/** The server serves a page other than the sample one. */
+function ownPage(s: Device): boolean {
+  const page = s.fs?.read(SERVER_PAGE);
+  return page !== undefined && page.trim() !== '' && page !== SPECS.server.files?.[SERVER_PAGE];
+}
+
+/** The switch port a PC is cabled to is an access port of VLAN `vid`. */
+const accessVlan = ({ net }: TaskContext, name: string, vid: number): boolean => {
+  const port = named(net, name)?.port('eth0');
+  const peer = port && peerOf(port);
+  const v = peer?.device.bridge?.vlans.get(peer);
+  return !!v && v.pvid === vid && v.vids.has(vid);
+};
+
+/** The switch port `port` carries VLAN `vid` tagged. */
+const trunks = ({ net }: TaskContext, sw: string, port: string, vid: number): boolean => {
+  const d = named(net, sw);
+  const p = d?.port(port);
+  const v = p && d?.bridge?.vlans.get(p);
+  return !!v && v.vids.has(vid) && !v.untagged.has(vid);
+};
+
+/** A VLAN interface (or any port) is up and has the address. */
+const upWith = (ctx: TaskContext, name: string, port: string, cidr: string): boolean =>
+  !!named(ctx.net, name)?.port(port)?.adminUp && hasAddr(ctx, name, port, cidr);
+
+const forwardGuard = (d: Device | undefined) =>
+  (d?.ip?.nf.tables ?? [])
+    .flatMap((t) => t.chains)
+    .find((c) => c.base?.hook === 'forward' && c.base.policy === 'drop');
+
+const hasTable = (d: Device | undefined, name: string): boolean =>
+  (d?.ip?.nf.tables ?? []).some((t) => t.name === name);
+
+/** A rule of the router's forward chains (any table) passes `test`. */
+const forwardRule = (d: Device | undefined, test: (r: Rule) => boolean): boolean =>
+  (d?.ip?.nf.tables ?? []).some((t) =>
+    t.chains.some((c) => c.base?.hook === 'forward' && c.rules.some(test)),
+  );
+
+/** The WireGuard interface of a router, whatever it is called. */
+const wgPort = (d: Device | undefined): Port | undefined =>
+  d?.vlanPorts.find((p) => d.wireguard(p));
+
+/** Tunnel `a` lists the public key of tunnel `b` as a peer. */
+const peeredWith = ({ net }: TaskContext, a: string, b: string): boolean => {
+  const x = named(net, a);
+  const y = named(net, b);
+  const key = y && tunnelOf(y)?.publicKey;
+  return !!x && !!key && !!tunnelOf(x)?.peers.some((p) => p.publicKey === key);
+};
+
+/** The checklist that creates a WireGuard tunnel interface on a router. */
+const wgParts = (router: string, tunnelIp: string): TaskPart[] => [
+  {
+    text: `Create the wg0 interface on ${router}`,
+    code: 'ip link add wg0 type wireguard',
+    on: router,
+    done: ({ net }) => !!wgPort(named(net, router)),
+  },
+  {
+    text: `Generate ${router}’s private key`,
+    code: 'wg genkey > /etc/wireguard/key',
+    on: router,
+    done: ({ net }) => (named(net, router)?.fs?.read('/etc/wireguard/key') ?? '').trim() !== '',
+  },
+  {
+    text: `Give wg0 the key and a listening port on ${router}`,
+    code: 'wg set wg0 private-key /etc/wireguard/key listen-port 51820',
+    on: router,
+    done: ({ net }) => {
+      const d = named(net, router);
+      return !!d && tunnelOf(d) !== null;
+    },
+  },
+  {
+    text: `Give wg0 its tunnel address and bring it up on ${router}`,
+    code: `ip addr add ${tunnelIp}/24 dev wg0 && ip link set wg0 up`,
+    on: router,
+    done: (ctx) => upWith(ctx, router, 'wg0', `${tunnelIp}/24`),
+  },
+];
+
+/** The checklist that shows a router’s public key, makes the other router its peer and routes to it. */
+const peerParts = (
+  router: string,
+  other: string,
+  endpoint: string,
+  allowed: string,
+  lan: string,
+): TaskPart[] => [
+  {
+    text: `Print ${other}’s public key`,
+    code: 'wg show',
+    on: other,
+    done: (ctx) => typed(ctx, other, /^wg(\s+show(\s+wg0)?)?\s*$/),
+  },
+  {
+    text: `Add ${other} as a peer on ${router}: paste its key in place of the placeholder`,
+    code: `wg set wg0 peer <public key of ${other}> endpoint ${endpoint}:51820 allowed-ips ${allowed}`,
+    on: router,
+    done: (ctx) => peeredWith(ctx, router, other),
+  },
+  {
+    text: `Send ${other}’s network into the tunnel on ${router}`,
+    code: `ip route add ${lan} dev wg0`,
+    on: router,
+    done: (ctx) => routeDev(ctx, router, 'wg0', lan),
+  },
+];
+
 /**
  * The fourteen tasks are chapters of one network that keeps growing: each task's steps ask only
  * for what is new compared with the finished network of the one before (see solutions.ts,
@@ -509,6 +718,8 @@ export const TASKS: Task[] = [
         detail:
           'Computers find each other by IP address, so each one needs its own. Click a PC to open it, then Desktop → Terminal. Prefer forms? Desktop → IP Configuration does the same.',
         hint: '`eth0` is the name of the network port. `/24` says the first three numbers are the network part.',
+        check: ({ net }) =>
+          cabledHostPairs(net).some(([a, b]) => addrsOf(a).length > 0 || addrsOf(b).length > 0),
         parts: [
           {
             text: 'Give pc1 an address',
@@ -523,6 +734,7 @@ export const TASKS: Task[] = [
         detail:
           'Two computers talk directly only when their addresses are in the same network. Open the other PC, in the Terminal or in IP Configuration.',
         hint: 'With /24, both addresses must start with the same three numbers (192.168.1) and end differently.',
+        check: ({ net }) => cabledHostPairs(net).some(([a, b]) => shareSubnet(a, b)),
         parts: [
           {
             text: 'Give pc2 an address in pc1’s network',
@@ -571,6 +783,8 @@ export const TASKS: Task[] = [
         title: 'Plug both PCs into the switch',
         detail:
           'A PC has one port, so moving it to the switch also removes the old PC-to-PC cable. Grab the end of a cable in its port and drag it to a free port on sw1 (or onto the switch itself to pick from a list); the other end stays where it is. Or click the cable and press Delete, then cable the PC to sw1 again.',
+        check: ({ net }) =>
+          cabledHostPairs(net).length === 0 && switches(net).some((sw) => hostsOn(sw).length >= 2),
         parts: [
           { text: 'Plug pc1 into sw1', done: (ctx) => wiredToSwitch(ctx, 'pc1') },
           { text: 'Plug pc2 into sw1', done: (ctx) => wiredToSwitch(ctx, 'pc2') },
@@ -579,6 +793,7 @@ export const TASKS: Task[] = [
       {
         title: 'Add a third PC',
         detail: 'The new desk needs its own computer, plugged into the same switch.',
+        check: ({ net }) => switches(net).some((sw) => hostsOn(sw).length >= 3),
         parts: [
           { text: 'Add a third PC', done: ({ net }) => hosts(net).length >= 3 },
           { text: 'Cable pc3 to sw1', done: (ctx) => wiredToSwitch(ctx, 'pc3') },
@@ -589,6 +804,7 @@ export const TASKS: Task[] = [
         detail:
           'It must be in the same network as pc1 and pc2, or the switch cannot help it. IP Configuration works too.',
         hint: 'It must start with the same three numbers as pc1 and pc2 (192.168.1) and end with a number nobody uses yet.',
+        check: ({ net }) => switches(net).some((sw) => largestSubnetGroup(hostsOn(sw)) >= 3),
         parts: [
           {
             text: 'Give pc3 an address',
@@ -601,6 +817,11 @@ export const TASKS: Task[] = [
       {
         title: 'Ping the other two PCs from pc3',
         detail: 'The packets now travel through the switch.',
+        check: ({ net }) =>
+          switches(net).some((sw) => {
+            const group = hostsOn(sw);
+            return group.some((h) => group.every((o) => o === h || pinged(h, [o])));
+          }),
         parts: [
           {
             text: 'Ping pc1 from pc3',
@@ -620,6 +841,7 @@ export const TASKS: Task[] = [
         title: 'Look at what the switch learned',
         detail: 'Click the switch and open its CLI tab.',
         hint: 'Each line is a MAC address and the port it was seen on. That is how the switch knows where to send frames.',
+        check: (ctx) => ran(ctx, /^bridge\s+fdb(\s+show)?$/, isSwitch),
         parts: [
           {
             text: 'Show the switch’s MAC address table',
@@ -654,6 +876,8 @@ export const TASKS: Task[] = [
         title: 'Cable sw1 and the new PC to the router',
         detail:
           'Each router port is a separate network: sw1 with its three PCs on one, pc4 on the other. Cable to any free switch port.',
+        check: ({ net }) =>
+          routers(net).some((r) => new Set(pcsOnRouter(r).map((l) => l.port)).size >= 2),
         parts: [
           {
             text: 'Cable r1’s `eth0` to sw1',
@@ -678,6 +902,15 @@ export const TASKS: Task[] = [
         detail:
           'The router needs a foot in both networks: one address on each port. Use Config in r1’s window if you prefer forms.',
         hint: 'Two different networks: the third number differs (1 and 2). `eth0` joins the network the three PCs already use.',
+        check: ({ net }) =>
+          routers(net).some((r) => {
+            const nets = new Set(
+              pcsOnRouter(r).flatMap(({ port }) =>
+                (r.ip?.addrsOn(port) ?? []).map((a) => `${networkOf(a)}/${a.prefix}`),
+              ),
+            );
+            return nets.size >= 2;
+          }),
         parts: [
           {
             text: 'Give r1’s `eth0` an address in the PCs’ network',
@@ -712,6 +945,7 @@ export const TASKS: Task[] = [
       {
         title: 'Give pc4 an address in its router port’s network',
         detail: 'pc4 is cabled to `eth1`, so its address must be in the network `eth1` serves.',
+        check: ({ net }) => routedPair(net, pcInPortNetwork),
         parts: [
           {
             text: 'Give pc4 an address',
@@ -729,6 +963,8 @@ export const TASKS: Task[] = [
         detail:
           'A PC reaches other networks only through its default gateway: the router’s address in its own network. IP Configuration has a gateway field too.',
         hint: 'Try a ping before this step: you get “Network is unreachable”. The gateway fixes that.',
+        check: ({ net }) =>
+          routedPair(net, (r, l) => pcInPortNetwork(r, l) && gatewayIsRouter(r, l)),
         parts: [
           gatewayPart('pc1', '192.168.1.1'),
           gatewayPart('pc2', '192.168.1.1'),
@@ -740,6 +976,16 @@ export const TASKS: Task[] = [
         title: 'Ping across the router',
         detail:
           'Notice `ttl=63` in the reply: the router took one off, proof the packet crossed it.',
+        check: ({ net }) =>
+          routers(net).some((r) => {
+            const pcs = pcsOnRouter(r).map((l) => l.pc);
+            return pcs.some((pc) =>
+              pinged(
+                pc,
+                pcs.filter((o) => !shareSubnet(o, pc)),
+              ),
+            );
+          }),
         parts: [
           {
             text: 'Ping a PC in the other network',
@@ -752,6 +998,7 @@ export const TASKS: Task[] = [
       {
         title: 'See the path with traceroute',
         detail: 'The first hop it lists is the router.',
+        check: (ctx) => ran(ctx, /^traceroute\s/, isPc),
         parts: [
           {
             text: 'Trace the path to pc1',
@@ -777,6 +1024,12 @@ export const TASKS: Task[] = [
         title: 'Start a DHCP server on the router',
         detail:
           'A DHCP server hands out addresses to anyone who asks. r1 already has `192.168.1.1/24` on the port to sw1, so it can serve that network. In r1’s window: Config → DHCP and DNS server → Start server.',
+        check: ({ net }) =>
+          dhcpSegments(net).some((s) => {
+            const subnets = s.router.ip?.addrsOn(s.port) ?? [];
+            const ranges = s.router.dnsmasq?.config.ranges ?? [];
+            return ranges.some((r) => subnets.some((a) => inSubnet(r.start, a)));
+          }),
         parts: [
           {
             text: 'Start the DHCP server on r1',
@@ -800,6 +1053,8 @@ export const TASKS: Task[] = [
         detail:
           'Each PC first forgets the address you typed, then asks the DHCP server for one. The IP Configuration window has the same thing: Get an address automatically.',
         hint: 'Switch to Simulation mode first to watch the four DHCP messages: Discover, Offer, Request, Ack.',
+        check: ({ net }) =>
+          dhcpSegments(net).some((s) => (s.router.dnsmasq?.activeLeases().length ?? 0) >= 2),
         parts: ['pc1', 'pc2', 'pc3'].map((pc) => ({
           text: `Let ${pc} get its address from r1`,
           code: 'ip addr flush dev eth0 && dhclient eth0',
@@ -811,6 +1066,9 @@ export const TASKS: Task[] = [
         title: 'Reach a PC by its name',
         detail:
           'The DHCP server also answers DNS for its clients, so names work as well as numbers.',
+        check: (ctx) =>
+          ran(ctx, PING_BY_NAME, isPc) &&
+          dhcpSegments(ctx.net).some((s) => s.pcs.some((pc) => pinged(pc, s.pcs))),
         parts: [
           {
             text: 'Ping pc2 by name from pc1',
@@ -850,6 +1108,7 @@ export const TASKS: Task[] = [
         title: 'Open the printer’s status page',
         detail:
           'Every network printer shows a small web page. The name works because the DHCP server registered it; the printer’s address works too, and so does the Browser app.',
+        check: ({ net }) => appliancesOn(net, 'printer').some((p) => reachedByPc(net, p)),
         parts: [
           {
             text: 'Fetch the printer’s status page',
@@ -864,6 +1123,7 @@ export const TASKS: Task[] = [
         detail:
           'Port 9100 is the raw print port most network printers listen on: whatever you send there is printed. The status page counts the pages.',
         hint: 'The `<` hands the file to the command, like pasting it in.',
+        check: ({ net }) => appliancesOn(net, 'printer').some((p) => (p.printer?.pages ?? 0) >= 1),
         parts: [
           {
             text: 'Write a small text file',
@@ -908,6 +1168,14 @@ export const TASKS: Task[] = [
         detail:
           'The camera connects the viewer and sends one frame per second: `frame 1`, `frame 2`... Stop it with Ctrl+C once you have seen a few.',
         hint: 'The connection uses TCP port 554 (the RTSP port); the pictures travel as UDP packets, so a firewall that drops them leaves you with a blank screen.',
+        check: (ctx) =>
+          appliancesOn(ctx.net, 'camera').some((cam) =>
+            hosts(ctx.net).some(
+              (pc) =>
+                ran(ctx, /^nc\s+(?!-z\b)\S+\s+554\s*$/, (d) => d === pc) &&
+                addrsOf(cam).some((a) => pc.ip?.tcp.connectedTo.has(a.ip)),
+            ),
+          ),
         parts: [
           {
             text: 'Connect to the camera’s stream',
@@ -942,6 +1210,7 @@ export const TASKS: Task[] = [
         detail:
           'A new access point broadcasts `NetForge` with a password everybody knows. Open it → Config → Wireless (hostapd), then Save and restart.',
         hint: 'Both must change: the default name and the default password are public, so anyone could join a network that still uses them. In its CLI: edit `/etc/hostapd/hostapd.conf`, run `killall hostapd` and `hostapd -B /etc/hostapd/hostapd.conf`.',
+        check: ({ net }) => officeAps(net).length > 0,
         parts: [
           {
             text: 'Choose a network name, such as `Office`',
@@ -964,6 +1233,11 @@ export const TASKS: Task[] = [
         detail:
           'Add a Laptop and a Phone and drag both inside the access point’s dashed range circle. Or on each: Desktop → Wi-Fi → Connect.',
         hint: 'Out of range, the list of networks is empty. Move the device closer to the access point. Use your own network name and password in the command.',
+        check: ({ net }) =>
+          officeAps(net).some(
+            (ap) =>
+              clientsOf(net, ap, 'laptop').length > 0 && clientsOf(net, ap, 'phone').length > 0,
+          ),
         parts: ['laptop1', 'phone1'].map((client) => ({
           text: `Connect ${client} to your Wi-Fi`,
           code: 'nmcli dev wifi connect Office password <your password>',
@@ -978,6 +1252,12 @@ export const TASKS: Task[] = [
         title: 'Let both get an address from the office DHCP server',
         detail:
           'Joining Wi-Fi is like plugging in a cable: you still need an address. It must be in the office network (`192.168.1.x`). IP Configuration → Get an address automatically does the same.',
+        check: ({ net }) =>
+          officeAps(net).some(
+            (ap) =>
+              clientsOf(net, ap, 'laptop').some(addressedByRouter) &&
+              clientsOf(net, ap, 'phone').some(addressedByRouter),
+          ),
         parts: ['laptop1', 'phone1'].map((client) => ({
           text: `Let ${client} ask for an address`,
           code: 'dhclient wlan0',
@@ -991,6 +1271,8 @@ export const TASKS: Task[] = [
       {
         title: 'Open the printer’s page from the phone',
         detail: 'The Wi-Fi client is now an ordinary member of the office LAN.',
+        check: ({ net }) =>
+          appliancesOn(net, 'printer').some((p) => reachedBy(ofSpec(net, 'phone'), p)),
         parts: [
           {
             text: 'Fetch the printer’s status page',
@@ -1016,21 +1298,61 @@ export const TASKS: Task[] = [
       {
         title: 'Plug a server into sw1 and give it a fixed address',
         detail:
-          'Add a Server and cable it to a free port of sw1, for example `eth6`. A server must not change address, or everybody’s bookmarks break, so do not use DHCP: pick one outside the DHCP range (`192.168.1.100`–`.199`), for example `ip addr add 192.168.1.5/24 dev eth0`, and set the gateway with `ip route add default via 192.168.1.1`.',
+          'Add a Server and cable it to a free port of sw1, for example `eth6`. A server must not change address, or everybody’s bookmarks break, so it does not use DHCP: it gets an address outside the DHCP range (`192.168.1.100`–`.199`) and the router as gateway.',
         hint: 'An address inside the DHCP range could be handed to another device later: two machines would then fight over it.',
+        parts: [
+          { text: 'Plug srv1 into sw1', done: (ctx) => wiredToSwitch(ctx, 'srv1') },
+          {
+            text: 'Give srv1 an address outside the DHCP range',
+            code: 'ip addr add 192.168.1.5/24 dev eth0',
+            on: 'srv1',
+            done: ({ net }) => {
+              const d = named(net, 'srv1');
+              return !!d && outsideDhcp(d);
+            },
+          },
+          {
+            text: 'Give srv1 the router as its gateway',
+            code: 'ip route add default via 192.168.1.1',
+            on: 'srv1',
+            done: ({ net }) => {
+              const d = named(net, 'srv1');
+              return !!d && lanGateway(d);
+            },
+          },
+        ],
         check: ({ net }) =>
           ofSpec(net, 'server').some((s) => neighborsOf(s).some(isSwitch) && fixedAddress(s)),
       },
       {
         title: 'Start the web server',
         detail:
-          'Open the server → Config → Start web server, or run `httpd` in its Terminal. It serves the folder `/var/www/html` on port 80.',
+          'A web server is a program that answers on TCP port 80 with the files of one folder, `/var/www/html`. Open the server → Config → Start web server, or use its Terminal.',
+        parts: [
+          {
+            text: 'Start the web server on srv1',
+            code: 'httpd',
+            on: 'srv1',
+            done: ({ net }) => !!named(net, 'srv1')?.httpd,
+          },
+        ],
         check: ({ net }) => ofSpec(net, 'server').some((s) => s.httpd !== null),
       },
       {
         title: 'Write your own home page',
         detail:
-          'The server starts with a sample page. Replace it: Desktop → Text Editor → `/var/www/html/index.html`, or `echo "<h1>Our intranet</h1>" > /var/www/html/index.html` in the Terminal.',
+          'The server starts with a sample page. Replace it with your own: Desktop → Text Editor → `/var/www/html/index.html` does the same as the command.',
+        parts: [
+          {
+            text: 'Replace the sample page on srv1',
+            code: 'echo "<h1>Our intranet</h1>" > /var/www/html/index.html',
+            on: 'srv1',
+            done: ({ net }) => {
+              const d = named(net, 'srv1');
+              return !!d && ownPage(d);
+            },
+          },
+        ],
         check: ({ net }) =>
           ofSpec(net, 'server').some((s) => {
             const page = s.fs?.read(SERVER_PAGE);
@@ -1042,7 +1364,19 @@ export const TASKS: Task[] = [
       {
         title: 'Open the home page over Wi-Fi',
         detail:
-          'On the phone or the laptop run `curl http://192.168.1.5/` (use your server’s address), or open it in the Web Browser app.',
+          'A phone on the Wi-Fi is an ordinary member of the office LAN. The Web Browser app opens the page too; use your server’s address if you chose another one.',
+        parts: [
+          {
+            text: 'Fetch the home page from phone1',
+            code: 'curl http://192.168.1.5/',
+            on: 'phone1',
+            done: ({ net }) => {
+              const c = named(net, 'phone1');
+              const s = named(net, 'srv1');
+              return !!c && !!s && associatedAp(c) !== null && reachedBy([c], s);
+            },
+          },
+        ],
         check: ({ net }) =>
           ofSpec(net, 'server').some((s) =>
             [...ofSpec(net, 'laptop'), ...ofSpec(net, 'phone')].some(
@@ -1065,15 +1399,43 @@ export const TASKS: Task[] = [
       {
         title: 'Turn on VLAN filtering',
         detail:
-          'Open sw1 → Config → VLANs → tick VLAN filtering. In its CLI: `ip link set br0 type bridge vlan_filtering 1`.',
+          'VLAN filtering is what makes a switch honour VLANs. Open sw1 → Config → VLANs → tick VLAN filtering.',
         hint: 'Until filtering is on, a Linux bridge ignores VLAN settings: every port is in one network.',
+        parts: [
+          {
+            text: 'Turn on VLAN filtering on sw1',
+            code: 'ip link set br0 type bridge vlan_filtering 1',
+            on: 'sw1',
+            done: ({ net }) => !!named(net, 'sw1')?.bridge?.vlanFiltering,
+          },
+        ],
         check: ({ net }) => switches(net).some((sw) => sw.bridge?.vlanFiltering),
       },
       {
         title: 'Put two PCs in VLAN 10 and one in VLAN 20',
         detail:
-          'Make the PC ports access ports: pc1 and pc2 in VLAN 10, pc3 in VLAN 20. In the CLI of sw1: `bridge vlan add dev eth0 vid 10 pvid untagged` then `bridge vlan del dev eth0 vid 1` (the PCs are usually on `eth0`, `eth1` and `eth2`). The port to r1 stays in VLAN 1, so r1 is cut off for now.',
-        hint: '`pvid` puts untagged frames from the PC into that VLAN; `untagged` sends that VLAN’s frames to the PC without a tag.',
+          'An access port belongs to one VLAN: whatever the PC sends goes into it, and only that VLAN’s frames come out. Make the PC ports access ports: pc1 and pc2 in VLAN 10, pc3 in VLAN 20. The port to r1 stays in VLAN 1, so r1 is cut off for now. Config → VLANs does the same.',
+        hint: '`pvid` puts untagged frames from the PC into that VLAN; `untagged` sends that VLAN’s frames to the PC without a tag. The PCs are usually on `eth0`, `eth1` and `eth2`.',
+        parts: [
+          {
+            text: 'Move pc1’s switch port (`eth0`) to VLAN 10',
+            code: 'bridge vlan add dev eth0 vid 10 pvid untagged && bridge vlan del dev eth0 vid 1',
+            on: 'sw1',
+            done: (ctx) => accessVlan(ctx, 'pc1', 10),
+          },
+          {
+            text: 'Move pc2’s switch port (`eth1`) to VLAN 10',
+            code: 'bridge vlan add dev eth1 vid 10 pvid untagged && bridge vlan del dev eth1 vid 1',
+            on: 'sw1',
+            done: (ctx) => accessVlan(ctx, 'pc2', 10),
+          },
+          {
+            text: 'Move pc3’s switch port (`eth2`) to VLAN 20',
+            code: 'bridge vlan add dev eth2 vid 20 pvid untagged && bridge vlan del dev eth2 vid 1',
+            on: 'sw1',
+            done: (ctx) => accessVlan(ctx, 'pc3', 20),
+          },
+        ],
         check: ({ net }) =>
           switches(net).some((sw) => {
             const groups = vlanGroups(sw);
@@ -1083,13 +1445,30 @@ export const TASKS: Task[] = [
       {
         title: 'Ping inside a VLAN',
         detail:
-          'From pc1 ping pc2 by its address (`ip addr` shows it). Names do not work now: the DNS server on r1 is out of reach.',
+          'Two PCs in the same VLAN still reach each other. Use the address, not the name: the DNS server on r1 is out of reach now.',
+        parts: [
+          {
+            text: 'Ping pc2 from pc1 (`ip addr` on pc2 shows its address)',
+            code: 'ping -c 1 <address of pc2>',
+            on: 'pc1',
+            done: (ctx) => gotReply(ctx, 'pc1', 'pc2'),
+          },
+        ],
         check: ({ net }) =>
           switches(net).some((sw) => vlanGroups(sw).some((g) => g.some((pc) => pinged(pc, g)))),
       },
       {
         title: 'Try to reach the other VLAN',
-        detail: 'Now ping pc3 from pc1. Same network addresses, same switch: does it answer?',
+        detail:
+          'Same network addresses, same switch, but different VLANs: does pc3 answer? A ping that gets no reply still counts as a try.',
+        parts: [
+          {
+            text: 'Ping pc3 from pc1 (`ip addr` on pc3 shows its address)',
+            code: 'ping -c 1 -W 1 <address of pc3>',
+            on: 'pc1',
+            done: (ctx) => pingedAddress(ctx, 'pc1', 'pc3'),
+          },
+        ],
         check: (ctx) =>
           switches(ctx.net).some((sw) => {
             const groups = vlanGroups(sw);
@@ -1116,20 +1495,68 @@ export const TASKS: Task[] = [
       {
         title: 'Give each VLAN its own network',
         detail:
-          'On pc1 and pc2 (VLAN 10) run `ip addr flush dev eth0` and `ip route del default` (forget the old address and gateway), then give them `192.168.10.10/24` and `192.168.10.20/24`. Do the same on pc3 (VLAN 20) with `192.168.20.10/24`.',
+          'The router can only tell the VLANs apart when each has a network of its own: `192.168.10.x` for VLAN 10 and `192.168.20.x` for VLAN 20. Each PC first forgets its old address and gateway.',
+        parts: [
+          {
+            text: 'Give pc1 an address in VLAN 10’s network',
+            code: 'ip addr flush dev eth0 && ip route del default && ip addr add 192.168.10.10/24 dev eth0',
+            on: 'pc1',
+            done: (ctx) => hasIp(ctx, 'pc1', '192.168.10.10'),
+          },
+          {
+            text: 'Give pc2 an address in VLAN 10’s network',
+            code: 'ip addr flush dev eth0 && ip route del default && ip addr add 192.168.10.20/24 dev eth0',
+            on: 'pc2',
+            done: (ctx) => hasIp(ctx, 'pc2', '192.168.10.20'),
+          },
+          {
+            text: 'Give pc3 an address in VLAN 20’s network',
+            code: 'ip addr flush dev eth0 && ip route del default && ip addr add 192.168.20.10/24 dev eth0',
+            on: 'pc3',
+            done: (ctx) => hasIp(ctx, 'pc3', '192.168.20.10'),
+          },
+        ],
         check: ({ net }) => switches(net).some(vlansOwnNetworks),
       },
       {
         title: 'Turn the switch port to r1 into a trunk',
         detail:
-          'r1 is already cabled to sw1 (port `eth7`). Make that switch port a trunk carrying VLANs 10 and 20: Config → VLANs → Trunk `10,20`. In the CLI: `bridge vlan add dev eth7 vid 10` and `bridge vlan add dev eth7 vid 20`.',
+          'A trunk carries many VLANs over one cable, each frame with an 802.1Q tag. r1 is already cabled to sw1 (port `eth7`). Make that switch port a trunk for VLANs 10 and 20: Config → VLANs → Trunk `10,20` does the same.',
         hint: 'A trunk sends frames with an 802.1Q tag, so one cable can carry many VLANs.',
+        parts: [
+          {
+            text: 'Add VLAN 10 to the trunk port',
+            code: 'bridge vlan add dev eth7 vid 10',
+            on: 'sw1',
+            done: (ctx) => trunks(ctx, 'sw1', 'eth7', 10),
+          },
+          {
+            text: 'Add VLAN 20 to the trunk port',
+            code: 'bridge vlan add dev eth7 vid 20',
+            on: 'sw1',
+            done: (ctx) => trunks(ctx, 'sw1', 'eth7', 20),
+          },
+        ],
         check: ({ net }) => trunkRouters(net).length > 0,
       },
       {
         title: 'Give r1 a VLAN interface per VLAN',
         detail:
-          'r1 → Config → VLAN interfaces: add VLAN 10 and VLAN 20 on `eth0`, then give `eth0.10` the address `192.168.10.1/24` and `eth0.20` `192.168.20.1/24`.',
+          'r1 gets one virtual interface per VLAN on its port `eth0`, and each is r1’s foot in that VLAN’s network, with the first address of it. r1 → Config → VLAN interfaces does the same.',
+        parts: [
+          {
+            text: 'Create the VLAN 10 interface on r1’s `eth0`',
+            code: 'ip link add link eth0 name eth0.10 type vlan id 10 && ip link set eth0.10 up && ip addr add 192.168.10.1/24 dev eth0.10',
+            on: 'r1',
+            done: (ctx) => upWith(ctx, 'r1', 'eth0.10', '192.168.10.1/24'),
+          },
+          {
+            text: 'Create the VLAN 20 interface on r1’s `eth0`',
+            code: 'ip link add link eth0 name eth0.20 type vlan id 20 && ip link set eth0.20 up && ip addr add 192.168.20.1/24 dev eth0.20',
+            on: 'r1',
+            done: (ctx) => upWith(ctx, 'r1', 'eth0.20', '192.168.20.1/24'),
+          },
+        ],
         check: ({ net }) =>
           trunkRouters(net).some(
             ({ router }) =>
@@ -1140,7 +1567,27 @@ export const TASKS: Task[] = [
       {
         title: 'Point the PCs at their gateways',
         detail:
-          'Each PC’s default gateway is r1’s address in its VLAN: `ip route add default via 192.168.10.1` on pc1 and pc2, `ip route add default via 192.168.20.1` on pc3.',
+          'Each PC’s default gateway is r1’s address in its own VLAN, because that is the only router it can reach directly.',
+        parts: [
+          {
+            text: 'Give pc1 its gateway in VLAN 10',
+            code: 'ip route add default via 192.168.10.1',
+            on: 'pc1',
+            done: (ctx) => defaultVia(ctx, 'pc1', '192.168.10.1'),
+          },
+          {
+            text: 'Give pc2 its gateway in VLAN 10',
+            code: 'ip route add default via 192.168.10.1',
+            on: 'pc2',
+            done: (ctx) => defaultVia(ctx, 'pc2', '192.168.10.1'),
+          },
+          {
+            text: 'Give pc3 its gateway in VLAN 20',
+            code: 'ip route add default via 192.168.20.1',
+            on: 'pc3',
+            done: (ctx) => defaultVia(ctx, 'pc3', '192.168.20.1'),
+          },
+        ],
         check: ({ net }) =>
           trunkRouters(net).some(({ router, sw }) => {
             const gateways = new Set(
@@ -1156,8 +1603,15 @@ export const TASKS: Task[] = [
       },
       {
         title: 'Ping across VLANs',
-        detail:
-          'Ping pc3 from pc1 (`ping 192.168.20.10`). Watch it in Simulation mode: the frames to the router carry a VLAN tag.',
+        detail: 'Watch the ping in Simulation mode: the frames to the router carry a VLAN tag.',
+        parts: [
+          {
+            text: 'Ping pc3 from pc1',
+            code: 'ping -c 1 192.168.20.10',
+            on: 'pc1',
+            done: (ctx) => gotReply(ctx, 'pc1', 'pc3'),
+          },
+        ],
         check: ({ net }) =>
           switches(net).some((sw) => {
             const groups = vlanGroups(sw);
@@ -1180,17 +1634,59 @@ export const TASKS: Task[] = [
       {
         title: 'Add a second router',
         detail: 'Drag another Router onto the canvas. It will be the branch office’s router.',
+        parts: [{ text: 'Add a second router', done: ({ net }) => routers(net).length >= 2 }],
         check: ({ net }) => routers(net).length >= 2,
       },
       {
         title: 'Add a PC and cable the branch',
-        detail: 'Add one more PC (pc5). Cable r1’s `eth2` to r2’s `eth1`, and pc5 to r2’s `eth0`.',
+        detail:
+          'The branch gets its own PC (pc5) behind r2, and r1 and r2 are joined by one cable that becomes the link between the offices.',
+        parts: [
+          { text: 'Add a fifth PC', done: ({ net }) => hosts(net).length >= 5 },
+          {
+            text: 'Cable r1’s `eth2` to r2’s `eth1`',
+            done: (ctx) => cabled(ctx, 'r1/eth2', 'r2/eth1'),
+          },
+          { text: 'Cable pc5 to r2’s `eth0`', done: (ctx) => cabled(ctx, 'pc5/eth0', 'r2/eth0') },
+        ],
         check: ({ net }) => ospfPairs(net).length > 0,
       },
       {
         title: 'Address the new link and LAN',
         detail:
-          'Router link: `10.0.0.1/30` on r1’s `eth2` and `10.0.0.2/30` on r2’s `eth1`. Branch LAN: r2’s `eth0` gets `192.168.3.1/24`, pc5 gets `192.168.3.10/24` and uses `192.168.3.1` as its gateway.',
+          'The cable between the routers is a tiny network of its own (a /30 has room for exactly two routers), and the branch LAN needs its own network, with r2 as the gateway of pc5.',
+        parts: [
+          {
+            text: 'Give r1’s `eth2` its end of the link',
+            code: 'ip addr add 10.0.0.1/30 dev eth2',
+            on: 'r1',
+            done: (ctx) => hasAddr(ctx, 'r1', 'eth2', '10.0.0.1/30'),
+          },
+          {
+            text: 'Give r2’s `eth1` the other end of the link',
+            code: 'ip addr add 10.0.0.2/30 dev eth1',
+            on: 'r2',
+            done: (ctx) => hasAddr(ctx, 'r2', 'eth1', '10.0.0.2/30'),
+          },
+          {
+            text: 'Give r2’s `eth0` the branch network’s first address',
+            code: 'ip addr add 192.168.3.1/24 dev eth0',
+            on: 'r2',
+            done: (ctx) => hasAddr(ctx, 'r2', 'eth0', '192.168.3.1/24'),
+          },
+          {
+            text: 'Give pc5 an address in the branch network',
+            code: 'ip addr add 192.168.3.10/24 dev eth0',
+            on: 'pc5',
+            done: (ctx) => hasIp(ctx, 'pc5', '192.168.3.10'),
+          },
+          {
+            text: 'Give pc5 its gateway',
+            code: 'ip route add default via 192.168.3.1',
+            on: 'pc5',
+            done: (ctx) => defaultVia(ctx, 'pc5', '192.168.3.1'),
+          },
+        ],
         check: ({ net }) =>
           ospfPairs(net).some(
             ([a, b]) =>
@@ -1203,8 +1699,28 @@ export const TASKS: Task[] = [
       {
         title: 'Start OSPF on both routers',
         detail:
-          'In each router’s CLI run `bird` (or Config → Dynamic routing → Start OSPF). Then `birdc show ospf neighbors`.',
-        hint: 'Routers ship /etc/bird.conf with OSPF on every Ethernet port.',
+          'OSPF lets routers say hello to their neighbours, swap what networks they know and work out the routes themselves. Routers ship /etc/bird.conf with OSPF on every Ethernet port, so starting BIRD is enough. Config → Dynamic routing → Start OSPF does the same.',
+        hint: 'It takes a little while before a neighbor is `Full`; run the last command again.',
+        parts: [
+          {
+            text: 'Start BIRD on r1',
+            code: 'bird',
+            on: 'r1',
+            done: ({ net }) => !!named(net, 'r1')?.bird,
+          },
+          {
+            text: 'Start BIRD on r2',
+            code: 'bird',
+            on: 'r2',
+            done: ({ net }) => !!named(net, 'r2')?.bird,
+          },
+          {
+            text: 'Check that r1 sees a neighbor in state Full',
+            code: 'birdc show ospf neighbors',
+            on: 'r1',
+            done: ({ net }) => !!named(net, 'r1')?.bird?.neighbors.some((n) => n.full),
+          },
+        ],
         check: ({ net }) =>
           ospfPairs(net).some(([a, b]) =>
             [a, b].every((r) => r.bird?.neighbors.some((n) => n.full)),
@@ -1213,14 +1729,32 @@ export const TASKS: Task[] = [
       {
         title: 'See the learned route',
         detail:
-          'On r1 run `ip route`: the branch network `192.168.3.0/24` appears with `proto bird`.',
+          'The branch network `192.168.3.0/24` appears in r1’s routing table with `proto bird`: nobody typed it.',
+        parts: [
+          {
+            text: 'Show r1’s routing table',
+            code: 'ip route',
+            on: 'r1',
+            done: (ctx) =>
+              typed(ctx, 'r1', /^(ip\s+r(o(u(te?)?)?)?|birdc\s+show\s+route)/) &&
+              (named(ctx.net, 'r1')?.bird?.routes.length ?? 0) > 0,
+          },
+        ],
         check: (ctx) =>
           ran(ctx, /^(ip\s+r(o(u(te?)?)?)?|birdc\s+show\s+route)/, isRouter) &&
           ospfPairs(ctx.net).some(([a]) => (a.bird?.routes.length ?? 0) > 0),
       },
       {
         title: 'Ping the branch from headquarters',
-        detail: 'Ping pc4 from pc5 (`ping 192.168.2.10`). Nobody typed a route.',
+        detail: 'The ping crosses both routers, over a route nobody typed.',
+        parts: [
+          {
+            text: 'Ping pc4 from pc5',
+            code: 'ping -c 1 192.168.2.10',
+            on: 'pc5',
+            done: (ctx) => gotReply(ctx, 'pc5', 'pc4'),
+          },
+        ],
         check: ({ net }) =>
           ospfPairs(net).some(([a, b]) => {
             const left = pcsOnRouter(a).map((l) => l.pc);
@@ -1242,26 +1776,81 @@ export const TASKS: Task[] = [
     steps: [
       {
         title: 'Add the Internet and connect r1 to it',
-        detail: 'Drag the Internet cloud onto the canvas and cable r1’s `eth3` to it.',
+        detail:
+          'The Internet cloud stands for your provider and the rest of the world. r1’s `eth3` is the port that faces it.',
+        parts: [
+          { text: 'Add the Internet cloud', done: ({ net }) => ofSpec(net, 'internet').length > 0 },
+          {
+            text: 'Cable r1’s `eth3` to the cloud',
+            done: (ctx) => cabled(ctx, 'r1/eth3', 'internet1'),
+          },
+        ],
         check: ({ net }) => natRouters(net).length > 0,
       },
       {
         title: 'Get a public address from the provider',
-        detail: 'In r1’s CLI: `dhclient eth3`. The cloud hands out an address and a default route.',
+        detail: 'The cloud hands out a public address and a default route, like any DHCP server.',
+        parts: [
+          {
+            text: 'Ask the provider for an address on r1’s `eth3`',
+            code: 'dhclient eth3',
+            on: 'r1',
+            done: ({ net }) => {
+              const r1 = named(net, 'r1');
+              const port = r1?.port('eth3');
+              return !!r1 && !!port && (r1.ip?.addrsOn(port).length ?? 0) > 0;
+            },
+          },
+        ],
         check: ({ net }) =>
           natRouters(net).some(({ router, wan }) => (router.ip?.addrsOn(wan).length ?? 0) > 0),
       },
       {
         title: 'Turn on NAT',
         detail:
-          'r1 → Config → Firewall and NAT → Share this connection (NAT), with `eth3` as the Internet side. It runs `nft add rule ip nat postrouting oifname "eth3" masquerade`.',
+          'NAT rewrites the private source address of each outgoing packet to the router’s public one, and remembers the connection so it can rewrite the reply. In r1’s window: Config → Firewall and NAT → Share this connection (NAT), with `eth3` as the Internet side. The three commands below are what it runs.',
         hint: 'Without NAT the PCs’ packets reach the Internet, but nobody there knows the way back to 192.168.2.0/24.',
+        parts: [
+          {
+            text: 'Create a table for NAT',
+            code: 'nft add table ip nat',
+            on: 'r1',
+            done: ({ net }) => hasTable(named(net, 'r1'), 'nat'),
+          },
+          {
+            text: 'Add a chain that runs after routing',
+            code: 'nft add chain ip nat postrouting { type nat hook postrouting priority srcnat ; }',
+            on: 'r1',
+            done: ({ net }) =>
+              (named(net, 'r1')?.ip?.nf.tables ?? []).some((t) =>
+                t.chains.some((c) => c.base?.hook === 'postrouting'),
+              ),
+          },
+          {
+            text: 'Masquerade whatever leaves through `eth3`',
+            code: 'nft add rule ip nat postrouting oifname "eth3" masquerade',
+            on: 'r1',
+            done: ({ net }) => {
+              const r1 = named(net, 'r1');
+              return !!r1 && masqueradesOn(r1, 'eth3');
+            },
+          },
+        ],
         check: ({ net }) =>
           natRouters(net).some(({ router, wan }) => masqueradesOn(router, wan.name)),
       },
       {
         title: 'Ping the Internet from a PC',
-        detail: 'On pc4: `ping 198.18.0.10` (the example website). Then try `conntrack -L` on r1.',
+        detail:
+          'Ping the example website, `198.18.0.10`. Afterwards `conntrack -L` on r1 lists the connection NAT is remembering.',
+        parts: [
+          {
+            text: 'Ping the example website from pc4',
+            code: 'ping -c 1 198.18.0.10',
+            on: 'pc4',
+            done: ({ net }) => !!named(net, 'pc4')?.ip?.echoRepliesFrom.has(SITE_IP),
+          },
+        ],
         check: ({ net }) =>
           natRouters(net).some(({ router }) =>
             pcsOnRouter(router).some((l) => l.pc.ip?.echoRepliesFrom.has(SITE_IP)),
@@ -1270,8 +1859,54 @@ export const TASKS: Task[] = [
       {
         title: 'Only let replies in',
         detail:
-          'Add a firewall on r1: a forward chain with policy drop that accepts `ct state established,related` and anything that does not come from `eth3`. Paste the hint into the ruleset editor (Config tab), then ping again.',
+          'A firewall on r1 should let your PCs out and the answers back in, but drop anything that starts outside. That is a forward chain with policy drop and two accept rules. In the Config tab you can paste the hint into the ruleset editor instead of typing the commands.',
         hint: 'table ip filter { chain forward { type filter hook forward priority 0; policy drop; ct state established,related accept; iifname != "eth3" accept } }',
+        parts: [
+          {
+            text: 'Create a table for filtering',
+            code: 'nft add table ip filter',
+            on: 'r1',
+            done: ({ net }) => hasTable(named(net, 'r1'), 'filter'),
+          },
+          {
+            text: 'Add a forward chain that drops by default',
+            code: 'nft add chain ip filter forward { type filter hook forward priority 0 ; policy drop ; }',
+            on: 'r1',
+            done: ({ net }) => !!forwardGuard(named(net, 'r1')),
+          },
+          {
+            text: 'Accept replies to connections that exist',
+            code: 'nft add rule ip filter forward ct state established,related accept',
+            on: 'r1',
+            done: ({ net }) =>
+              forwardRule(named(net, 'r1'), (r) =>
+                r.matches.some((m) => m.kind === 'ct' && m.states.includes('established')),
+              ),
+          },
+          {
+            text: 'Accept traffic that does not come from `eth3`',
+            code: 'nft add rule ip filter forward iifname != "eth3" accept',
+            on: 'r1',
+            done: ({ net }) =>
+              forwardRule(
+                named(net, 'r1'),
+                (r) =>
+                  r.action.kind === 'accept' &&
+                  r.matches.some((m) => m.kind === 'iifname' && m.neg && m.name === 'eth3'),
+              ),
+          },
+          {
+            text: 'Ping again: replies still get through',
+            code: 'ping -c 1 198.18.0.10',
+            on: 'pc4',
+            done: ({ net }) =>
+              !!forwardGuard(named(net, 'r1')) &&
+              (named(net, 'r1')
+                ?.ip?.nf.connections()
+                .some((c) => c.replied) ??
+                false),
+          },
+        ],
         check: ({ net }) =>
           natRouters(net).some(({ router }) => {
             const nf = router.ip?.nf;
@@ -1304,22 +1939,83 @@ export const TASKS: Task[] = [
       {
         title: 'Plug a home router into the office network',
         detail:
-          'Add a Home Router: it is a router, DHCP server, Wi-Fi access point, NAT and firewall in one box. sw1 has no free port left, so add a second Switch, cable `eth8` (the first fiber port) of sw1 to `eth8` of sw2, and cable the home router’s `eth0` (its Internet port) to a port of sw2. It asks the office DHCP server for an address, like any device; if nothing shows in `ip addr show eth0` after a few seconds, run `dhclient eth0`.',
+          'A home router is a router, DHCP server, Wi-Fi access point, NAT and firewall in one box. sw1 has no free port left, so a second switch hangs off its first fiber port, and the home router’s Internet port goes into that switch. It asks the office DHCP server for an address, like any device.',
         hint: 'The Internet port is `eth0`. The four LAN ports and the Wi-Fi are on the other side of the router.',
+        parts: [
+          { text: 'Add a second switch', done: ({ net }) => switches(net).length >= 2 },
+          {
+            text: 'Cable sw1’s `eth8` (the first fiber port) to sw2’s `eth8`',
+            done: (ctx) => cabled(ctx, 'sw1/eth8', 'sw2/eth8'),
+          },
+          { text: 'Add a home router', done: ({ net }) => ofSpec(net, 'homerouter').length > 0 },
+          {
+            text: 'Cable home1’s `eth0` (its Internet port) to sw2',
+            done: (ctx) => cabled(ctx, 'home1/eth0', 'sw2'),
+          },
+          {
+            text: 'Let home1 get an office address (it asks by itself; run this if `ip addr show eth0` stays empty)',
+            code: 'dhclient eth0',
+            on: 'home1',
+            done: ({ net }) => {
+              const h = named(net, 'home1');
+              return !!h && wanOf(h).length > 0;
+            },
+          },
+        ],
         check: ({ net }) => guestBoxes(net).length > 0,
       },
       {
         title: 'Give the guest network its own subnet',
         detail:
-          'The box comes with `192.168.1.0/24` on its LAN side, which is also the office LAN, so it cannot tell which side `192.168.1.5` is on. Pick a free network such as `192.168.50.0/24`. In home1’s Terminal: `ip addr flush dev br0`, `ip addr add 192.168.50.1/24 dev br0`, then restart its DHCP server for the new network: `killall dnsmasq` and `dnsmasq --dhcp-range=192.168.50.100,192.168.50.199`.',
+          'The box comes with `192.168.1.0/24` on its LAN side, which is also the office LAN, so it cannot tell which side `192.168.1.5` is on. Give the guests a free network such as `192.168.50.0/24` and let the DHCP server serve that one.',
         hint: 'A DHCP server only answers on a network its range belongs to, so the old range `192.168.1.100`–`.199` serves nobody once `br0` moved.',
+        parts: [
+          {
+            text: 'Move home1’s LAN side (`br0`) to the guest network',
+            code: 'ip addr flush dev br0 && ip addr add 192.168.50.1/24 dev br0',
+            on: 'home1',
+            done: (ctx) => hasAddr(ctx, 'home1', 'br0', '192.168.50.1/24'),
+          },
+          {
+            text: 'Restart the DHCP server for the guest network',
+            code: 'killall dnsmasq; dnsmasq --dhcp-range=192.168.50.100,192.168.50.199',
+            on: 'home1',
+            done: ({ net }) =>
+              (named(net, 'home1')?.dnsmasq?.config.ranges ?? []).some((r) =>
+                inSubnet(r.start, { ip: parseIp('192.168.50.0') ?? 0, prefix: 24 }),
+              ),
+          },
+        ],
         check: ({ net }) => guestBoxes(net).some((h) => ownGuestNetwork(net, h)),
       },
       {
         title: 'Join the guest Wi-Fi with a visitor’s phone',
         detail:
-          'Add a Phone and drag it inside the home router’s dashed range circle, away from the office access point. Join `HomeWiFi` with the password `netforge123` (Desktop → Wi-Fi, or `nmcli dev wifi connect HomeWiFi password netforge123`), then get an address: `dhclient wlan0`. It must be a guest address (`192.168.50.x`), not an office one.',
+          'Add a Phone and drag it inside the home router’s dashed range circle, away from the office access point. Desktop → Wi-Fi does the same as the commands. The address must be a guest address (`192.168.50.x`), not an office one.',
         hint: 'Out of range, the list of networks is empty. Move the phone closer to the home router.',
+        parts: [
+          { text: 'Add a visitor’s phone', done: ({ net }) => ofSpec(net, 'phone').length >= 2 },
+          {
+            text: 'Join `HomeWiFi` with phone2',
+            code: 'nmcli dev wifi connect HomeWiFi password netforge123',
+            on: 'phone2',
+            done: ({ net }) => {
+              const c = named(net, 'phone2');
+              const h = named(net, 'home1');
+              return !!c && !!h && associatedAp(c) === h;
+            },
+          },
+          {
+            text: 'Let phone2 get a guest address',
+            code: 'dhclient wlan0',
+            on: 'phone2',
+            done: ({ net }) => {
+              const c = named(net, 'phone2');
+              const h = named(net, 'home1');
+              return !!c && !!h && addrsOf(c).some((a) => lanOf(h).some((l) => sameSubnet(a, l)));
+            },
+          },
+        ],
         check: ({ net }) =>
           guestBoxes(net).some(
             (h) =>
@@ -1332,7 +2028,18 @@ export const TASKS: Task[] = [
       {
         title: 'Check that visitors reach the Internet',
         detail:
-          'On the visitor phone run `ping 198.18.0.10` or `curl http://198.18.0.10/` (the example website). The home router rewrites the guest address (NAT) and r1 does it again on the way out.',
+          'The home router rewrites the guest address (NAT) and r1 does it again on the way out. `curl http://198.18.0.10/` works as well as a ping.',
+        parts: [
+          {
+            text: 'Ping the example website from phone2',
+            code: 'ping -c 1 198.18.0.10',
+            on: 'phone2',
+            done: ({ net }) => {
+              const ip = named(net, 'phone2')?.ip;
+              return !!ip && (ip.echoRepliesFrom.has(SITE_IP) || ip.tcp.connectedTo.has(SITE_IP));
+            },
+          },
+        ],
         check: ({ net }) =>
           guestBoxes(net).some((h) =>
             guestsOf(net, h).some(
@@ -1344,8 +2051,34 @@ export const TASKS: Task[] = [
       {
         title: 'Keep visitors out of the office',
         detail:
-          'Right now the visitor phone can ping the server `192.168.1.5`: the home router forwards everything from the guest network and NAT hides the guest address. Add a firewall rule on home1 that drops guest traffic to the office networks (`192.168.0.0/16`). Rules are read from the top, so it must go before the rule that accepts the guests: use `insert`, not `add`. Then ping `192.168.1.5` from the phone: there must be no answer.',
+          'Right now the visitor phone can ping the server `192.168.1.5`: the home router forwards everything from the guest network and NAT hides the guest address. Rules are read from the top, so a rule that drops guest traffic to the office networks (`192.168.0.0/16`) must go before the rule that accepts the guests: use `insert`, not `add`.',
         hint: 'nft insert rule ip filter forward iifname "br0" ip daddr 192.168.0.0/16 drop',
+        parts: [
+          {
+            text: 'Drop guest traffic to the office networks, above the accept rule',
+            code: 'nft insert rule ip filter forward iifname "br0" ip daddr 192.168.0.0/16 drop',
+            on: 'home1',
+            done: ({ net }) =>
+              forwardRule(
+                named(net, 'home1'),
+                (r) =>
+                  r.action.kind === 'drop' &&
+                  r.matches.some((m) => m.kind === 'iifname' && !m.neg && m.name === 'br0') &&
+                  r.matches.some(
+                    (m) => m.kind === 'daddr' && !m.neg && m.cidr.ip === parseIp('192.168.0.0'),
+                  ),
+              ),
+          },
+          {
+            text: 'Ping the office server from phone2: there must be no answer',
+            code: 'ping -c 1 192.168.1.5',
+            on: 'phone2',
+            done: ({ net }) => {
+              const h = named(net, 'home1');
+              return !!h && guestKeptOut(net, h);
+            },
+          },
+        ],
         check: ({ net }) => guestBoxes(net).some((h) => guestKeptOut(net, h)),
       },
     ],
@@ -1363,12 +2096,33 @@ export const TASKS: Task[] = [
       {
         title: 'Add a router and a PC for a remote office',
         detail:
-          'Drag a Router and a PC onto the canvas (r3 and pc6). Cable pc6 to r3’s `eth0` and r3’s `eth1` to internet1’s `eth1`.',
+          'The remote office is a router (r3) with a PC (pc6) behind it, reaching the Internet through its own port `eth1`.',
+        parts: [
+          { text: 'Add a third router', done: ({ net }) => !!named(net, 'r3') },
+          { text: 'Add a sixth PC', done: ({ net }) => !!named(net, 'pc6') },
+          { text: 'Cable pc6 to r3’s `eth0`', done: (ctx) => cabled(ctx, 'pc6/eth0', 'r3/eth0') },
+          {
+            text: 'Cable r3’s `eth1` to the Internet cloud’s `eth1`',
+            done: (ctx) => cabled(ctx, 'r3/eth1', 'internet1/eth1'),
+          },
+        ],
         check: ({ net }) => natRouters(net).length >= 2,
       },
       {
         title: 'Get a public address for r3',
-        detail: 'In r3’s CLI: `dhclient eth1`.',
+        detail: 'Like r1, r3 needs a public address from the provider to be reachable.',
+        parts: [
+          {
+            text: 'Ask the provider for an address on r3’s `eth1`',
+            code: 'dhclient eth1',
+            on: 'r3',
+            done: ({ net }) => {
+              const r3 = named(net, 'r3');
+              const port = r3?.port('eth1');
+              return !!r3 && !!port && (r3.ip?.addrsOn(port).length ?? 0) > 0;
+            },
+          },
+        ],
         check: ({ net }) =>
           natRouters(net).filter(({ router, wan }) => (router.ip?.addrsOn(wan).length ?? 0) > 0)
             .length >= 2,
@@ -1376,7 +2130,27 @@ export const TASKS: Task[] = [
       {
         title: 'Give the remote office its own network',
         detail:
-          'r3’s `eth0` gets `192.168.4.1/24`; pc6 gets `192.168.4.10/24` and uses `192.168.4.1` as its gateway.',
+          'The remote office needs a network that does not overlap the headquarters’: `192.168.4.0/24`, with r3 as the gateway of pc6.',
+        parts: [
+          {
+            text: 'Give r3’s `eth0` the remote network’s first address',
+            code: 'ip addr add 192.168.4.1/24 dev eth0',
+            on: 'r3',
+            done: (ctx) => hasAddr(ctx, 'r3', 'eth0', '192.168.4.1/24'),
+          },
+          {
+            text: 'Give pc6 an address in the remote network',
+            code: 'ip addr add 192.168.4.10/24 dev eth0',
+            on: 'pc6',
+            done: (ctx) => hasIp(ctx, 'pc6', '192.168.4.10'),
+          },
+          {
+            text: 'Give pc6 its gateway',
+            code: 'ip route add default via 192.168.4.1',
+            on: 'pc6',
+            done: (ctx) => defaultVia(ctx, 'pc6', '192.168.4.1'),
+          },
+        ],
         check: ({ net }) =>
           natRouters(net).filter(({ router }) =>
             pcsOnRouter(router).some(
@@ -1387,15 +2161,26 @@ export const TASKS: Task[] = [
       {
         title: 'Create a WireGuard interface on r1 and r3',
         detail:
-          'Router → Config → WireGuard VPN → Create wg0, with `10.8.0.1/24` on r1 and `10.8.0.2/24` on r3.',
-        hint: 'In the CLI: `wg genkey | tee key | wg pubkey`, then write /etc/wireguard/wg0.conf and run `wg-quick up wg0`.',
+          'WireGuard makes an encrypted tunnel look like a network cable: an interface `wg0` with an address, a private key and a listening port. Router → Config → WireGuard VPN → Create wg0 does it in one form.',
+        hint: 'In the CLI you can also write /etc/wireguard/wg0.conf and run `wg-quick up wg0`.',
+        parts: [...wgParts('r1', '10.8.0.1'), ...wgParts('r3', '10.8.0.2')],
         check: ({ net }) => natRouters(net).filter(({ router }) => tunnelOf(router)).length >= 2,
       },
       {
         title: 'Make them peers',
         detail:
-          'On each router add the other as a peer: its public key, its public address with port 51820 as endpoint (`ip addr` on the Internet port shows it), and its tunnel address and LAN as allowed IPs. On r1 that is `10.8.0.2/32, 192.168.4.0/24`; on r3 `10.8.0.1/32, 192.168.2.0/24`.',
-        hint: 'The Config tab also adds the route into the tunnel. In the CLI add it yourself: `ip route add 192.168.4.0/24 dev wg0` on r1 and `ip route add 192.168.2.0/24 dev wg0` on r3.',
+          'Peers trust each other by public key. Each router needs the other’s public key, its public address with port 51820 as endpoint (`ip addr` on its Internet port shows it), and the addresses it may send through the tunnel (allowed IPs: the tunnel address and the remote LAN). Keys differ every time, so print each one with `wg show` and paste it in place of the placeholder.',
+        hint: 'The Config tab also adds the route into the tunnel. In the CLI you add it yourself, as the last command of each router.',
+        parts: [
+          ...peerParts(
+            'r1',
+            'r3',
+            '198.51.100.100',
+            '10.8.0.2/32,192.168.4.0/24',
+            '192.168.4.0/24',
+          ),
+          ...peerParts('r3', 'r1', '192.0.2.100', '10.8.0.1/32,192.168.2.0/24', '192.168.2.0/24'),
+        ],
         check: ({ net }) => {
           const tunnels = natRouters(net).flatMap(({ router }) => {
             const wg = tunnelOf(router);
@@ -1413,8 +2198,15 @@ export const TASKS: Task[] = [
       },
       {
         title: 'Ping across the tunnel',
-        detail:
-          'Ping pc6 from pc4 (`ping 192.168.4.10`). Then open the Internet cloud’s capture: only WireGuard packets cross it.',
+        detail: 'Then open the Internet cloud’s capture: only WireGuard packets cross it.',
+        parts: [
+          {
+            text: 'Ping pc6 from pc4',
+            code: 'ping -c 1 192.168.4.10',
+            on: 'pc4',
+            done: (ctx) => gotReply(ctx, 'pc4', 'pc6'),
+          },
+        ],
         check: ({ net }) => {
           const offices = natRouters(net).flatMap(({ router }) =>
             tunnelOf(router) ? [pcsOnRouter(router).map((l) => l.pc)] : [],

@@ -295,14 +295,15 @@ describe('what a step accepts', () => {
 
 describe('the checklist parts of a step', () => {
   for (const task of TASKS.filter((t) => t.steps.some((s) => s.parts))) {
-    it(`${task.id}: no step with parts starts done, and each is done with all its parts`, () => {
+    it(`${task.id}: no step starts done, parts-only steps are done with their parts, the solution ticks every part`, () => {
       const lab = new Lab(startOf(task.id));
       const ctx = { net: lab.net, commands: lab.commands };
       task.steps.forEach((s, i) => {
+        expect(stepDone(s, ctx), `step ${i + 1} at the start`).toBe(false);
         if (s.parts) {
           expect(
             s.parts.every((p) => p.done(ctx)),
-            `step ${i + 1} at the start`,
+            `step ${i + 1} parts at the start`,
           ).toBe(false);
         }
       });
@@ -311,16 +312,59 @@ describe('the checklist parts of a step', () => {
         lab.apply([action]);
         task.steps.forEach((s, i) => {
           const allParts = !!s.parts?.length && s.parts.every((p) => p.done(ctx));
+          // A step with a check may be done before its parts (the check is name-agnostic and looser).
           if (s.parts && !s.check) expect(stepDone(s, ctx), `step ${i + 1}`).toBe(allParts);
           if (seen.has(i) || !stepDone(s, ctx)) return;
           seen.add(i);
-          if (s.parts) {
+          if (s.parts && !s.check) {
             const open = s.parts.filter((p) => !p.done(ctx)).map((p) => p.text);
             expect(open, `step ${i + 1} became done with parts open`).toEqual([]);
           }
         });
       }
       expect(seen.size, 'every step became done').toBe(task.steps.length);
+      task.steps.forEach((s, i) => {
+        const open = (s.parts ?? []).filter((p) => !p.done(ctx)).map((p) => p.text);
+        expect(open, `step ${i + 1} after the solution`).toEqual([]);
+      });
     });
   }
+
+  it('every chapter has a scripted replay', () => {
+    expect(TASKS.filter((t) => t.steps.some((s) => s.parts)).map((t) => t.id)).toEqual(
+      TASKS.map((t) => t.id),
+    );
+  });
+
+  it('a step whose check passes is done even when none of its parts is (other device names)', () => {
+    // The PCs are called pc7 to pc9 instead of pc1 to pc4, so every part that names a PC stays open.
+    const lab = new Lab();
+    lab.apply([
+      { add: 'router', at: [330, 170] },
+      { add: 'switch', at: [240, 340] },
+      { add: 'pc', at: [40, 520] },
+      { add: 'pc', at: [270, 520] },
+      { add: 'pc', at: [500, 520] },
+    ]);
+    ['pc1', 'pc2', 'pc3'].forEach((n, i) => {
+      lab.named(n).name = `pc${i + 7}`;
+    });
+    lab.apply([
+      { cable: ['pc7/eth0', 'r1/eth1'] },
+      { cable: ['pc8/eth0', 'sw1/eth0'] },
+      { cable: ['pc9/eth0', 'sw1/eth1'] },
+      { cable: ['r1/eth0', 'sw1/eth7'] },
+      sh('r1', 'ip addr add 192.168.1.1/24 dev eth0', 'ip addr add 192.168.2.1/24 dev eth1'),
+      sh('pc7', 'ip addr add 192.168.2.10/24 dev eth0', 'ip route add default via 192.168.2.1'),
+      sh('pc8', 'ip addr add 192.168.1.10/24 dev eth0', 'ip route add default via 192.168.1.1'),
+      sh('pc9', 'ip addr add 192.168.1.20/24 dev eth0', 'ip route add default via 192.168.1.1'),
+    ]);
+    const ctx = { net: lab.net, commands: lab.commands };
+    const step = findTask('two-networks')?.steps[4];
+    expect(step?.title).toBe('Tell every PC where the router is');
+    expect(step?.parts?.some((p) => p.done(ctx))).toBe(false);
+    expect(stepDone(step, ctx)).toBe(true);
+  });
 });
+
+const sh = (device: string, ...lines: string[]): Action => ({ sh: device, lines });
