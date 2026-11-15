@@ -1,4 +1,4 @@
-import { formatIp } from './addr.ts';
+import { formatIp, type Ip } from './addr.ts';
 import type { IpStack, UdpSocket } from './ip.ts';
 import type { Scheduler } from './scheduler.ts';
 import type { TcpConnection } from './tcp.ts';
@@ -94,6 +94,8 @@ export class Printer {
  */
 export class Camera {
   readonly #viewers = new Map<TcpConnection, number>();
+  /** Addresses that were sent a frame since the last clear (guided tasks check it). */
+  readonly watchers = new Set<Ip>();
   #timer: number | null = null;
   #socket: UdpSocket | null = null;
 
@@ -152,6 +154,7 @@ export class Camera {
     for (const [conn, sent] of [...this.#viewers]) {
       const frame = sent + 1;
       this.#viewers.set(conn, frame);
+      this.watchers.add(conn.remoteIp);
       // No route to the viewer any more (cable pulled): it is gone.
       if (socket.send(conn.remoteIp, STREAM_PORT, { app: 'stream', frame }) !== null) {
         this.#viewers.delete(conn);

@@ -3,6 +3,8 @@ import type { Device } from '../../engine/device.ts';
 import { PORT_TYPE_LABEL, hasCarrier, peerOf, type Port } from '../../engine/port.ts';
 import { Browser } from '../apps/Browser.tsx';
 import { Capture } from '../apps/Capture.tsx';
+import { CameraViewer } from '../apps/CameraViewer.tsx';
+import { Print } from '../apps/Print.tsx';
 import { DhcpBox, GatewayDns, IpConfig, PortForm } from '../apps/IpConfig.tsx';
 import { Mail } from '../apps/Mail.tsx';
 import { TextEditor } from '../apps/TextEditor.tsx';
@@ -331,6 +333,27 @@ const APPS: { id: AppId; label: string; icon: ReactNode; hint: string }[] = [
     ),
     hint: 'See every frame this device sends and receives',
   },
+  {
+    id: 'print',
+    label: 'Print',
+    icon: (
+      <AppIcon>
+        <path d="M7 9V4h10v5M7 17H5v-7h14v7h-2M7 14h10v6H7z" />
+      </AppIcon>
+    ),
+    hint: 'Send a document to a network printer',
+  },
+  {
+    id: 'camera',
+    label: 'Camera Viewer',
+    icon: (
+      <AppIcon>
+        <rect x="3" y="7" width="13" height="10" rx="1" />
+        <path d="m16 11 5-3v8l-5-3" />
+      </AppIcon>
+    ),
+    hint: 'Watch an IP camera',
+  },
 ];
 
 function AppView({ device, app }: { device: Device; app: AppId }) {
@@ -349,6 +372,10 @@ function AppView({ device, app }: { device: Device; app: AppId }) {
       return <Capture device={device} />;
     case 'wifi':
       return <Wifi device={device} />;
+    case 'print':
+      return <Print device={device} />;
+    case 'camera':
+      return <CameraViewer device={device} />;
   }
 }
 

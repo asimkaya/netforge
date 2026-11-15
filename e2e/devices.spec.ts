@@ -56,6 +56,40 @@ test('a PC prints a page and the printer counts it', async ({ page }) => {
   await expect(term.getByRole('log')).toContainText('Pages printed: 1');
 });
 
+test('the Print and Camera Viewer apps use the printer and the camera', async ({ page }) => {
+  await page.goto('/');
+  await add(page, 'Home Router');
+  await add(page, 'PC');
+  await add(page, 'Printer');
+  await add(page, 'IP Camera');
+  await connect(page, 'pc1', 'home1/eth1');
+  await connect(page, 'printer1', 'home1/eth2');
+  await connect(page, 'cam1', 'home1/eth3');
+  await expect(page.getByTestId('address-printer1')).toHaveText(/^192\.168\.1\.\d+$/);
+  const pc = await open(page, 'pc1');
+  await pc.getByRole('button', { name: 'IP Configuration' }).click();
+  await pc.getByRole('button', { name: 'Get an address automatically' }).click();
+  await expect(pc.getByLabel('DHCP log')).toContainText('bound to 192.168.1.');
+  // Names come from the router's DHCP and DNS, like `nc printer1 9100`.
+  const printer = 'printer1';
+  const camera = 'cam1';
+  await pc.getByRole('button', { name: '← Desktop' }).click();
+  await pc.getByRole('button', { name: /^Print/ }).click();
+  await pc.getByLabel('Printer').fill(printer);
+  await pc.getByLabel('Document').fill('Hello from the app');
+  await pc.getByRole('button', { name: 'Print', exact: true }).click();
+  await expect(pc.getByRole('status')).toContainText(/Sent to printer1 \(192\.168\.1\.\d+\)/);
+  await expect(page.getByTestId('pages-printer1')).toHaveText('1 page');
+
+  await pc.getByRole('button', { name: '← Desktop' }).click();
+  await pc.getByRole('button', { name: /^Camera Viewer/ }).click();
+  await pc.getByLabel('Camera').fill(camera);
+  await pc.getByRole('button', { name: 'Connect' }).click();
+  await expect(pc.getByRole('status')).toContainText('Streaming: frame 2', { timeout: 15_000 });
+  await pc.getByRole('button', { name: 'Disconnect' }).click();
+  await expect(page.getByTestId('device-cam1')).toContainText('no viewers', { timeout: 15_000 });
+});
+
 test('an L3 switch routes between two VLANs without a router', async ({ page }) => {
   await page.goto('/');
   await add(page, 'L3 Switch');

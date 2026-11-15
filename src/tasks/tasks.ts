@@ -1127,7 +1127,7 @@ export const TASKS: Task[] = [
       {
         title: 'Print a page',
         detail:
-          'Port 9100 is the raw print port most network printers listen on: whatever you send there is printed. The status page counts the pages.',
+          'Port 9100 is the raw print port most network printers listen on: whatever you send there is printed. The status page counts the pages. You can also use the Print app on the PC’s Desktop tab.',
         hint: 'The `<` hands the file to the command, like pasting it in.',
         check: ({ net }) => appliancesOn(net, 'printer').some((p) => (p.printer?.pages ?? 0) >= 1),
         parts: [
@@ -1172,15 +1172,11 @@ export const TASKS: Task[] = [
       {
         title: 'Watch the stream from a PC',
         detail:
-          'The camera connects the viewer and sends one frame per second: `frame 1`, `frame 2`... Stop it with Ctrl+C once you have seen a few.',
+          'The camera connects the viewer and sends one frame per second: `frame 1`, `frame 2`... Stop it with Ctrl+C once you have seen a few. Or open the Camera Viewer app on the PC’s Desktop tab, type the camera’s name and press Connect.',
         hint: 'The connection uses TCP port 554 (the RTSP port); the pictures travel as UDP packets, so a firewall that drops them leaves you with a blank screen.',
-        check: (ctx) =>
-          appliancesOn(ctx.net, 'camera').some((cam) =>
-            hosts(ctx.net).some(
-              (pc) =>
-                ran(ctx, /^nc\s+(?!-z\b)\S+\s+554\s*$/, (d) => d === pc) &&
-                addrsOf(cam).some((a) => pc.ip?.tcp.connectedTo.has(a.ip)),
-            ),
+        check: ({ net }) =>
+          appliancesOn(net, 'camera').some((cam) =>
+            hosts(net).some((pc) => addrsOf(pc).some((a) => cam.camera?.watchers.has(a.ip))),
           ),
         parts: [
           {
@@ -2233,6 +2229,7 @@ export function clearEvidence(net: Network): void {
     d.ip?.echoRepliesFrom.clear();
     d.ip?.v6.echoRepliesFrom.clear();
     d.ip?.tcp.connectedTo.clear();
+    d.camera?.watchers.clear();
   }
 }
 
