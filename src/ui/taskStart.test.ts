@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { runNft } from '../engine/nft.ts';
 import { SOLUTIONS, type Action } from '../tasks/solutions.ts';
-import { TASKS, advance, clearEvidence, findTask } from '../tasks/tasks.ts';
+import { TASKS, advance, clearEvidence, findTask, stepDone } from '../tasks/tasks.ts';
 import { Lab } from './labBuilder.ts';
 import { FOOTPRINT } from './placement.ts';
 import type { Project } from './project.ts';
@@ -291,4 +291,36 @@ describe('what a step accepts', () => {
     const r1 = lab.named('r1');
     expect(r1.ip && runNft(r1.ip.nf, hint, () => {})).toBeNull();
   });
+});
+
+describe('the checklist parts of a step', () => {
+  for (const task of TASKS.filter((t) => t.steps.some((s) => s.parts))) {
+    it(`${task.id}: no step with parts starts done, and each is done with all its parts`, () => {
+      const lab = new Lab(startOf(task.id));
+      const ctx = { net: lab.net, commands: lab.commands };
+      task.steps.forEach((s, i) => {
+        if (s.parts) {
+          expect(
+            s.parts.every((p) => p.done(ctx)),
+            `step ${i + 1} at the start`,
+          ).toBe(false);
+        }
+      });
+      const seen = new Set<number>();
+      for (const action of SOLUTIONS[task.id] ?? []) {
+        lab.apply([action]);
+        task.steps.forEach((s, i) => {
+          const allParts = !!s.parts?.length && s.parts.every((p) => p.done(ctx));
+          if (s.parts && !s.check) expect(stepDone(s, ctx), `step ${i + 1}`).toBe(allParts);
+          if (seen.has(i) || !stepDone(s, ctx)) return;
+          seen.add(i);
+          if (s.parts) {
+            const open = s.parts.filter((p) => !p.done(ctx)).map((p) => p.text);
+            expect(open, `step ${i + 1} became done with parts open`).toEqual([]);
+          }
+        });
+      }
+      expect(seen.size, 'every step became done').toBe(task.steps.length);
+    });
+  }
 });

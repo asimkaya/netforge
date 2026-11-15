@@ -16,8 +16,8 @@ export interface Focus {
  * shortcut: reads the text, so custom tasks get highlights for free; give TaskStep an
  * explicit target if a step ever needs one its words do not name.
  */
-export function focusOf(step: Pick<TaskStep, 'title' | 'detail'>, net: Network): Focus {
-  let text = `${step.title} ${step.detail}`;
+export function focusOf(step: Pick<TaskStep, 'title' | 'detail' | 'parts'>, net: Network): Focus {
+  let text = `${step.title} ${step.detail} ${(step.parts ?? []).map((p) => `${p.text} ${p.on ?? ''}`).join(' ')}`;
   const mentioned: SpecId[] = [];
   // Longest label first, so "Home Router" is not also read as "Router".
   const specs = Object.values(SPECS).sort((a, b) => b.label.length - a.label.length);

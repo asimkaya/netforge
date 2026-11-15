@@ -13,12 +13,27 @@ export interface TaskContext {
   commands: { device: string; line: string }[];
 }
 
+/** One small action of a step, with a live tick on the checklist. */
+export interface TaskPart {
+  /** One small action, in plain words. Backticks = short inline names only (eth0, sw1). */
+  text: string;
+  /** A command to type, shown as a code block with a Copy button. One command per part. */
+  code?: string;
+  /** Device name whose terminal the command runs on, shown as "In pc1's terminal". */
+  on?: string;
+  /** Live state for the checklist (not sticky). */
+  done(ctx: TaskContext): boolean;
+}
+
 export interface TaskStep {
   title: string;
-  /** What to do, shown for the current step. Text in backticks renders as code. */
+  /** Why the step matters, in a sentence or two. Commands go in `parts`, not here. */
   detail: string;
   hint?: string;
-  check(ctx: TaskContext): boolean;
+  /** The small actions of the step. Without `check`, the step is done when all are. */
+  parts?: TaskPart[];
+  /** When set, decides alone whether the step is done (even if some parts are not). */
+  check?(ctx: TaskContext): boolean;
 }
 
 export interface Task {
@@ -68,14 +83,6 @@ function gatewayIsRouter(router: Device, link: RouterLink): boolean {
   const via = link.pc.ip?.staticRoutes.find((r) => r.dst.prefix === 0)?.via;
   if (via === undefined || via === null) return false;
   return (router.ip?.addrsOn(link.port) ?? []).some((a) => a.ip === via);
-}
-
-/** Two PCs on different router ports, in different networks, both passing `check`. */
-function routedPair(net: Network, check: (router: Device, link: RouterLink) => boolean) {
-  return routers(net).some((r) => {
-    const links = pcsOnRouter(r).filter((l) => check(r, l));
-    return links.some((a) => links.some((b) => a.port !== b.port && !shareSubnet(a.pc, b.pc)));
-  });
 }
 
 /** The user ran a command matching `pattern` on a device that passes `on`. */
@@ -323,18 +330,9 @@ function officeAps(net: Network): Device[] {
   });
 }
 
-/** Wi-Fi clients of one kind associated with the access point. */
-const clientsOf = (net: Network, ap: Device, spec: 'laptop' | 'phone') =>
-  ofSpec(net, spec).filter((c) => associatedAp(c) === ap);
-
 /** One of `from` has opened a TCP connection to the device. */
 function reachedBy(from: Device[], target: Device): boolean {
   return from.some((c) => addrsOf(target).some((a) => c.ip?.tcp.connectedTo.has(a.ip)));
-}
-
-/** A PC has opened a TCP connection to the device. */
-function reachedByPc(net: Network, target: Device): boolean {
-  return reachedBy(hosts(net), target);
 }
 
 /** A home router's addresses on its Internet port (eth0) and on its LAN and Wi-Fi side (br0). */
@@ -407,6 +405,74 @@ function guestKeptOut(net: Network, h: Device): boolean {
   });
 }
 
+const named = (net: Network, name: string): Device | undefined =>
+  [...net.devices.values()].find((d) => d.name === name);
+
+/** The user ran a command matching `pattern` on the device called `name`. */
+const typed = (ctx: TaskContext, name: string, pattern: RegExp): boolean =>
+  ran(ctx, pattern, (d) => d.name === name);
+
+const hasAddress = ({ net }: TaskContext, name: string): boolean => {
+  const d = named(net, name);
+  return !!d && addrsOf(d).length > 0;
+};
+
+/** Both devices exist and have addresses in one network. */
+const sharesNetwork = ({ net }: TaskContext, a: string, b: string): boolean => {
+  const x = named(net, a);
+  const y = named(net, b);
+  return !!x && !!y && shareSubnet(x, y);
+};
+
+/** `from` has received an echo reply from `to`. */
+const gotReply = ({ net }: TaskContext, from: string, to: string): boolean => {
+  const x = named(net, from);
+  const y = named(net, to);
+  return !!x && !!y && pinged(x, [y]);
+};
+
+/** `from` has opened a TCP connection to `to`. */
+const connected = ({ net }: TaskContext, from: string, to: string): boolean => {
+  const x = named(net, from);
+  const y = named(net, to);
+  return !!x && !!y && reachedBy([x], y);
+};
+
+const wiredToSwitch = ({ net }: TaskContext, name: string): boolean => {
+  const d = named(net, name);
+  return !!d && neighborsOf(d).some(isSwitch);
+};
+
+/** The router the PC called `name` reaches (directly or through a switch), with the link. */
+function routedLink(net: Network, name: string) {
+  for (const router of routers(net)) {
+    const link = pcsOnRouter(router).find((l) => l.pc.name === name);
+    if (link) return { router, link };
+  }
+  return null;
+}
+
+/** One checklist item: the PC's default route points at the router in its own network. */
+const gatewayPart = (pc: string, gateway: string): TaskPart => ({
+  text: `Give ${pc} its gateway`,
+  code: `ip route add default via ${gateway}`,
+  on: pc,
+  done: ({ net }) => {
+    const hit = routedLink(net, pc);
+    return !!hit && pcInPortNetwork(hit.router, hit.link) && gatewayIsRouter(hit.router, hit.link);
+  },
+});
+
+/** Has an active DHCP lease from r1. */
+const hasLease = ({ net }: TaskContext, name: string): boolean => {
+  const d = named(net, name);
+  const leases = named(net, 'r1')?.dnsmasq?.activeLeases() ?? [];
+  return !!d && leases.some((l) => addrsOf(d).some((a) => a.ip === l.ip));
+};
+
+/** `ping pc2`: a name instead of an address. */
+const PING_BY_NAME = /^ping\s+(-\S+\s+\S+\s+)*[a-zA-Z][\w.-]*$/;
+
 /**
  * The fourteen tasks are chapters of one network that keeps growing: each task's steps ask only
  * for what is new compared with the finished network of the one before (see solutions.ts,
@@ -427,7 +493,10 @@ export const TASKS: Task[] = [
       {
         title: 'Add two PCs',
         detail: 'Drag a PC from the left panel onto the canvas, twice. You can also click it.',
-        check: ({ net }) => hosts(net).length >= 2,
+        parts: [
+          { text: 'Add the first PC', done: ({ net }) => hosts(net).length >= 1 },
+          { text: 'Add the second PC', done: ({ net }) => hosts(net).length >= 2 },
+        ],
       },
       {
         title: 'Connect them with a cable',
@@ -438,22 +507,45 @@ export const TASKS: Task[] = [
       {
         title: 'Give the first PC an IP address',
         detail:
-          'Click a PC to open it, go to Desktop → Terminal and type `ip addr add 192.168.1.10/24 dev eth0`. Prefer forms? Desktop → IP Configuration does the same.',
+          'Computers find each other by IP address, so each one needs its own. Click a PC to open it, then Desktop → Terminal. Prefer forms? Desktop → IP Configuration does the same.',
         hint: '`eth0` is the name of the network port. `/24` says the first three numbers are the network part.',
-        check: ({ net }) =>
-          cabledHostPairs(net).some(([a, b]) => addrsOf(a).length > 0 || addrsOf(b).length > 0),
+        parts: [
+          {
+            text: 'Give pc1 an address',
+            code: 'ip addr add 192.168.1.10/24 dev eth0',
+            on: 'pc1',
+            done: (ctx) => hasAddress(ctx, 'pc1'),
+          },
+        ],
       },
       {
         title: 'Give the second PC an address in the same network',
         detail:
-          'Open the other PC and give it `192.168.1.20/24`, in the Terminal (`ip addr add 192.168.1.20/24 dev eth0`) or in IP Configuration.',
+          'Two computers talk directly only when their addresses are in the same network. Open the other PC, in the Terminal or in IP Configuration.',
         hint: 'With /24, both addresses must start with the same three numbers (192.168.1) and end differently.',
-        check: ({ net }) => cabledHostPairs(net).some(([a, b]) => shareSubnet(a, b)),
+        parts: [
+          {
+            text: 'Give pc2 an address in pc1’s network',
+            code: 'ip addr add 192.168.1.20/24 dev eth0',
+            on: 'pc2',
+            done: (ctx) => sharesNetwork(ctx, 'pc2', 'pc1'),
+          },
+        ],
       },
       {
         title: 'Ping one PC from the other',
-        detail: 'In a terminal, type `ping 192.168.1.20` (use the other PC’s address).',
-        hint: 'Check both addresses with `ip addr`. Each PC must have its own address in the same network.',
+        detail:
+          'A ping sends a small message and waits for the answer: the quickest way to see that two machines can reach each other.',
+        hint: 'No reply? Check both addresses with `ip addr`. Each PC must have its own address in the same network.',
+        parts: [
+          {
+            text: 'Ping pc1 from pc2',
+            code: 'ping -c 1 192.168.1.10',
+            on: 'pc2',
+            done: (ctx) => gotReply(ctx, 'pc2', 'pc1'),
+          },
+        ],
+        // Either PC may ping the other.
         check: ({ net }) => cabledHostPairs(net).some(([a, b]) => pinged(a, [b]) || pinged(b, [a])),
       },
     ],
@@ -478,42 +570,64 @@ export const TASKS: Task[] = [
       {
         title: 'Plug both PCs into the switch',
         detail:
-          'Move the cables off each other and onto sw1. Grab the end of a cable in its port and drag it to a free port on sw1 (or onto the switch itself to pick from a list); the other end stays where it is. Or click the cable and press Delete, then cable pc1 and pc2 to sw1.',
-        check: ({ net }) =>
-          cabledHostPairs(net).length === 0 && switches(net).some((sw) => hostsOn(sw).length >= 2),
+          'A PC has one port, so moving it to the switch also removes the old PC-to-PC cable. Grab the end of a cable in its port and drag it to a free port on sw1 (or onto the switch itself to pick from a list); the other end stays where it is. Or click the cable and press Delete, then cable the PC to sw1 again.',
+        parts: [
+          { text: 'Plug pc1 into sw1', done: (ctx) => wiredToSwitch(ctx, 'pc1') },
+          { text: 'Plug pc2 into sw1', done: (ctx) => wiredToSwitch(ctx, 'pc2') },
+        ],
       },
       {
         title: 'Add a third PC',
-        detail: 'Drag one more PC onto the canvas and cable it to sw1 as well.',
-        check: ({ net }) => switches(net).some((sw) => hostsOn(sw).length >= 3),
+        detail: 'The new desk needs its own computer, plugged into the same switch.',
+        parts: [
+          { text: 'Add a third PC', done: ({ net }) => hosts(net).length >= 3 },
+          { text: 'Cable pc3 to sw1', done: (ctx) => wiredToSwitch(ctx, 'pc3') },
+        ],
       },
       {
         title: 'Give the new PC an address in the same network',
         detail:
-          'Open pc3 and give it `192.168.1.30/24` with `ip addr add 192.168.1.30/24 dev eth0`, or in IP Configuration.',
+          'It must be in the same network as pc1 and pc2, or the switch cannot help it. IP Configuration works too.',
         hint: 'It must start with the same three numbers as pc1 and pc2 (192.168.1) and end with a number nobody uses yet.',
-        check: ({ net }) => switches(net).some((sw) => largestSubnetGroup(hostsOn(sw)) >= 3),
+        parts: [
+          {
+            text: 'Give pc3 an address',
+            code: 'ip addr add 192.168.1.30/24 dev eth0',
+            on: 'pc3',
+            done: (ctx) => sharesNetwork(ctx, 'pc3', 'pc1') && sharesNetwork(ctx, 'pc3', 'pc2'),
+          },
+        ],
       },
       {
         title: 'Ping the other two PCs from pc3',
-        detail:
-          'In pc3’s terminal run `ping 192.168.1.10`, then `ping 192.168.1.20`. The packets now travel through the switch.',
-        check: ({ net }) =>
-          switches(net).some((sw) => {
-            const group = hostsOn(sw);
-            return group.some((h) => group.every((o) => o === h || pinged(h, [o])));
-          }),
+        detail: 'The packets now travel through the switch.',
+        parts: [
+          {
+            text: 'Ping pc1 from pc3',
+            code: 'ping -c 1 192.168.1.10',
+            on: 'pc3',
+            done: (ctx) => gotReply(ctx, 'pc3', 'pc1'),
+          },
+          {
+            text: 'Ping pc2 from pc3',
+            code: 'ping -c 1 192.168.1.20',
+            on: 'pc3',
+            done: (ctx) => gotReply(ctx, 'pc3', 'pc2'),
+          },
+        ],
       },
       {
         title: 'Look at what the switch learned',
-        detail: 'Click the switch, open its CLI tab and run `bridge fdb show`.',
+        detail: 'Click the switch and open its CLI tab.',
         hint: 'Each line is a MAC address and the port it was seen on. That is how the switch knows where to send frames.',
-        check: ({ net, commands }) =>
-          commands.some(
-            (c) =>
-              /^bridge\s+fdb(\s+show)?$/.test(c.line) &&
-              isSwitchSpec(net.devices.get(c.device)?.spec.id ?? 'pc'),
-          ),
+        parts: [
+          {
+            text: 'Show the switch’s MAC address table',
+            code: 'bridge fdb show',
+            on: 'sw1',
+            done: (ctx) => typed(ctx, 'sw1', /^bridge\s+fdb(\s+show)?$/),
+          },
+        ],
       },
     ],
     done: 'Maya: “Monday is saved, thank you!” Well done! A switch learns which MAC address lives behind which port by reading the source of every frame. Unknown destinations and broadcasts (like ARP requests) go out of every other port. Next task: a second network, joined to this one by a router.',
@@ -530,63 +644,122 @@ export const TASKS: Task[] = [
       {
         title: 'Add a router and a fourth PC',
         detail:
-          'Drag a Router and one more PC onto the canvas. The new PC will live in a second network.',
-        check: ({ net }) => routers(net).length > 0 && hosts(net).length >= 4,
+          'A router joins separate networks. The new PC will live in a second network, on the other side of it.',
+        parts: [
+          { text: 'Add a router', done: ({ net }) => routers(net).length > 0 },
+          { text: 'Add a fourth PC', done: ({ net }) => hosts(net).length >= 4 },
+        ],
       },
       {
         title: 'Cable sw1 and the new PC to the router',
         detail:
-          'Connect r1’s `eth0` to sw1 (any switch port) and pc4 to r1’s `eth1`. Each router port is a separate network: sw1 with its three PCs on one, pc4 on the other.',
-        check: ({ net }) =>
-          routers(net).some((r) => new Set(pcsOnRouter(r).map((l) => l.port)).size >= 2),
+          'Each router port is a separate network: sw1 with its three PCs on one, pc4 on the other. Cable to any free switch port.',
+        parts: [
+          {
+            text: 'Cable r1’s `eth0` to sw1',
+            done: ({ net }) => {
+              const port = named(net, 'r1')?.port('eth0');
+              const peer = port && peerOf(port)?.device;
+              return !!peer && isSwitch(peer);
+            },
+          },
+          {
+            text: 'Cable pc4 to r1’s `eth1`',
+            done: ({ net }) => {
+              const port = named(net, 'pc4')?.port('eth0');
+              const peer = port && peerOf(port);
+              return peer?.device.name === 'r1' && peer.name === 'eth1';
+            },
+          },
+        ],
       },
       {
         title: 'Give the router an address in each network',
         detail:
-          'Open r1, Config tab: give `eth0` `192.168.1.1/24` (the network the three PCs already use) and `eth1` `192.168.2.1/24`. Or in its CLI: `ip addr add 192.168.1.1/24 dev eth0`.',
-        hint: 'Two different networks: the third number differs (1 and 2).',
-        check: ({ net }) =>
-          routers(net).some((r) => {
-            const nets = new Set(
-              pcsOnRouter(r).flatMap(({ port }) =>
-                (r.ip?.addrsOn(port) ?? []).map((a) => `${networkOf(a)}/${a.prefix}`),
-              ),
-            );
-            return nets.size >= 2;
-          }),
+          'The router needs a foot in both networks: one address on each port. Use Config in r1’s window if you prefer forms.',
+        hint: 'Two different networks: the third number differs (1 and 2). `eth0` joins the network the three PCs already use.',
+        parts: [
+          {
+            text: 'Give r1’s `eth0` an address in the PCs’ network',
+            code: 'ip addr add 192.168.1.1/24 dev eth0',
+            on: 'r1',
+            done: ({ net }) => {
+              const router = named(net, 'r1');
+              const port = router?.port('eth0');
+              const pc = named(net, 'pc1');
+              return (
+                !!router &&
+                !!port &&
+                !!pc &&
+                (router.ip?.addrsOn(port) ?? []).some((a) =>
+                  addrsOf(pc).some((b) => sameSubnet(a, b)),
+                )
+              );
+            },
+          },
+          {
+            text: 'Give r1’s `eth1` an address for the new network',
+            code: 'ip addr add 192.168.2.1/24 dev eth1',
+            on: 'r1',
+            done: ({ net }) => {
+              const router = named(net, 'r1');
+              const port = router?.port('eth1');
+              return !!router && !!port && (router.ip?.addrsOn(port) ?? []).length > 0;
+            },
+          },
+        ],
       },
       {
         title: 'Give pc4 an address in its router port’s network',
-        detail: 'pc4 is cabled to `eth1`, so give it `192.168.2.10/24`.',
-        check: ({ net }) => routedPair(net, pcInPortNetwork),
+        detail: 'pc4 is cabled to `eth1`, so its address must be in the network `eth1` serves.',
+        parts: [
+          {
+            text: 'Give pc4 an address',
+            code: 'ip addr add 192.168.2.10/24 dev eth0',
+            on: 'pc4',
+            done: ({ net }) => {
+              const hit = routedLink(net, 'pc4');
+              return !!hit && pcInPortNetwork(hit.router, hit.link);
+            },
+          },
+        ],
       },
       {
         title: 'Tell every PC where the router is',
         detail:
-          'A PC reaches other networks only through its default gateway. On pc1, pc2 and pc3 run `ip route add default via 192.168.1.1`; on pc4 run `ip route add default via 192.168.2.1`. IP Configuration has a gateway field too.',
+          'A PC reaches other networks only through its default gateway: the router’s address in its own network. IP Configuration has a gateway field too.',
         hint: 'Try a ping before this step: you get “Network is unreachable”. The gateway fixes that.',
-        check: ({ net }) =>
-          routedPair(net, (r, l) => pcInPortNetwork(r, l) && gatewayIsRouter(r, l)),
+        parts: [
+          gatewayPart('pc1', '192.168.1.1'),
+          gatewayPart('pc2', '192.168.1.1'),
+          gatewayPart('pc3', '192.168.1.1'),
+          gatewayPart('pc4', '192.168.2.1'),
+        ],
       },
       {
         title: 'Ping across the router',
         detail:
-          'From pc4, ping a PC in the other network, e.g. `ping 192.168.1.10`. Notice `ttl=63`: the router took one off.',
-        check: ({ net }) =>
-          routers(net).some((r) => {
-            const pcs = pcsOnRouter(r).map((l) => l.pc);
-            return pcs.some((pc) =>
-              pinged(
-                pc,
-                pcs.filter((o) => !shareSubnet(o, pc)),
-              ),
-            );
-          }),
+          'Notice `ttl=63` in the reply: the router took one off, proof the packet crossed it.',
+        parts: [
+          {
+            text: 'Ping a PC in the other network',
+            code: 'ping -c 1 192.168.1.10',
+            on: 'pc4',
+            done: (ctx) => gotReply(ctx, 'pc4', 'pc1'),
+          },
+        ],
       },
       {
         title: 'See the path with traceroute',
-        detail: 'Run `traceroute 192.168.1.10` on pc4. The first hop is the router.',
-        check: (ctx) => ran(ctx, /^traceroute\s/, isPc),
+        detail: 'The first hop it lists is the router.',
+        parts: [
+          {
+            text: 'Trace the path to pc1',
+            code: 'traceroute 192.168.1.10',
+            on: 'pc4',
+            done: (ctx) => typed(ctx, 'pc4', /^traceroute\s/),
+          },
+        ],
       },
     ],
     done: 'Sam: “The back office is connected, great work!” You routed between two networks! The PC saw that the destination was not in its own network, so it sent the packet to its gateway. The router looked up its routing table, lowered the TTL and passed it on. Next task: stop typing addresses by hand.',
@@ -603,29 +776,49 @@ export const TASKS: Task[] = [
       {
         title: 'Start a DHCP server on the router',
         detail:
-          'r1 already has `192.168.1.1/24` on the port to sw1. Open r1 → Config → DHCP and DNS server → Start server. Or in its CLI: `dnsmasq --dhcp-range=192.168.1.100,192.168.1.199`.',
-        check: ({ net }) =>
-          dhcpSegments(net).some((s) => {
-            const subnets = s.router.ip?.addrsOn(s.port) ?? [];
-            const ranges = s.router.dnsmasq?.config.ranges ?? [];
-            return ranges.some((r) => subnets.some((a) => inSubnet(r.start, a)));
-          }),
+          'A DHCP server hands out addresses to anyone who asks. r1 already has `192.168.1.1/24` on the port to sw1, so it can serve that network. In r1’s window: Config → DHCP and DNS server → Start server.',
+        parts: [
+          {
+            text: 'Start the DHCP server on r1',
+            code: 'dnsmasq --dhcp-range=192.168.1.100,192.168.1.199',
+            on: 'r1',
+            done: ({ net }) =>
+              dhcpSegments(net).some((s) => {
+                const ranges = s.router.dnsmasq?.config.ranges ?? [];
+                return (
+                  s.router.name === 'r1' &&
+                  ranges.some((r) =>
+                    (s.router.ip?.addrsOn(s.port) ?? []).some((a) => inSubnet(r.start, a)),
+                  )
+                );
+              }),
+          },
+        ],
       },
       {
         title: 'Let pc1, pc2 and pc3 ask for an address',
         detail:
-          'On each of them: IP Configuration → Get an address automatically. Or in the Terminal run `ip addr flush dev eth0` (forget the address you typed) and then `dhclient eth0`.',
+          'Each PC first forgets the address you typed, then asks the DHCP server for one. The IP Configuration window has the same thing: Get an address automatically.',
         hint: 'Switch to Simulation mode first to watch the four DHCP messages: Discover, Offer, Request, Ack.',
-        check: ({ net }) =>
-          dhcpSegments(net).some((s) => (s.router.dnsmasq?.activeLeases().length ?? 0) >= 2),
+        parts: ['pc1', 'pc2', 'pc3'].map((pc) => ({
+          text: `Let ${pc} get its address from r1`,
+          code: 'ip addr flush dev eth0 && dhclient eth0',
+          on: pc,
+          done: (ctx: TaskContext) => hasLease(ctx, pc),
+        })),
       },
       {
         title: 'Reach a PC by its name',
         detail:
-          'The DHCP server also answers DNS for its clients. On pc1 run `ping pc2` (use the other PC’s name).',
-        check: (ctx) =>
-          ran(ctx, /^ping\s+(-\S+\s+\S+\s+)*[a-zA-Z][\w.-]*$/, isPc) &&
-          dhcpSegments(ctx.net).some((s) => s.pcs.some((pc) => pinged(pc, s.pcs))),
+          'The DHCP server also answers DNS for its clients, so names work as well as numbers.',
+        parts: [
+          {
+            text: 'Ping pc2 by name from pc1',
+            code: 'ping -c 1 pc2',
+            on: 'pc1',
+            done: (ctx) => typed(ctx, 'pc1', PING_BY_NAME) && gotReply(ctx, 'pc1', 'pc2'),
+          },
+        ],
       },
     ],
     done: 'Maya: “No more sticky notes, thank you!” No typing addresses by hand! The PCs broadcast a DHCP Discover, the server offered an address with a gateway and DNS server, and the PCs took it. The server remembered their names, so DNS could answer for them. Next task: the office gets its first shared devices.',
@@ -656,15 +849,35 @@ export const TASKS: Task[] = [
       {
         title: 'Open the printer’s status page',
         detail:
-          'On a PC run `curl http://printer1/` (the name works because the DHCP server registered it; the printer’s address works too). The Browser app opens the same page.',
-        check: ({ net }) => appliancesOn(net, 'printer').some((p) => reachedByPc(net, p)),
+          'Every network printer shows a small web page. The name works because the DHCP server registered it; the printer’s address works too, and so does the Browser app.',
+        parts: [
+          {
+            text: 'Fetch the printer’s status page',
+            code: 'curl http://printer1/',
+            on: 'pc1',
+            done: (ctx) => connected(ctx, 'pc1', 'printer1'),
+          },
+        ],
       },
       {
         title: 'Print a page',
         detail:
-          'On a PC write a file with `echo Hello > letter.txt`, then send it to the printer’s print port: `nc printer1 9100 < letter.txt`. The status page counts the pages.',
-        hint: 'Port 9100 is the raw print port most network printers listen on: whatever you send is printed.',
-        check: ({ net }) => appliancesOn(net, 'printer').some((p) => (p.printer?.pages ?? 0) >= 1),
+          'Port 9100 is the raw print port most network printers listen on: whatever you send there is printed. The status page counts the pages.',
+        hint: 'The `<` hands the file to the command, like pasting it in.',
+        parts: [
+          {
+            text: 'Write a small text file',
+            code: 'echo Hello > letter.txt',
+            on: 'pc1',
+            done: (ctx) => typed(ctx, 'pc1', /^echo\s.*>\s*letter\.txt\s*$/),
+          },
+          {
+            text: 'Send the file to the printer',
+            code: 'nc printer1 9100 < letter.txt',
+            on: 'pc1',
+            done: ({ net }) => (named(net, 'printer1')?.printer?.pages ?? 0) >= 1,
+          },
+        ],
       },
     ],
     done: 'Maya: “It printed! Everyone can print from their desk now.” A printer is a small computer with a network card: it got its address with DHCP, shows a web page on port 80 and takes print jobs on TCP port 9100. Next task: the front door needs a camera.',
@@ -693,16 +906,17 @@ export const TASKS: Task[] = [
       {
         title: 'Watch the stream from a PC',
         detail:
-          'On a PC run `nc cam1 554`. The camera connects the viewer and sends one frame per second: `frame 1`, `frame 2`... Stop it with Ctrl+C.',
+          'The camera connects the viewer and sends one frame per second: `frame 1`, `frame 2`... Stop it with Ctrl+C once you have seen a few.',
         hint: 'The connection uses TCP port 554 (the RTSP port); the pictures travel as UDP packets, so a firewall that drops them leaves you with a blank screen.',
-        check: (ctx) =>
-          appliancesOn(ctx.net, 'camera').some((cam) =>
-            hosts(ctx.net).some(
-              (pc) =>
-                ran(ctx, /^nc\s+(?!-z\b)\S+\s+554\s*$/, (d) => d === pc) &&
-                addrsOf(cam).some((a) => pc.ip?.tcp.connectedTo.has(a.ip)),
-            ),
-          ),
+        parts: [
+          {
+            text: 'Connect to the camera’s stream',
+            code: 'nc cam1 554',
+            on: 'pc1',
+            done: (ctx) =>
+              typed(ctx, 'pc1', /^nc\s+(?!-z\b)\S+\s+554\s*$/) && connected(ctx, 'pc1', 'cam1'),
+          },
+        ],
       },
     ],
     done: 'Sam: “I can see the lobby from my desk, thank you!” The viewer opened a TCP connection to the camera and the camera answered with a stream of UDP packets, one per second, until you pressed Ctrl+C. Next task: Wi-Fi for the meeting room.',
@@ -726,38 +940,65 @@ export const TASKS: Task[] = [
       {
         title: 'Give the Wi-Fi the office’s own name and password',
         detail:
-          'A new access point broadcasts `NetForge` with a password everybody knows. Open it → Config → Wireless (hostapd), choose a network name such as `Office` and a new WPA2 password of at least 8 characters, then Save and restart. In its CLI: edit `/etc/hostapd/hostapd.conf`, run `killall hostapd` and `hostapd -B /etc/hostapd/hostapd.conf`.',
-        hint: 'Both must change: the default name and the default password are public, so anyone could join a network that still uses them.',
-        check: ({ net }) => officeAps(net).length > 0,
+          'A new access point broadcasts `NetForge` with a password everybody knows. Open it → Config → Wireless (hostapd), then Save and restart.',
+        hint: 'Both must change: the default name and the default password are public, so anyone could join a network that still uses them. In its CLI: edit `/etc/hostapd/hostapd.conf`, run `killall hostapd` and `hostapd -B /etc/hostapd/hostapd.conf`.',
+        parts: [
+          {
+            text: 'Choose a network name, such as `Office`',
+            done: ({ net }) => {
+              const ssid = named(net, 'ap1')?.hostapd?.ssid;
+              return ssid !== undefined && ssid !== FACTORY_SSID;
+            },
+          },
+          {
+            text: 'Choose a new WPA2 password of at least 8 characters',
+            done: ({ net }) => {
+              const pass = named(net, 'ap1')?.hostapd?.passphrase;
+              return pass !== undefined && pass !== null && pass !== FACTORY_PASSWORD;
+            },
+          },
+        ],
       },
       {
         title: 'Bring a laptop and a phone into the meeting room',
         detail:
-          'Add a Laptop and a Phone and drag both inside the access point’s dashed range circle. On each: Desktop → Wi-Fi → Connect to your network name and type the password. In the Terminal: `nmcli dev wifi connect Office password YOURPASSWORD`.',
-        hint: 'Out of range, the list of networks is empty. Move the device closer to the access point.',
-        check: ({ net }) =>
-          officeAps(net).some(
-            (ap) =>
-              clientsOf(net, ap, 'laptop').length > 0 && clientsOf(net, ap, 'phone').length > 0,
-          ),
+          'Add a Laptop and a Phone and drag both inside the access point’s dashed range circle. Or on each: Desktop → Wi-Fi → Connect.',
+        hint: 'Out of range, the list of networks is empty. Move the device closer to the access point. Use your own network name and password in the command.',
+        parts: ['laptop1', 'phone1'].map((client) => ({
+          text: `Connect ${client} to your Wi-Fi`,
+          code: 'nmcli dev wifi connect Office password <your password>',
+          on: client,
+          done: ({ net }: TaskContext) => {
+            const c = named(net, client);
+            return !!c && officeAps(net).some((ap) => associatedAp(c) === ap);
+          },
+        })),
       },
       {
         title: 'Let both get an address from the office DHCP server',
         detail:
-          'Joining Wi-Fi is like plugging in a cable: you still need an address. On each: IP Configuration → Get an address automatically. In the Terminal: `dhclient wlan0`. The address must be in the office network (`192.168.1.x`).',
-        check: ({ net }) =>
-          officeAps(net).some(
-            (ap) =>
-              clientsOf(net, ap, 'laptop').some(addressedByRouter) &&
-              clientsOf(net, ap, 'phone').some(addressedByRouter),
-          ),
+          'Joining Wi-Fi is like plugging in a cable: you still need an address. It must be in the office network (`192.168.1.x`). IP Configuration → Get an address automatically does the same.',
+        parts: ['laptop1', 'phone1'].map((client) => ({
+          text: `Let ${client} ask for an address`,
+          code: 'dhclient wlan0',
+          on: client,
+          done: ({ net }: TaskContext) => {
+            const c = named(net, client);
+            return !!c && addressedByRouter(c);
+          },
+        })),
       },
       {
         title: 'Open the printer’s page from the phone',
-        detail:
-          'On the phone run `curl http://printer1/`. The Wi-Fi client is now an ordinary member of the office LAN.',
-        check: ({ net }) =>
-          appliancesOn(net, 'printer').some((p) => reachedBy(ofSpec(net, 'phone'), p)),
+        detail: 'The Wi-Fi client is now an ordinary member of the office LAN.',
+        parts: [
+          {
+            text: 'Fetch the printer’s status page',
+            code: 'curl http://printer1/',
+            on: 'phone1',
+            done: (ctx) => connected(ctx, 'phone1', 'printer1'),
+          },
+        ],
       },
     ],
     done: 'Maya: “The meeting room has Wi-Fi now, thanks!” An access point is a bridge between radio and cable: the phone and laptop joined by network name and WPA2 password, then asked the same DHCP server as the wired PCs and landed in the same network. Changing the factory name and password matters, because those are known to everybody. Next task: a home page for the team.',
@@ -1203,12 +1444,19 @@ export function findTask(id: string | null, custom: readonly CustomTask[] = []):
   return own ? compile(own) : [...TASKS, ...CHALLENGE_TASKS].find((t) => t.id === id);
 }
 
+/** A step is done when its `check` passes, or else when every one of its parts is done. */
+export function stepDone(step: TaskStep | undefined, ctx: TaskContext): boolean {
+  if (!step) return false;
+  if (step.check) return step.check(ctx);
+  return !!step.parts?.length && step.parts.every((p) => p.done(ctx));
+}
+
 /**
  * Returns how many steps are complete. Steps complete in order and stay complete,
  * so undoing earlier work does not take progress away.
  */
 export function advance(task: Task, ctx: TaskContext, completed: number): number {
   let n = Math.min(completed, task.steps.length);
-  while (n < task.steps.length && task.steps[n]?.check(ctx)) n++;
+  while (n < task.steps.length && stepDone(task.steps[n], ctx)) n++;
   return n;
 }

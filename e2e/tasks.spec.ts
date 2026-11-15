@@ -17,7 +17,12 @@ test('a newcomer completes the first guided task', async ({ page }) => {
   await expect(addPc).toHaveClass(/nf-focus/);
   await expect(page.getByRole('button', { name: 'Add Switch' })).not.toHaveClass(/nf-focus/);
 
-  await add(page, 'PC', 2);
+  // The step lists its small actions and ticks each one as it is done.
+  await expect(current.getByText('0 of 2 done')).toBeVisible();
+  await add(page, 'PC');
+  await expect(current.getByText('1 of 2 done')).toBeVisible();
+  await expect(current).toContainText('Add two PCs');
+  await add(page, 'PC');
   await expect(current).toContainText('Connect them with a cable');
   await expect(page.getByRole('status')).toContainText('Step 1 done. Next: Connect them');
   await expect(addPc).not.toHaveClass(/nf-focus/);
@@ -25,6 +30,12 @@ test('a newcomer completes the first guided task', async ({ page }) => {
 
   await connect(page, 'pc1', 'pc2');
   await expect(current).toContainText('Give the first PC an IP address');
+  // A command comes as a code box with a Copy button, labelled with the device to use.
+  await expect(current).toContainText('In pc1’s terminal');
+  await expect(
+    current.locator('code', { hasText: 'ip addr add 192.168.1.10/24 dev eth0' }),
+  ).toBeVisible();
+  await expect(current.getByRole('button', { name: 'Copy command' })).toBeVisible();
   await current.getByRole('button', { name: 'Show a hint' }).click();
   await expect(current).toContainText('name of the network port');
 

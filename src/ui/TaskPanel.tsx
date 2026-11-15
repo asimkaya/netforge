@@ -4,13 +4,13 @@ import { TASKS, findTask } from '../tasks/tasks.ts';
 import { TaskEditor } from './lazyViews.ts';
 import { continueTask, getLab, setTasks, useLab } from './lab.ts';
 import { downloadReport } from './reportActions.ts';
-import { Marker, Progress, Rich } from './taskParts.tsx';
+import { Marker, PartsList, Progress, Rich } from './taskParts.tsx';
 import { LINK, PRIMARY, SECONDARY } from './styles.ts';
 
 export type Tab = 'tasks' | 'networks' | 'troubleshooting';
 
 function ActiveTask({ onLeave, onHide }: { onLeave: () => void; onHide: () => void }) {
-  const { tasks } = useLab();
+  const { tasks, net, commands } = useLab();
   const [hintFor, setHintFor] = useState<number | null>(null);
   // Challenges reveal their hints one by one.
   const [hintsShown, setHintsShown] = useState(0);
@@ -93,6 +93,9 @@ function ActiveTask({ onLeave, onHide }: { onLeave: () => void; onHide: () => vo
                   <p>
                     <Rich text={step.detail} />
                   </p>
+                  {step.parts && step.parts.length > 0 && (
+                    <PartsList parts={step.parts} ctx={{ net, commands }} />
+                  )}
                   {step.hint &&
                     (hintFor === i ? (
                       <p className="ml-1 border-l border-(--nf-border) pl-3 text-(--nf-muted)">

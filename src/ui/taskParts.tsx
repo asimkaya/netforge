@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { getLab } from './lab.ts';
+import type { TaskContext, TaskPart } from '../tasks/tasks.ts';
 import { PRIMARY, SECONDARY } from './styles.ts';
 
 export function Check({ label }: { label?: string }) {
@@ -27,7 +28,10 @@ export function Rich({ text }: { text: string }) {
     <>
       {text.split('`').map((part, i) =>
         i % 2 === 1 ? (
-          <code key={i} className="rounded-sm bg-(--nf-raised) px-1 font-mono text-[12px]">
+          <code
+            key={i}
+            className="rounded-sm border border-(--nf-border) bg-(--nf-border)/40 px-1 font-mono text-[12px]"
+          >
             {part}
           </code>
         ) : (
@@ -132,6 +136,79 @@ export function Progress({ value, max }: { value: number; max: number }) {
         className="h-full bg-(--nf-accent) transition-all"
         style={{ width: `${(Math.min(value, max) / max) * 100}%` }}
       />
+    </div>
+  );
+}
+
+/** A command in a terminal-looking box. The prompt cannot be selected, so copying gives the command only. */
+export function CodeBox({ code, on }: { code: string; on?: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    void navigator.clipboard?.writeText(code).then(
+      () => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+      },
+      () => undefined,
+    );
+  };
+  return (
+    <div className="mt-1">
+      <p className="text-[11px] text-(--nf-muted)">
+        {on ? `In ${on}’s terminal` : 'In the terminal'}
+      </p>
+      <div className="flex items-start gap-2 rounded border border-[#30363d] bg-[#0d1117] py-1.5 pr-1.5 pl-2 text-[#e6edf3]">
+        <pre className="min-w-0 flex-1 overflow-x-auto font-mono text-[12px] leading-5 whitespace-pre">
+          <span aria-hidden className="mr-2 text-[#7ee787] select-none">
+            {'$'}
+          </span>
+          <code>{code}</code>
+        </pre>
+        <button
+          type="button"
+          onClick={copy}
+          aria-label="Copy command"
+          className="shrink-0 rounded border border-[#30363d] px-1.5 text-[11px] leading-5 hover:bg-[#21262d]"
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** The small actions of the current step, each with a live tick. */
+export function PartsList({ parts, ctx }: { parts: TaskPart[]; ctx: TaskContext }) {
+  const states = parts.map((p) => p.done(ctx));
+  const count = states.filter(Boolean).length;
+  return (
+    <div className="space-y-1">
+      <p className="text-(--nf-muted)" aria-live="polite">
+        {count} of {parts.length} done
+      </p>
+      <ol className="space-y-2">
+        {parts.map((p, i) => (
+          <li key={p.text} className="flex gap-2">
+            <span
+              aria-label={states[i] ? 'Done' : 'To do'}
+              role="img"
+              className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border ${
+                states[i]
+                  ? 'border-(--nf-ok) text-(--nf-ok)'
+                  : 'border-(--nf-border) text-transparent'
+              }`}
+            >
+              <Check />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className={states[i] ? 'text-(--nf-muted) line-through' : undefined}>
+                {i + 1}. <Rich text={p.text} />
+              </p>
+              {p.code && <CodeBox code={p.code} {...(p.on ? { on: p.on } : {})} />}
+            </div>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }

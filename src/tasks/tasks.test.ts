@@ -80,3 +80,46 @@ describe('tasks', () => {
     expect(advance(t, ctx, 99)).toBe(t.steps.length);
   });
 });
+
+describe('steps with parts', () => {
+  const ctx: TaskContext = { net: new Network(), commands: [] };
+  const flags = [false, false];
+  const part = (i: number) => ({ text: `part ${i}`, done: () => flags[i] === true });
+  const mk = (check?: () => boolean): Task => ({
+    id: 't',
+    title: 't',
+    summary: '',
+    done: '',
+    steps: [{ title: 's', detail: '', parts: [part(0), part(1)], ...(check ? { check } : {}) }],
+  });
+
+  it('a step without check is done when every part is', () => {
+    const t = mk();
+    expect(advance(t, ctx, 0)).toBe(0);
+    flags[0] = true;
+    expect(advance(t, ctx, 0)).toBe(0);
+    flags[1] = true;
+    expect(advance(t, ctx, 0)).toBe(1);
+    flags[1] = false;
+    expect(advance(t, ctx, 0)).toBe(0);
+  });
+
+  it('a step with a check follows the check alone', () => {
+    flags[0] = flags[1] = false;
+    expect(
+      advance(
+        mk(() => true),
+        ctx,
+        0,
+      ),
+    ).toBe(1);
+    flags[0] = flags[1] = true;
+    expect(
+      advance(
+        mk(() => false),
+        ctx,
+        0,
+      ),
+    ).toBe(0);
+  });
+});
