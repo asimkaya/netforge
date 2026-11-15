@@ -139,7 +139,7 @@ export function App() {
           </main>
           {showPanel && (
             // On narrow screens the panel floats over the canvas instead of squeezing it.
-            <aside className="w-72 max-w-full shrink-0 overflow-y-auto border-l border-(--nf-border) bg-(--nf-surface) max-md:absolute max-md:inset-y-0 max-md:right-0 max-md:z-30 max-md:shadow-lg">
+            <aside className="w-96 max-w-full shrink-0 overflow-y-auto border-l border-(--nf-border) bg-(--nf-surface) max-md:absolute max-md:inset-y-0 max-md:right-0 max-md:z-30 max-md:shadow-lg">
               <Sidebar
                 editing={editing}
                 setEditing={(task) => {

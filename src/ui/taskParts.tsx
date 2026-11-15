@@ -158,11 +158,11 @@ export function CodeBox({ code, on }: { code: string; on?: string }) {
         {on ? `In ${on}’s terminal` : 'In the terminal'}
       </p>
       <div className="flex items-start gap-2 rounded border border-[#30363d] bg-[#0d1117] py-1.5 pr-1.5 pl-2 text-[#e6edf3]">
-        <pre className="min-w-0 flex-1 overflow-x-auto font-mono text-[12px] leading-5 whitespace-pre">
-          <span aria-hidden className="mr-2 text-[#7ee787] select-none">
+        <pre className="flex min-w-0 flex-1 gap-2 font-mono text-[12px] leading-5">
+          <span aria-hidden className="shrink-0 text-[#7ee787] select-none">
             {'$'}
           </span>
-          <code>{code}</code>
+          <code className="min-w-0 [overflow-wrap:anywhere] whitespace-pre-wrap">{code}</code>
         </pre>
         <button
           type="button"
