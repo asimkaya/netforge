@@ -23,7 +23,11 @@ export const ACTS: Act[] = [
       'inter-vlan',
     ],
   },
-  { id: 'branches', title: 'Act 3: Beyond the office', taskIds: ['ospf', 'nat', 'vpn'] },
+  {
+    id: 'branches',
+    title: 'Act 3: Beyond the office',
+    taskIds: ['ospf', 'nat', 'guest-wifi', 'vpn'],
+  },
 ];
 
 export type ChapterState = 'done' | 'available' | 'locked';
@@ -47,13 +51,19 @@ export interface Rank {
   at: number;
 }
 
+/** Chapters up to the end of the first `acts` acts. */
+const chaptersThrough = (acts: number) =>
+  ACTS.slice(0, acts).reduce((n, a) => n + a.taskIds.length, 0);
+
 /** Ranks follow the story: Act 1 done, half of Act 2, all of Act 2, everything. */
+const act1 = chaptersThrough(1);
+const act2 = chaptersThrough(2);
 export const RANKS: Rank[] = [
   { title: 'Intern', at: 0 },
-  { title: 'Junior Admin', at: 2 },
-  { title: 'Network Technician', at: 5 },
-  { title: 'Network Engineer', at: 8 },
-  { title: 'Network Architect', at: 13 },
+  { title: 'Junior Admin', at: act1 },
+  { title: 'Network Technician', at: act1 + Math.ceil((act2 - act1) / 2) },
+  { title: 'Network Engineer', at: act2 },
+  { title: 'Network Architect', at: TASKS.length },
 ];
 
 export function doneChapters(steps: Record<string, number>): number {

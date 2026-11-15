@@ -190,6 +190,27 @@ export const SOLUTIONS: Record<string, readonly Action[]> = {
     sh('r1', 'conntrack -F', ...FIREWALL('eth3')),
     sh('pc4', 'ping -c 1 198.18.0.10'),
   ],
+  'guest-wifi': [
+    // sw1 is full: a second switch hangs off its first fiber port.
+    add('switch', 700, 720),
+    cable('sw1/eth8', 'sw2/eth8'),
+    add('homerouter', 700, 540),
+    cable('home1/eth0', 'sw2/eth0'),
+    { wait: 10_000 },
+    sh(
+      'home1',
+      'ip addr flush dev br0',
+      'ip addr add 192.168.50.1/24 dev br0',
+      'killall dnsmasq',
+      'dnsmasq --dhcp-range=192.168.50.100,192.168.50.199',
+    ),
+    // The visitor sits inside the home router's range (340 units), far from the office access point.
+    add('phone', 950, 560),
+    sh('phone2', 'nmcli dev wifi connect HomeWiFi password netforge123', 'dhclient wlan0'),
+    sh('phone2', 'ping -c 1 198.18.0.10'),
+    sh('home1', 'nft insert rule ip filter forward iifname "br0" ip daddr 192.168.0.0/16 drop'),
+    { sh: 'phone2', lines: ['ping -c 1 192.168.1.5'], failing: true },
+  ],
   vpn: [
     add('router', 1000, 170),
     add('pc', 1060, 340),

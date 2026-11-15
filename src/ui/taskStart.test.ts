@@ -207,6 +207,75 @@ describe('what a step accepts', () => {
     expect(done).toBe(3);
   });
 
+  describe('guest Wi-Fi', () => {
+    const guest = (to: number) => build('guest-wifi', 0, to);
+    const hint = 'nft insert rule ip filter forward iifname "br0" ip daddr 192.168.0.0/16 drop';
+    const pingOffice = (failing: boolean): Action => ({
+      sh: 'phone2',
+      lines: ['ping -c 1 192.168.1.5'],
+      failing,
+    });
+    const rule = (line: string) => sh('home1', `nft insert rule ip filter forward ${line}`);
+
+    it('a home router that is cabled to nothing has no office address', () => {
+      expect(progress('guest-wifi', guest(3)).done).toBe(0);
+      expect(progress('guest-wifi', guest(5)).done).toBe(1);
+    });
+
+    it('a guest network in the office subnet, or without a DHCP range for it, does not count', () => {
+      const clash = [sh('home1', 'ip addr flush dev br0', 'ip addr add 192.168.2.1/24 dev br0')];
+      const serve = [
+        sh('home1', 'killall dnsmasq', 'dnsmasq --dhcp-range=192.168.2.100,192.168.2.199'),
+      ];
+      expect(progress('guest-wifi', guest(5), clash, serve).done).toBe(1);
+      const own = [sh('home1', 'ip addr flush dev br0', 'ip addr add 192.168.50.1/24 dev br0')];
+      expect(progress('guest-wifi', guest(5), own).done).toBe(1);
+      expect(progress('guest-wifi', guest(6)).done).toBe(2);
+    });
+
+    it('a visitor that got no guest address, or joined the office Wi-Fi, is not a guest', () => {
+      expect(progress('guest-wifi', guest(7)).done).toBe(2);
+      const office = [
+        { add: 'phone', at: [200, 260] } as Action,
+        join('phone2', 'Office', 'meeting-room-1'),
+      ];
+      expect(progress('guest-wifi', guest(6), office).done).toBe(2);
+    });
+
+    it('a visitor without Internet is not done with the Internet step', () => {
+      const cut: Action[] = [sh('home1', 'ip route del default')];
+      const lost: Action = { sh: 'phone2', lines: ['ping -c 1 198.18.0.10'], failing: true };
+      expect(progress('guest-wifi', guest(8), cut, [lost]).done).toBe(3);
+      expect(progress('guest-wifi', guest(9)).done).toBe(4);
+    });
+
+    it('a rule without a try, or a try that got through, does not count', () => {
+      expect(progress('guest-wifi', guest(10)).done).toBe(4);
+      expect(progress('guest-wifi', guest(9), [pingOffice(false)]).done).toBe(4);
+      expect(progress('guest-wifi', guest(10), [pingOffice(true)]).done).toBe(5);
+    });
+
+    it('a rule that also cuts the Internet, or the replies, does not count', () => {
+      const blanket = [rule('iifname "br0" drop'), pingOffice(true)];
+      expect(progress('guest-wifi', guest(9), blanket).done).toBe(4);
+      const replies = [rule('ip daddr 192.168.0.0/16 drop'), pingOffice(true)];
+      expect(progress('guest-wifi', guest(9), replies).done).toBe(4);
+    });
+
+    it('unplugging the router does not keep visitors out', () => {
+      const cut: Action[] = [{ uncable: 'sw1/eth8' }];
+      expect(progress('guest-wifi', guest(9), cut, [pingOffice(true)]).done).toBe(4);
+    });
+
+    it('the firewall hint is valid nft', () => {
+      const step = findTask('guest-wifi')?.steps[4]?.hint ?? '';
+      expect(step).toBe(hint);
+      const { lab } = progress('guest-wifi', guest(9));
+      const home = lab.named('home1');
+      expect(home.ip && runNft(home.ip.nf, hint.replace(/^nft /, ''), () => {})).toBeNull();
+    });
+  });
+
   it('NAT on the wrong side does not count, and the firewall hint is valid nft', () => {
     const { done, lab } = progress('nat', build('nat', 0, 2), [
       sh(

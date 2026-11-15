@@ -1,4 +1,4 @@
-import { formatIp, inSubnet, networkOf, type Cidr } from '../engine/addr.ts';
+import { formatIp, inSubnet, networkOf, parseIp, type Cidr } from '../engine/addr.ts';
 import type { Device } from '../engine/device.ts';
 import type { Network } from '../engine/network.ts';
 import { CHALLENGE_TASKS } from './challenges.ts';
@@ -337,8 +337,78 @@ function reachedByPc(net: Network, target: Device): boolean {
   return reachedBy(hosts(net), target);
 }
 
+/** A home router's addresses on its Internet port (eth0) and on its LAN and Wi-Fi side (br0). */
+const wanOf = (h: Device): Cidr[] => {
+  const port = h.port('eth0');
+  return port ? (h.ip?.addrsOn(port) ?? []) : [];
+};
+const lanOf = (h: Device): Cidr[] => (h.bridgePort ? (h.ip?.addrsOn(h.bridgePort) ?? []) : []);
+
+const overlap = (a: Cidr, b: Cidr) => inSubnet(a.ip, b) || inSubnet(b.ip, a);
+
+/** Home routers whose Internet port is cabled to a switch and has an address from a router's network. */
+function guestBoxes(net: Network): Device[] {
+  return ofSpec(net, 'homerouter').filter((h) => {
+    const wan = h.port('eth0');
+    const peer = wan && peerOf(wan)?.device;
+    return (
+      !!peer &&
+      isSwitch(peer) &&
+      wanOf(h).some((w) => routers(net).some((r) => addrsOf(r).some((a) => sameSubnet(a, w))))
+    );
+  });
+}
+
+/** The home router's LAN has a network of its own, and its DHCP server serves that network. */
+function ownGuestNetwork(net: Network, h: Device): boolean {
+  const lan = lanOf(h);
+  const others = [...routers(net), ...ofSpec(net, 'homerouter').filter((d) => d !== h)].flatMap(
+    addrsOf,
+  );
+  return (
+    lan.length > 0 &&
+    lan.every((l) => [...others, ...wanOf(h)].every((o) => !overlap(l, o))) &&
+    (h.dnsmasq?.config.ranges.some((r) =>
+      lan.some((l) => inSubnet(r.start, l) && inSubnet(r.end, l)),
+    ) ??
+      false)
+  );
+}
+
+/** Phones on the home router's Wi-Fi. */
+const guestsOf = (net: Network, h: Device) =>
+  ofSpec(net, 'phone').filter((c) => associatedAp(c) === h);
+
 /**
- * The thirteen tasks are chapters of one network that keeps growing: each task's steps ask only
+ * A guest's packet was dropped by a rule of the home router on its way to the office network.
+ * The rule must name the guests (not drop the replies Internet traffic needs) and must not
+ * match the example website, so a rule that cuts the Internet off too does not count.
+ */
+function guestKeptOut(net: Network, h: Device): boolean {
+  const lan = lanOf(h);
+  const office = wanOf(h);
+  const rules = (h.ip?.nf.tables ?? []).flatMap((t) => t.chains.flatMap((c) => c.rules));
+  return net.drops.some((d) => {
+    if (d.device !== h.id || d.reason !== 'netfilter' || d.rule === null || !d.packet) return false;
+    const src = parseIp(d.packet.src);
+    const dst = parseIp(d.packet.dst);
+    const rule = rules.find((r) => r.handle === d.rule);
+    return (
+      src !== null &&
+      dst !== null &&
+      lan.some((l) => inSubnet(src, l)) &&
+      office.some((o) => inSubnet(dst, o)) &&
+      !!rule &&
+      rule.matches.some(
+        (m) => (m.kind === 'iifname' || m.kind === 'oifname' || m.kind === 'saddr') && !m.neg,
+      ) &&
+      rule.matches.some((m) => m.kind === 'daddr' && m.neg === inSubnet(SITE_IP, m.cidr))
+    );
+  });
+}
+
+/**
+ * The fourteen tasks are chapters of one network that keeps growing: each task's steps ask only
  * for what is new compared with the finished network of the one before (see solutions.ts,
  * which scripts every chapter). A step must not be true on that finished network, or the
  * chapter would complete the moment it starts.
@@ -978,7 +1048,67 @@ export const TASKS: Task[] = [
           }),
       },
     ],
-    done: 'Sam: “We are online and safe, excellent!” Your PCs used the router’s public address: NAT rewrote each packet on the way out and remembered the connection (conntrack) to rewrite the replies. The firewall now drops anything that starts outside, while replies to your own connections still come back. Next task: a second office, joined to this one through the Internet.',
+    done: 'Sam: “We are online and safe, excellent!” Your PCs used the router’s public address: NAT rewrote each packet on the way out and remembered the connection (conntrack) to rewrite the replies. The firewall now drops anything that starts outside, while replies to your own connections still come back. Next task: Wi-Fi for visitors.',
+  },
+  {
+    id: 'guest-wifi',
+    title: 'Wi-Fi for visitors',
+    summary:
+      'Give visitors their own Wi-Fi network with a home router: a separate subnet and a firewall rule that keeps them out of the office.',
+    brief: {
+      from: 'Sam, founder',
+      text: 'Visitors keep asking me for the office Wi-Fi password, and I do not want to hand it out. Give them a network of their own: Internet yes, but they must never see our computers, the printer or the intranet.',
+    },
+    steps: [
+      {
+        title: 'Plug a home router into the office network',
+        detail:
+          'Add a Home Router: it is a router, DHCP server, Wi-Fi access point, NAT and firewall in one box. sw1 has no free port left, so add a second Switch, cable `eth8` (the first fiber port) of sw1 to `eth8` of sw2, and cable the home router’s `eth0` (its Internet port) to a port of sw2. It asks the office DHCP server for an address, like any device; if nothing shows in `ip addr show eth0` after a few seconds, run `dhclient eth0`.',
+        hint: 'The Internet port is `eth0`. The four LAN ports and the Wi-Fi are on the other side of the router.',
+        check: ({ net }) => guestBoxes(net).length > 0,
+      },
+      {
+        title: 'Give the guest network its own subnet',
+        detail:
+          'The box comes with `192.168.1.0/24` on its LAN side, which is also the office LAN, so it cannot tell which side `192.168.1.5` is on. Pick a free network such as `192.168.50.0/24`. In home1’s Terminal: `ip addr flush dev br0`, `ip addr add 192.168.50.1/24 dev br0`, then restart its DHCP server for the new network: `killall dnsmasq` and `dnsmasq --dhcp-range=192.168.50.100,192.168.50.199`.',
+        hint: 'A DHCP server only answers on a network its range belongs to, so the old range `192.168.1.100`–`.199` serves nobody once `br0` moved.',
+        check: ({ net }) => guestBoxes(net).some((h) => ownGuestNetwork(net, h)),
+      },
+      {
+        title: 'Join the guest Wi-Fi with a visitor’s phone',
+        detail:
+          'Add a Phone and drag it inside the home router’s dashed range circle, away from the office access point. Join `HomeWiFi` with the password `netforge123` (Desktop → Wi-Fi, or `nmcli dev wifi connect HomeWiFi password netforge123`), then get an address: `dhclient wlan0`. It must be a guest address (`192.168.50.x`), not an office one.',
+        hint: 'Out of range, the list of networks is empty. Move the phone closer to the home router.',
+        check: ({ net }) =>
+          guestBoxes(net).some(
+            (h) =>
+              ownGuestNetwork(net, h) &&
+              guestsOf(net, h).some((c) =>
+                addrsOf(c).some((a) => lanOf(h).some((l) => sameSubnet(a, l))),
+              ),
+          ),
+      },
+      {
+        title: 'Check that visitors reach the Internet',
+        detail:
+          'On the visitor phone run `ping 198.18.0.10` or `curl http://198.18.0.10/` (the example website). The home router rewrites the guest address (NAT) and r1 does it again on the way out.',
+        check: ({ net }) =>
+          guestBoxes(net).some((h) =>
+            guestsOf(net, h).some(
+              (c) =>
+                !!c.ip && (c.ip.echoRepliesFrom.has(SITE_IP) || c.ip.tcp.connectedTo.has(SITE_IP)),
+            ),
+          ),
+      },
+      {
+        title: 'Keep visitors out of the office',
+        detail:
+          'Right now the visitor phone can ping the server `192.168.1.5`: the home router forwards everything from the guest network and NAT hides the guest address. Add a firewall rule on home1 that drops guest traffic to the office networks (`192.168.0.0/16`). Rules are read from the top, so it must go before the rule that accepts the guests: use `insert`, not `add`. Then ping `192.168.1.5` from the phone: there must be no answer.',
+        hint: 'nft insert rule ip filter forward iifname "br0" ip daddr 192.168.0.0/16 drop',
+        check: ({ net }) => guestBoxes(net).some((h) => guestKeptOut(net, h)),
+      },
+    ],
+    done: 'Sam: “Visitors have their own Wi-Fi and I keep my password, thank you!” The home router gave the guests a network of their own, so the office subnet and the guest subnet are never confused. NAT lets their traffic out to the Internet, and the firewall rule, placed above the accept rule, drops anything from the guest network to private office addresses, while replies from the Internet still come back. Next task: a second office, joined to this one through the Internet.',
   },
   {
     id: 'vpn',
