@@ -5,10 +5,10 @@ const SECONDARY = `${BASE} border border-(--nf-border) hover:bg-(--nf-raised)`;
 
 /** Quiet hint shown while the lab has no devices. The wrapper lets drops through. */
 export function EmptyCanvas({
-  onStartTask,
+  onOpenTasks,
   onOpenReadyNetworks,
 }: {
-  onStartTask: () => void;
+  onOpenTasks: () => void;
   onOpenReadyNetworks: () => void;
 }) {
   return (
@@ -20,8 +20,8 @@ export function EmptyCanvas({
         Drag a device from the left, or start with one of these:
       </p>
       <div className="mt-3 flex gap-2">
-        <button type="button" onClick={onStartTask} className={PRIMARY}>
-          Start the first task
+        <button type="button" onClick={onOpenTasks} className={PRIMARY}>
+          Open the task center
         </button>
         <button type="button" onClick={onOpenReadyNetworks} className={SECONDARY}>
           Open a ready network

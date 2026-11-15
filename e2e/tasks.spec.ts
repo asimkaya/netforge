@@ -144,7 +144,8 @@ test('an empty canvas starts a later task from its prepared network', async ({ p
 test('the empty canvas offers the first task and the ready networks', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByText('An empty bench.')).toBeVisible();
-  await page.getByRole('button', { name: 'Start the first task' }).click();
+  await page.getByRole('button', { name: 'Open the task center' }).click();
+  await page.getByRole('button', { name: 'Start: Day one: connect two desks' }).click();
   await expect(page.getByRole('region', { name: 'Current task' })).toContainText('Add two PCs');
 
   await page.reload();

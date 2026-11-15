@@ -40,9 +40,3 @@ export function loadStart(id: string, flow: Flow): void {
   loadLab({ ...project, tasks: { active: id, steps: { ...getLab().tasks.steps, [id]: 0 } } });
   showAll(flow, project);
 }
-
-/** What the first guided task's Start button does on an empty canvas. */
-export function startFirstTask(flow: Flow): void {
-  const first = TASKS[0];
-  if (first) loadStart(first.id, flow);
-}

@@ -40,7 +40,6 @@ import {
 import { copySelection, pasteClipboard } from './clipboard.ts';
 import { EmptyCanvas } from './EmptyCanvas.tsx';
 import type { Tab } from './TaskPanel.tsx';
-import { startFirstTask } from './taskStart.ts';
 import { useTaskFocus } from './taskProgress.ts';
 import { portRole, vlanColor, vlansInUse } from './vlanColors.ts';
 import { DeviceMenu, PortMenu, type DeviceMenuState, type PortMenuState } from './PortMenu.tsx';
@@ -367,10 +366,7 @@ export function Canvas({ onShowPanel }: { onShowPanel: (tab?: Tab) => void }) {
       </ReactFlow>
       {net.devices.size === 0 && (
         <EmptyCanvas
-          onStartTask={() => {
-            startFirstTask(flow);
-            onShowPanel();
-          }}
+          onOpenTasks={() => onShowPanel('tasks')}
           onOpenReadyNetworks={() => onShowPanel('networks')}
         />
       )}
