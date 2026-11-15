@@ -82,6 +82,27 @@ describe('what a step accepts', () => {
     expect(done).toBe(4);
   });
 
+  it('the gateway step needs every addressed PC, not just one per network', () => {
+    const gw = (...pcs: string[]) =>
+      pcs.map((pc) =>
+        sh(pc, `ip route add default via ${pc === 'pc4' ? '192.168.2.1' : '192.168.1.1'}`),
+      );
+    const setup = [
+      build('two-networks', 0, 5),
+      [sh('pc4', 'ip addr add 192.168.2.10/24 dev eth0')],
+    ];
+    expect(progress('two-networks', ...setup, gw('pc1', 'pc4')).done).toBe(4);
+    expect(progress('two-networks', ...setup, gw('pc1', 'pc4'), gw('pc2', 'pc3')).done).toBe(5);
+  });
+
+  it('the DHCP step needs a lease for every PC on the switch', () => {
+    const ask = (pc: string) => sh(pc, 'ip addr flush dev eth0', 'dhclient eth0');
+    expect(progress('dhcp', build('dhcp', 0, 1), [ask('pc1'), ask('pc2')]).done).toBe(1);
+    expect(progress('dhcp', build('dhcp', 0, 1), [ask('pc1'), ask('pc2'), ask('pc3')]).done).toBe(
+      2,
+    );
+  });
+
   it('a DHCP range outside the router’s network serves nobody', () => {
     expect(progress('dhcp', [sh('r1', 'dnsmasq --dhcp-range=10.9.9.100,10.9.9.200')]).done).toBe(0);
     expect(progress('dhcp', build('dhcp', 0, 1)).done).toBe(1);

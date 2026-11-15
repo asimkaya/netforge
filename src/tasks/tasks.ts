@@ -964,7 +964,11 @@ export const TASKS: Task[] = [
           'A PC reaches other networks only through its default gateway: the router’s address in its own network. IP Configuration has a gateway field too.',
         hint: 'Try a ping before this step: you get “Network is unreachable”. The gateway fixes that.',
         check: ({ net }) =>
-          routedPair(net, (r, l) => pcInPortNetwork(r, l) && gatewayIsRouter(r, l)),
+          routedPair(net, (r, l) => pcInPortNetwork(r, l) && gatewayIsRouter(r, l)) &&
+          // Every PC that is already addressed in its router's network needs the gateway too.
+          routers(net).every((r) =>
+            pcsOnRouter(r).every((l) => !pcInPortNetwork(r, l) || gatewayIsRouter(r, l)),
+          ),
         parts: [
           gatewayPart('pc1', '192.168.1.1'),
           gatewayPart('pc2', '192.168.1.1'),
@@ -1054,7 +1058,9 @@ export const TASKS: Task[] = [
           'Each PC first forgets the address you typed, then asks the DHCP server for one. The IP Configuration window has the same thing: Get an address automatically.',
         hint: 'Switch to Simulation mode first to watch the four DHCP messages: Discover, Offer, Request, Ack.',
         check: ({ net }) =>
-          dhcpSegments(net).some((s) => (s.router.dnsmasq?.activeLeases().length ?? 0) >= 2),
+          dhcpSegments(net).some(
+            (s) => (s.router.dnsmasq?.activeLeases().length ?? 0) >= s.pcs.length,
+          ),
         parts: ['pc1', 'pc2', 'pc3'].map((pc) => ({
           text: `Let ${pc} get its address from r1`,
           code: 'ip addr flush dev eth0 && dhclient eth0',
@@ -1598,7 +1604,7 @@ export const TASKS: Task[] = [
               const via = pc.ip?.staticRoutes.find((r) => r.dst.prefix === 0)?.via;
               return via !== undefined && via !== null && gateways.has(via);
             });
-            return ok.length >= 2;
+            return ok.length >= 2 && ok.length === pcs.length;
           }),
       },
       {
