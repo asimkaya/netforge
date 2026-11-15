@@ -36,12 +36,12 @@ export function useTaskProgress(): { celebration: Celebration | null; dismiss: (
     if (!task || next === completed) return;
     setTasks({ ...tasks, steps: { ...tasks.steps, [task.id]: next } });
     const upNext = task.steps[next];
-    if (upNext) notify(`✓ Step ${next} done. Next: ${upNext.title}`);
+    if (upNext) notify(`Step ${next} done. Next: ${upNext.title}`);
     else if (TASKS.some((t) => t.id === task.id)) {
       const before = rankOf(doneChapters(tasks.steps)).rank;
       const after = rankOf(doneChapters({ ...tasks.steps, [task.id]: next })).rank;
       show({ id: task.id, promoted: after !== before ? after.title : null });
-    } else notify(`🎉 Task complete: ${task.title}`);
+    } else notify(`Task complete: ${task.title}`);
   });
   return { celebration, dismiss: () => show(null) };
 }

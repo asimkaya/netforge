@@ -49,7 +49,7 @@ function ActiveTask({ onLeave, onHide }: { onLeave: () => void; onHide: () => vo
       <Progress value={completed} max={task.steps.length} />
       {task.brief && (
         <blockquote className="rounded border border-(--nf-border) bg-(--nf-raised) p-3 text-xs">
-          <p className="mb-1 font-semibold">✉ From {task.brief.from}</p>
+          <p className="mb-1 font-semibold">From {task.brief.from}</p>
           <p>{task.brief.text}</p>
         </blockquote>
       )}

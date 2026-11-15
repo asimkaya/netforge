@@ -67,7 +67,7 @@ export function Celebration({
         className="nf-pop w-full max-w-md space-y-3 border-t-4 border-(--nf-ok) bg-(--nf-surface) p-5 text-sm text-(--nf-text) shadow-xl outline-none sm:rounded-lg"
       >
         <h2 id={heading} className="text-xl font-semibold">
-          <span aria-hidden>🎉 </span>Chapter complete!
+          Chapter complete!
         </h2>
         <p className="font-semibold">{task.title}</p>
         <p className="border-l-[3px] border-(--nf-ok) bg-(--nf-raised) p-3 text-xs">
@@ -77,11 +77,11 @@ export function Celebration({
           <p className="font-semibold text-(--nf-ok)">Promoted to {info.promoted}!</p>
         )}
         {following && <p className="text-xs text-(--nf-muted)">Unlocked: {following.title}</p>}
-        <div className="flex flex-wrap gap-2 pt-1">
+        <div className="grid grid-cols-2 gap-2 pt-1">
           {following && (
             <button
               type="button"
-              className={PRIMARY}
+              className={`${PRIMARY} col-span-2`}
               onClick={() => {
                 continueTask(following.id);
                 onStarted();

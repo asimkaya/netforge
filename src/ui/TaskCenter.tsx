@@ -171,7 +171,7 @@ function Campaign({ onStarted, onEdit }: Actions) {
                   <p className="text-xs text-(--nf-muted)">{t.summary}</p>
                   {t.brief && (
                     <p className="line-clamp-2 text-xs italic text-(--nf-muted)">
-                      ✉ {t.brief.from}: “{t.brief.text}”
+                      {t.brief.from}: “{t.brief.text}”
                     </p>
                   )}
                   <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">

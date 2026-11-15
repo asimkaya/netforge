@@ -21,7 +21,7 @@ test('a teacher writes a task for the lab and a learner plays it', async ({ page
   await expect(editor.getByRole('list', { name: 'Problems' })).toContainText('Step 2: Choose');
   await step2.getByLabel('Device', { exact: true }).fill('pc1');
   await step2.getByLabel('Reaches (address or device)').fill('pc2');
-  await expect(step2).toContainText('✓ pc1 gets a ping reply from pc2');
+  await expect(step2).toContainText('pc1 gets a ping reply from pc2');
   await editor.getByRole('button', { name: 'Save task' }).click();
 
   // A learner starts it on the same lab.

@@ -297,7 +297,7 @@ export function TaskEditor({
               <CheckFields check={step.check} set={(check) => setStep(i, { ...step, check })} />
             </div>
             {!checkError(step.check) && (
-              <p className="text-(--nf-muted)">✓ {describeCheck(step.check)}</p>
+              <p className="text-(--nf-muted)">{describeCheck(step.check)}</p>
             )}
           </li>
         ))}
