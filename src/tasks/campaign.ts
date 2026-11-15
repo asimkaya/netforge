@@ -12,7 +12,16 @@ export const ACTS: Act[] = [
   {
     id: 'growing-office',
     title: 'Act 2: The office grows',
-    taskIds: ['two-networks', 'dhcp', 'first-print', 'lobby-camera', 'vlans', 'inter-vlan'],
+    taskIds: [
+      'two-networks',
+      'dhcp',
+      'first-print',
+      'lobby-camera',
+      'meeting-room-wifi',
+      'intranet',
+      'vlans',
+      'inter-vlan',
+    ],
   },
   { id: 'branches', title: 'Act 3: Beyond the office', taskIds: ['ospf', 'nat', 'vpn'] },
 ];
@@ -44,7 +53,7 @@ export const RANKS: Rank[] = [
   { title: 'Junior Admin', at: 2 },
   { title: 'Network Technician', at: 5 },
   { title: 'Network Engineer', at: 8 },
-  { title: 'Network Architect', at: 11 },
+  { title: 'Network Architect', at: 13 },
 ];
 
 export function doneChapters(steps: Record<string, number>): number {

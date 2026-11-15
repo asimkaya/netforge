@@ -4,7 +4,8 @@ import type { Network } from '../engine/network.ts';
 import { CHALLENGE_TASKS } from './challenges.ts';
 import { compile, type CustomTask } from './custom.ts';
 import { peerOf, type Port } from '../engine/port.ts';
-import { isSwitchSpec } from '../engine/specs.ts';
+import { isSwitchSpec, SPECS } from '../engine/specs.ts';
+import { associatedAp } from '../engine/wifi.ts';
 
 export interface TaskContext {
   net: Network;
@@ -260,30 +261,84 @@ function appliancesOn(net: Network, kind: 'printer' | 'camera'): Device[] {
   return [...net.devices.values()].filter((d) => d[kind] && neighborsOf(d).some(isSwitch));
 }
 
-/** The device has an address in the network of a router port on its switch. */
-function addressedByRouter(d: Device): boolean {
-  return neighborsOf(d)
+/** Router ports on the switches a device is cabled to, or that its Wi-Fi access point is. */
+function routerPorts(d: Device): { router: Device; port: Port }[] {
+  const upstream = [d, ...neighborsOf(d).filter((n) => n.spec.id === 'ap')];
+  return upstream
+    .flatMap(neighborsOf)
     .filter(isSwitch)
-    .some((sw) =>
+    .flatMap((sw) =>
       neighborsOf(sw)
         .filter(isRouter)
-        .some((r) =>
-          r.ports.some(
-            (p) =>
-              peerOf(p)?.device === sw &&
-              (r.ip?.addrsOn(p) ?? []).some((a) => addrsOf(d).some((b) => sameSubnet(a, b))),
-          ),
+        .flatMap((router) =>
+          router.ports.filter((p) => peerOf(p)?.device === sw).map((port) => ({ router, port })),
         ),
     );
 }
 
+/** The device has an address in the network of a router port on its switch. */
+function addressedByRouter(d: Device): boolean {
+  return routerPorts(d).some(({ router, port }) =>
+    (router.ip?.addrsOn(port) ?? []).some((a) => addrsOf(d).some((b) => sameSubnet(a, b))),
+  );
+}
+
+/** An address in the router's network, outside its DHCP ranges, and the router as gateway. */
+function fixedAddress(d: Device): boolean {
+  const via = d.ip?.staticRoutes.find((r) => r.dst.prefix === 0)?.via;
+  return routerPorts(d).some(({ router, port }) => {
+    const lan = router.ip?.addrsOn(port) ?? [];
+    const ranges = router.dnsmasq?.config.ranges ?? [];
+    return (
+      lan.some((a) => a.ip === via) &&
+      addrsOf(d).some(
+        (b) =>
+          lan.some((a) => sameSubnet(a, b)) &&
+          !ranges.some((r) => b.ip >= r.start && b.ip <= r.end),
+      )
+    );
+  });
+}
+
+const SERVER_PAGE = '/var/www/html/index.html';
+
+const ofSpec = (net: Network, spec: string) =>
+  [...net.devices.values()].filter((d) => d.spec.id === spec);
+
+/** The access point's factory settings (see its spec). */
+const FACTORY_SSID = 'NetForge';
+const FACTORY_PASSWORD = 'netforge123';
+
+/** Access points cabled to a switch that broadcast their own name with their own password. */
+function officeAps(net: Network): Device[] {
+  return ofSpec(net, 'ap').filter((ap) => {
+    const h = ap.hostapd;
+    return (
+      neighborsOf(ap).some(isSwitch) &&
+      !!h &&
+      h.ssid !== FACTORY_SSID &&
+      h.passphrase !== null &&
+      h.passphrase !== FACTORY_PASSWORD
+    );
+  });
+}
+
+/** Wi-Fi clients of one kind associated with the access point. */
+const clientsOf = (net: Network, ap: Device, spec: 'laptop' | 'phone') =>
+  ofSpec(net, spec).filter((c) => associatedAp(c) === ap);
+
+/** One of `from` has opened a TCP connection to the device. */
+function reachedBy(from: Device[], target: Device): boolean {
+  return from.some((c) => addrsOf(target).some((a) => c.ip?.tcp.connectedTo.has(a.ip)));
+}
+
 /** A PC has opened a TCP connection to the device. */
 function reachedByPc(net: Network, target: Device): boolean {
-  return hosts(net).some((pc) => addrsOf(target).some((a) => pc.ip?.tcp.connectedTo.has(a.ip)));
+  return reachedBy(hosts(net), target);
 }
 
 /**
- * The eleven tasks are chapters of one network that keeps growing: each task's steps ask only
+ * The thirteen tasks are chapters of one network that keeps growing: each task's steps ask only
  * for what is new compared with the finished network of the one before (see solutions.ts,
  * which scripts every chapter). A step must not be true on that finished network, or the
  * chapter would complete the moment it starts.
@@ -580,7 +635,112 @@ export const TASKS: Task[] = [
           ),
       },
     ],
-    done: 'Sam: “I can see the lobby from my desk, thank you!” The viewer opened a TCP connection to the camera and the camera answered with a stream of UDP packets, one per second, until you pressed Ctrl+C. Next task: split sw1 into separate networks.',
+    done: 'Sam: “I can see the lobby from my desk, thank you!” The viewer opened a TCP connection to the camera and the camera answered with a stream of UDP packets, one per second, until you pressed Ctrl+C. Next task: Wi-Fi for the meeting room.',
+  },
+  {
+    id: 'meeting-room-wifi',
+    title: 'Wi-Fi for the meeting room',
+    summary:
+      'Put an access point on the office LAN, give it the company’s own Wi-Fi name and password and join a laptop and a phone.',
+    brief: {
+      from: 'Maya, office manager',
+      text: 'People bring laptops and phones to meetings and there are no cables in the meeting room. Can you set up Wi-Fi there, with our own name and password, not the one from the box?',
+    },
+    steps: [
+      {
+        title: 'Plug an access point into sw1',
+        detail:
+          'Add an Access Point from the left panel and cable it to a free port of sw1, for example `eth5`. It bridges the Wi-Fi clients onto the wired network.',
+        check: ({ net }) => ofSpec(net, 'ap').some((ap) => neighborsOf(ap).some(isSwitch)),
+      },
+      {
+        title: 'Give the Wi-Fi the office’s own name and password',
+        detail:
+          'A new access point broadcasts `NetForge` with a password everybody knows. Open it → Config → Wireless (hostapd), choose a network name such as `Office` and a new WPA2 password of at least 8 characters, then Save and restart. In its CLI: edit `/etc/hostapd/hostapd.conf`, run `killall hostapd` and `hostapd -B /etc/hostapd/hostapd.conf`.',
+        hint: 'Both must change: the default name and the default password are public, so anyone could join a network that still uses them.',
+        check: ({ net }) => officeAps(net).length > 0,
+      },
+      {
+        title: 'Bring a laptop and a phone into the meeting room',
+        detail:
+          'Add a Laptop and a Phone and drag both inside the access point’s dashed range circle. On each: Desktop → Wi-Fi → Connect to your network name and type the password. In the Terminal: `nmcli dev wifi connect Office password YOURPASSWORD`.',
+        hint: 'Out of range, the list of networks is empty. Move the device closer to the access point.',
+        check: ({ net }) =>
+          officeAps(net).some(
+            (ap) =>
+              clientsOf(net, ap, 'laptop').length > 0 && clientsOf(net, ap, 'phone').length > 0,
+          ),
+      },
+      {
+        title: 'Let both get an address from the office DHCP server',
+        detail:
+          'Joining Wi-Fi is like plugging in a cable: you still need an address. On each: IP Configuration → Get an address automatically. In the Terminal: `dhclient wlan0`. The address must be in the office network (`192.168.1.x`).',
+        check: ({ net }) =>
+          officeAps(net).some(
+            (ap) =>
+              clientsOf(net, ap, 'laptop').some(addressedByRouter) &&
+              clientsOf(net, ap, 'phone').some(addressedByRouter),
+          ),
+      },
+      {
+        title: 'Open the printer’s page from the phone',
+        detail:
+          'On the phone run `curl http://printer1/`. The Wi-Fi client is now an ordinary member of the office LAN.',
+        check: ({ net }) =>
+          appliancesOn(net, 'printer').some((p) => reachedBy(ofSpec(net, 'phone'), p)),
+      },
+    ],
+    done: 'Maya: “The meeting room has Wi-Fi now, thanks!” An access point is a bridge between radio and cable: the phone and laptop joined by network name and WPA2 password, then asked the same DHCP server as the wired PCs and landed in the same network. Changing the factory name and password matters, because those are known to everybody. Next task: a home page for the team.',
+  },
+  {
+    id: 'intranet',
+    title: 'Our own intranet',
+    summary:
+      'Add a server with a fixed address, start its web server, write the home page and open it over Wi-Fi.',
+    brief: {
+      from: 'Sam, founder',
+      text: 'The team wants one home page with the news and the links everybody needs. Can you host it on our own network, so we can open it from our laptops and phones?',
+    },
+    steps: [
+      {
+        title: 'Plug a server into sw1 and give it a fixed address',
+        detail:
+          'Add a Server and cable it to a free port of sw1, for example `eth6`. A server must not change address, or everybody’s bookmarks break, so do not use DHCP: pick one outside the DHCP range (`192.168.1.100`–`.199`), for example `ip addr add 192.168.1.5/24 dev eth0`, and set the gateway with `ip route add default via 192.168.1.1`.',
+        hint: 'An address inside the DHCP range could be handed to another device later: two machines would then fight over it.',
+        check: ({ net }) =>
+          ofSpec(net, 'server').some((s) => neighborsOf(s).some(isSwitch) && fixedAddress(s)),
+      },
+      {
+        title: 'Start the web server',
+        detail:
+          'Open the server → Config → Start web server, or run `httpd` in its Terminal. It serves the folder `/var/www/html` on port 80.',
+        check: ({ net }) => ofSpec(net, 'server').some((s) => s.httpd !== null),
+      },
+      {
+        title: 'Write your own home page',
+        detail:
+          'The server starts with a sample page. Replace it: Desktop → Text Editor → `/var/www/html/index.html`, or `echo "<h1>Our intranet</h1>" > /var/www/html/index.html` in the Terminal.',
+        check: ({ net }) =>
+          ofSpec(net, 'server').some((s) => {
+            const page = s.fs?.read(SERVER_PAGE);
+            return (
+              page !== undefined && page.trim() !== '' && page !== SPECS.server.files?.[SERVER_PAGE]
+            );
+          }),
+      },
+      {
+        title: 'Open the home page over Wi-Fi',
+        detail:
+          'On the phone or the laptop run `curl http://192.168.1.5/` (use your server’s address), or open it in the Web Browser app.',
+        check: ({ net }) =>
+          ofSpec(net, 'server').some((s) =>
+            [...ofSpec(net, 'laptop'), ...ofSpec(net, 'phone')].some(
+              (c) => associatedAp(c) !== null && reachedBy([c], s),
+            ),
+          ),
+      },
+    ],
+    done: 'Sam: “Now everybody starts the day on our own page, thank you!” A web server is a program that answers on TCP port 80 with the files of one folder. It has a fixed address because clients look for it there, so that address lies outside the DHCP range. Your phone reached it over Wi-Fi, through the access point and the switch, like any wired PC. Next task: split sw1 into separate networks.',
   },
   {
     id: 'vlans',

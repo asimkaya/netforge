@@ -81,6 +81,8 @@ test('starting a task on a busy canvas asks which network to use', async ({ page
     'dhcp',
     'first-print',
     'lobby-camera',
+    'meeting-room-wifi',
+    'intranet',
     'vlans',
     'inter-vlan',
     'ospf',
@@ -131,6 +133,8 @@ test('an empty canvas starts a later task from its prepared network', async ({ p
     'dhcp',
     'first-print',
     'lobby-camera',
+    'meeting-room-wifi',
+    'intranet',
     'vlans',
   ]);
   await taskCenter(page);
@@ -172,7 +176,7 @@ test('the Task center is a campaign map where later chapters stay locked', async
   for (const act of ['Act 1: Your first day', 'Act 2: The office grows', 'Act 3: Beyond']) {
     await expect(center.getByRole('region', { name: new RegExp(act) })).toBeVisible();
   }
-  await expect(center).toContainText('0/11 chapters done');
+  await expect(center).toContainText('0/13 chapters done');
 
   // Chapter 2 is locked: it says what to finish first and has no Start button.
   const locked = center.getByRole('listitem', { name: 'Room for a third desk' });

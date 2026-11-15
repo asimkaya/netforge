@@ -104,6 +104,38 @@ export const SOLUTIONS: Record<string, readonly Action[]> = {
     // The stream never ends by itself: watch five frames, then Ctrl+C.
     { sh: 'pc1', lines: ['nc cam1 554'], watch: 5_500 },
   ],
+  'meeting-room-wifi': [
+    add('ap', 20, 330),
+    cable('ap1/eth0', 'sw1/eth5'),
+    sh(
+      'ap1',
+      'echo interface=wlan0 > /etc/hostapd/hostapd.conf',
+      'echo ssid=Office >> /etc/hostapd/hostapd.conf',
+      'echo wpa=2 >> /etc/hostapd/hostapd.conf',
+      'echo wpa_passphrase=meeting-room-1 >> /etc/hostapd/hostapd.conf',
+      'killall hostapd',
+      'hostapd -B /etc/hostapd/hostapd.conf',
+    ),
+    // Both clients sit inside the access point's range (340 units).
+    add('laptop', 10, 140),
+    add('phone', 200, 150),
+    ...['laptop1', 'phone1'].map((c) =>
+      sh(c, 'nmcli dev wifi connect Office password meeting-room-1', 'dhclient wlan0'),
+    ),
+    sh('phone1', 'curl -s http://printer1/'),
+  ],
+  intranet: [
+    add('server', 40, 700),
+    cable('srv1/eth0', 'sw1/eth6'),
+    sh(
+      'srv1',
+      'ip addr add 192.168.1.5/24 dev eth0',
+      'ip route add default via 192.168.1.1',
+      'httpd',
+      'echo "<h1>Our intranet</h1>" > /var/www/html/index.html',
+    ),
+    sh('phone1', 'curl -s http://192.168.1.5/'),
+  ],
   vlans: [
     sh('sw1', 'ip link set br0 type bridge vlan_filtering 1'),
     sh('sw1', access('eth0', 10), access('eth1', 10), access('eth2', 20)),

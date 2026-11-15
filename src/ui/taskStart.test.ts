@@ -137,6 +137,76 @@ describe('what a step accepts', () => {
     expect(progress('lobby-camera', [{ add: 'printer', at: [270, 900] }]).done).toBe(0);
   });
 
+  const join = (c: string, ssid: string, password: string) =>
+    sh(c, `nmcli dev wifi connect ${ssid} password ${password}`);
+
+  it('an access point with the factory name and password is not the office Wi-Fi', () => {
+    expect(progress('meeting-room-wifi', build('meeting-room-wifi', 0, 2)).done).toBe(1);
+    expect(progress('meeting-room-wifi', build('meeting-room-wifi', 0, 3)).done).toBe(2);
+  });
+
+  it('clients on an access point that is not on the office LAN do not count', () => {
+    const { done } = progress(
+      'meeting-room-wifi',
+      build('meeting-room-wifi', 0, 3),
+      // A second access point cabled to nothing, still with the factory settings.
+      [
+        { add: 'ap', at: [210, 260] },
+        { add: 'laptop', at: [10, 140] },
+        { add: 'phone', at: [200, 150] },
+      ],
+      [join('laptop1', 'NetForge', 'netforge123'), join('phone1', 'NetForge', 'netforge123')],
+    );
+    expect(done).toBe(2);
+  });
+
+  it('Wi-Fi clients with a static address outside the office network have none from DHCP', () => {
+    const { done } = progress('meeting-room-wifi', build('meeting-room-wifi', 0, 7), [
+      sh('laptop1', 'ip addr flush dev wlan0', 'ip addr add 10.9.9.5/24 dev wlan0'),
+      sh('phone1', 'ip addr flush dev wlan0', 'ip addr add 10.9.9.6/24 dev wlan0'),
+    ]);
+    expect(done).toBe(3);
+  });
+
+  it('a server address inside the DHCP range is not a fixed address', () => {
+    const server: Action[] = [
+      { add: 'server', at: [40, 700] },
+      { cable: ['srv1/eth0', 'sw1/eth6'] },
+    ];
+    const gateway = 'ip route add default via 192.168.1.1';
+    expect(
+      progress('intranet', server, [sh('srv1', 'ip addr add 192.168.1.150/24 dev eth0', gateway)])
+        .done,
+    ).toBe(0);
+    expect(
+      progress('intranet', server, [sh('srv1', 'ip addr add 192.168.1.5/24 dev eth0')]).done,
+    ).toBe(0);
+    expect(
+      progress('intranet', server, [sh('srv1', 'ip addr add 192.168.1.5/24 dev eth0', gateway)])
+        .done,
+    ).toBe(1);
+  });
+
+  it('the sample page is not a home page of your own', () => {
+    const start = build('intranet', 0, 2);
+    const web = [
+      sh(
+        'srv1',
+        'ip addr add 192.168.1.5/24 dev eth0',
+        'ip route add default via 192.168.1.1',
+        'httpd',
+      ),
+    ];
+    expect(progress('intranet', start, web).done).toBe(2);
+  });
+
+  it('a wired PC opening the page is not Wi-Fi', () => {
+    const { done } = progress('intranet', build('intranet', 0, 3).slice(0, 3), [
+      sh('pc1', 'curl -s http://192.168.1.5/'),
+    ]);
+    expect(done).toBe(3);
+  });
+
   it('NAT on the wrong side does not count, and the firewall hint is valid nft', () => {
     const { done, lab } = progress('nat', build('nat', 0, 2), [
       sh(

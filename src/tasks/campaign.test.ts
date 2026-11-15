@@ -28,8 +28,8 @@ describe('campaign', () => {
     expect(rankOf(4).rank.title).toBe('Junior Admin');
     expect(rankOf(5).rank.title).toBe('Network Technician');
     expect(rankOf(8).rank.title).toBe('Network Engineer');
-    expect(rankOf(10).next?.title).toBe('Network Architect');
-    expect(rankOf(11)).toMatchObject({
+    expect(rankOf(12).next?.title).toBe('Network Architect');
+    expect(rankOf(13)).toMatchObject({
       rank: { title: 'Network Architect' },
       next: null,
       needed: 0,
