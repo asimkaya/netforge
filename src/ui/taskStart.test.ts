@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { runNft } from '../engine/nft.ts';
+import { focusOf } from '../tasks/focus.ts';
 import { SOLUTIONS, type Action } from '../tasks/solutions.ts';
 import { TASKS, advance, clearEvidence, findTask, stepDone } from '../tasks/tasks.ts';
 import { Lab } from './labBuilder.ts';
@@ -365,6 +366,33 @@ describe('the checklist parts of a step', () => {
     expect(step?.parts?.some((p) => p.done(ctx))).toBe(false);
     expect(stepDone(step, ctx)).toBe(true);
   });
+});
+
+describe('what a step highlights in the palette', () => {
+  const adding = /^(add|drag|place|plug|bring)\b/i;
+  for (const task of TASKS) {
+    it(`${task.id}: only adding steps point at the palette, and only at kinds the solution adds`, () => {
+      const lab = new Lab(startOf(task.id));
+      const ctx = { net: lab.net, commands: lab.commands };
+      const solution = SOLUTIONS[task.id] ?? [];
+      const added = new Set(solution.flatMap((a) => ('add' in a ? [a.add] : [])));
+      const check = (at: string) => {
+        const idx = advance(task, ctx, 0);
+        const step = task.steps[idx];
+        if (!step) return;
+        const palette = focusOf(step, lab.net).palette;
+        if (!adding.test(step.title)) expect(palette, `${at}: ${step.title}`).toEqual([]);
+        else
+          for (const id of palette)
+            expect(added.has(id), `${at}: ${step.title} -> ${id}`).toBe(true);
+      };
+      check('start');
+      solution.forEach((action, i) => {
+        lab.apply([action]);
+        check(`after action ${i + 1}`);
+      });
+    });
+  }
 });
 
 const sh = (device: string, ...lines: string[]): Action => ({ sh: device, lines });

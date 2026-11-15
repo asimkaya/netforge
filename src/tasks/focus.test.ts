@@ -11,13 +11,27 @@ describe('task step focus', () => {
     ).toEqual({ palette: ['pc'], devices: [] });
   });
 
-  it('points at devices on the canvas, or at the palette when there are none yet', () => {
+  it('points at devices on the canvas, and never at the palette when the step adds nothing', () => {
     const net = new Network();
     const pc = net.addDevice('pc');
     const step = { title: 'Give the first PC an address', detail: 'Then open the router.' };
-    expect(focusOf(step, net)).toEqual({ palette: ['router'], devices: [pc.id] });
+    expect(focusOf(step, net)).toEqual({ palette: [], devices: [pc.id] });
     const router = net.addDevice('router');
     expect(focusOf(step, net)).toEqual({ palette: [], devices: [pc.id, router.id] });
+  });
+
+  it('only highlights the kinds an adding step names in its title', () => {
+    const net = new Network();
+    net.addDevice('switch');
+    const plug = { title: 'Plug a printer into sw1', detail: 'Cable it to the switch.' };
+    expect(focusOf(plug, net).palette).toEqual(['printer']);
+    expect(focusOf({ title: 'Bring a laptop and a phone in', detail: '' }, net).palette).toEqual([
+      'laptop',
+      'phone',
+    ]);
+    expect(
+      focusOf({ title: 'Plug a home router into the network', detail: '' }, net).palette,
+    ).toEqual(['homerouter']);
   });
 
   it('tells a home router from a router and finds devices by name', () => {

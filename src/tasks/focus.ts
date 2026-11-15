@@ -10,28 +10,35 @@ export interface Focus {
   devices: string[];
 }
 
+/** Device kinds named in `text` (longest label first, so "Home Router" is not also "Router"). */
+function kindsIn(text: string): { kinds: SpecId[]; rest: string } {
+  const found: SpecId[] = [];
+  for (const spec of Object.values(SPECS).sort((a, b) => b.label.length - a.label.length)) {
+    const pattern = new RegExp(`\\b${spec.label}s?\\b`, 'gi');
+    if (!pattern.test(text)) continue;
+    found.push(spec.id);
+    text = text.replace(pattern, ' ');
+  }
+  return { kinds: found, rest: text };
+}
+
 /**
  * Works out what a step is about from its words: "Add two PCs" points at the PC in the
  * palette, "Open the router" at the routers on the canvas, "ping from pc1" at pc1.
+ * Only steps that add devices (a title starting with add, drag, place, plug or bring)
+ * touch the palette, and only for the kinds their title names, so "Config → DHCP and DNS
+ * server" in a later step never makes the Server item blink.
  * shortcut: reads the text, so custom tasks get highlights for free; give TaskStep an
  * explicit target if a step ever needs one its words do not name.
  */
 export function focusOf(step: Pick<TaskStep, 'title' | 'detail' | 'parts'>, net: Network): Focus {
-  let text = `${step.title} ${step.detail} ${(step.parts ?? []).map((p) => `${p.text} ${p.on ?? ''}`).join(' ')}`;
-  const mentioned: SpecId[] = [];
-  // Longest label first, so "Home Router" is not also read as "Router".
-  const specs = Object.values(SPECS).sort((a, b) => b.label.length - a.label.length);
-  for (const spec of specs) {
-    const pattern = new RegExp(`\\b${spec.label}s?\\b`, 'gi');
-    if (!pattern.test(text)) continue;
-    mentioned.push(spec.id);
-    text = text.replace(pattern, ' ');
-  }
+  const text = `${step.title} ${step.detail} ${(step.parts ?? []).map((p) => `${p.text} ${p.on ?? ''}`).join(' ')}`;
+  const { kinds: mentioned, rest } = kindsIn(text);
   const devices = [...net.devices.values()];
-  const adding = /^(add|drag|place|put)\b/i.test(step.title);
-  const named = devices.filter((d) => new RegExp(`\\b${d.name}\\b`).test(text));
+  const adding = /^(add|drag|place|plug|bring)\b/i.test(step.title);
+  const named = devices.filter((d) => new RegExp(`\\b${d.name}\\b`).test(rest));
   return {
-    palette: mentioned.filter((id) => adding || !devices.some((d) => d.spec.id === id)),
+    palette: adding ? kindsIn(step.title).kinds : [],
     devices: [
       ...new Set([
         ...named.map((d) => d.id),
