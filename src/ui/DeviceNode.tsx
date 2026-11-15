@@ -178,32 +178,76 @@ function WifiBadge({ device }: { device: Device }) {
   );
 }
 
+/** Squeezes a monospace SVG line into `max` units when it would be wider (0.6em per glyph). */
+const fit = (text: string, size: number, max: number) =>
+  text.length * size * 0.6 > max
+    ? { textLength: max, lengthAdjust: 'spacingAndGlyphs' as const }
+    : {};
+
 function HostArt({ device, addr }: { device: Device; addr: string }) {
+  const prompt = `root@${device.name.slice(0, 10)}`;
   const screen = (x: number, y: number, w: number, h: number) => (
     <>
       <rect x={x} y={y} width={w} height={h} rx="2" fill="var(--nf-term-bg)" />
-      <text x={x + 5} y={y + 13} fill="var(--nf-term-prompt)" fontSize="8" className="font-mono">
-        root@{device.name.slice(0, 10)}
+      <text
+        x={x + 5}
+        y={y + 13}
+        fill="var(--nf-term-prompt)"
+        fontSize="8"
+        className="font-mono"
+        {...fit(prompt, 8, w - 10)}
+      >
+        {prompt}
       </text>
-      <text x={x + 5} y={y + 25} fill="var(--nf-term-text)" fontSize="8" className="font-mono">
+      <text
+        x={x + 5}
+        y={y + 25}
+        fill="var(--nf-term-text)"
+        fontSize="8"
+        className="font-mono"
+        {...fit(addr, 8, w - 10)}
+      >
         {addr}
       </text>
     </>
   );
   switch (device.spec.id) {
-    case 'phone':
+    case 'phone': {
+      // The screen is narrow: the address goes on one line and its prefix on the next.
+      const name = device.name.slice(0, 8);
+      const [ip = addr, prefix] = addr.split('/');
       return (
         <svg viewBox="0 0 96 66" className="h-16 w-24" aria-hidden>
-          <rect x="30" y="1" width="36" height="64" rx="6" fill="var(--nf-hw-edge)" />
-          <rect x="33" y="7" width="30" height="50" rx="2" fill="var(--nf-term-bg)" />
-          <text x="35" y="20" fill="var(--nf-term-prompt)" fontSize="6" className="font-mono">
-            {device.name.slice(0, 8)}
+          <rect x="26" y="1" width="44" height="64" rx="6" fill="var(--nf-hw-edge)" />
+          <rect x="29" y="7" width="38" height="50" rx="2" fill="var(--nf-term-bg)" />
+          <text
+            x="31"
+            y="18"
+            fill="var(--nf-term-prompt)"
+            fontSize="6"
+            className="font-mono"
+            {...fit(name, 6, 34)}
+          >
+            {name}
           </text>
-          <text x="35" y="30" fill="var(--nf-term-text)" fontSize="5" className="font-mono">
-            {addr}
+          <text
+            x="31"
+            y="28"
+            fill="var(--nf-term-text)"
+            fontSize="5"
+            className="font-mono"
+            {...fit(ip, 5, 34)}
+          >
+            {ip}
           </text>
+          {prefix && (
+            <text x="31" y="35" fill="var(--nf-term-text)" fontSize="5" className="font-mono">
+              /{prefix}
+            </text>
+          )}
         </svg>
       );
+    }
     case 'laptop':
       return (
         <svg viewBox="0 0 96 66" className="h-16 w-24" aria-hidden>
