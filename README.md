@@ -30,7 +30,7 @@ follow a guided task that points at what to do next and checks your work.
 | ------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
 | ![A terminal running ping and traceroute](docs/screenshots/terminal.png) | ![Simulation mode listing ARP frames](docs/screenshots/simulation.png) |
 
-![A guided task highlighting the two PCs to cable](docs/screenshots/guided-task.png)
+![A guided task with a step checklist, copyable commands and the devices to work on highlighted](docs/screenshots/guided-task.png)
 
 ## Principles
 
