@@ -99,6 +99,33 @@ describe('OSPF with BIRD', () => {
     expect(net.trace.some((e) => e.frame.dst === '01:00:5e:00:00:05')).toBe(true);
   });
 
+  it('sends traffic over the cheaper of two links to the same router', () => {
+    const net = new Network();
+    const [r1, r2] = [net.addDevice('router'), net.addDevice('router')];
+    net.connect(port(r1, 'eth1'), port(r2, 'eth1'));
+    net.connect(port(r1, 'eth2'), port(r2, 'eth2'));
+    sh(net, r1, 'ip addr add 10.0.1.1/24 dev eth1');
+    sh(net, r2, 'ip addr add 10.0.1.2/24 dev eth1');
+    sh(net, r1, 'ip addr add 10.0.2.1/24 dev eth2');
+    sh(net, r2, 'ip addr add 10.0.2.2/24 dev eth2');
+    sh(net, r2, 'ip addr add 192.168.2.1/24 dev eth0');
+    net.connect(port(net.addDevice('pc'), 'eth0'), port(r2, 'eth0')); // a LAN needs a carrier
+    // eth1 (found first) is the slow link.
+    const conf = r1.fs?.read('/etc/bird.conf') ?? '';
+    r1.fs?.write(
+      '/etc/bird.conf',
+      conf.replace(
+        'interface "eth*" {',
+        'interface "eth1" {\n\t\t\tcost 100;\n\t\t};\n\t\tinterface "eth*" {',
+      ),
+    );
+    for (const r of [r1, r2]) sh(net, r, 'bird');
+    wait(net, 100);
+    expect(sh(net, r1, 'ip route').find((l) => l.startsWith('192.168.2.0/24'))).toMatch(
+      /via 10\.0\.2\.2 dev eth2/,
+    );
+  });
+
   it('reroutes when a link fails and when a router goes silent', () => {
     const { net, r1, r2, r3, pc1 } = triangle();
     for (const r of [r1, r2, r3]) sh(net, r, 'bird');

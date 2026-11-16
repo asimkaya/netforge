@@ -238,6 +238,7 @@ export class Bird {
     const dist = new Map<Ip, number>([[me, 0]]);
     const firstHop = new Map<Ip, { via: Ip; dev: Port }>();
     const done = new Set<Ip>();
+    const ports = this.ospfPorts();
     for (;;) {
       let current: Ip | null = null;
       for (const [id, d] of dist) {
@@ -246,23 +247,26 @@ export class Bird {
       }
       if (current === null) break;
       done.add(current);
-      const lsa = this.lsdb.get(current);
-      for (const link of lsa?.links ?? []) {
-        if (link.kind !== 'router') continue;
-        const back = this.lsdb
-          .get(link.id)
-          ?.links.some((l) => l.kind === 'router' && l.id === current);
+      // Our own links come from the neighbors, so each cost stays tied to its port: with two
+      // links to one router, the cheaper one is the first hop.
+      const edges =
+        current === me
+          ? this.neighbors.flatMap((n) => {
+              const cost = ports.find((i) => i.port === n.port)?.cost;
+              return n.full && cost !== undefined
+                ? [{ id: n.routerId, cost, hop: { via: n.addr, dev: n.port } }]
+                : [];
+            })
+          : (this.lsdb.get(current)?.links ?? []).flatMap((l) =>
+              l.kind === 'router' ? [{ id: l.id, cost: l.cost, hop: firstHop.get(current) }] : [],
+            );
+      for (const { id, cost, hop } of edges) {
+        const back = this.lsdb.get(id)?.links.some((l) => l.kind === 'router' && l.id === current);
         if (!back) continue;
-        const d = (dist.get(current) ?? 0) + link.cost;
-        if (d >= (dist.get(link.id) ?? Infinity)) continue;
-        dist.set(link.id, d);
-        if (current === me) {
-          const n = this.neighbors.find((x) => x.routerId === link.id && x.full);
-          if (n) firstHop.set(link.id, { via: n.addr, dev: n.port });
-        } else {
-          const hop = firstHop.get(current);
-          if (hop) firstHop.set(link.id, hop);
-        }
+        const d = (dist.get(current) ?? 0) + cost;
+        if (d >= (dist.get(id) ?? Infinity)) continue;
+        dist.set(id, d);
+        if (hop) firstHop.set(id, hop);
       }
     }
     const own = this.stack.ports.flatMap((p) => (hasCarrier(p) ? this.stack.addrsOn(p) : []));
