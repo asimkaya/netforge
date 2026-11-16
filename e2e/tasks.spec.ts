@@ -187,7 +187,7 @@ test('the Task center is a campaign map where later chapters stay locked', async
   for (const act of ['Act 1: Your first day', 'Act 2: The office grows', 'Act 3: Beyond']) {
     await expect(center.getByRole('region', { name: new RegExp(act) })).toBeVisible();
   }
-  await expect(center).toContainText('0/14 chapters done');
+  await expect(center).toContainText('0/15 chapters done');
 
   // Chapter 2 is locked: it says what to finish first and has no Start button.
   const locked = center.getByRole('listitem', { name: 'Room for a third desk' });
