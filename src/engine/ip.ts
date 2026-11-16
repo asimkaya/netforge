@@ -34,6 +34,8 @@ export const ARP_RETRY_MS = 1000;
 export const EPHEMERAL_PORT_START = 32768;
 
 export type NeighborState = 'REACHABLE' | 'INCOMPLETE' | 'FAILED';
+/** How long an answered ARP entry is trusted (Linux base_reachable_time, without the jitter). */
+export const ARP_REACHABLE_MS = 30_000;
 
 export interface Neighbor {
   ip: Ip;
@@ -44,6 +46,13 @@ export interface Neighbor {
   queue: Ipv4Packet[];
   /** Pending ARP retry, cancelled once the neighbor answers or is flushed. */
   retry: number | null;
+  /** When the neighbor last answered (virtual ms). */
+  confirmed: number;
+}
+
+/** The state `ip neigh` shows: an answered entry turns STALE once it is old. */
+export function neighborState(n: Neighbor, now: number): NeighborState | 'STALE' {
+  return n.state === 'REACHABLE' && now - n.confirmed >= ARP_REACHABLE_MS ? 'STALE' : n.state;
 }
 
 /** A route added with `ip route add`. `dst` is a network address (host bits zero). */
@@ -565,7 +574,9 @@ export class IpStack implements TcpHost {
     }
     const nextHop = route.via ?? packet.dst;
     const n = this.neighbors.get(nextHop);
-    if (n?.state === 'REACHABLE' && n.mac) {
+    // A STALE entry is asked again, so an address that moved to another host is found.
+    const now = this.fabric.scheduler.now;
+    if (n && neighborState(n, now) === 'REACHABLE' && n.mac) {
       this.#frame(port, n.mac, packet);
     } else if (n?.state === 'INCOMPLETE') {
       n.queue.push(packet);
@@ -578,6 +589,7 @@ export class IpStack implements TcpHost {
         probes: 0,
         queue: [packet],
         retry: null,
+        confirmed: now,
       };
       this.neighbors.set(nextHop, entry);
       this.#probe(entry, route.src);
@@ -674,6 +686,7 @@ export class IpStack implements TcpHost {
       probes: 0,
       queue: [],
       retry: null,
+      confirmed: this.fabric.scheduler.now,
     });
     for (const packet of queued) this.#frame(port, mac, packet);
     this.fabric.changed();

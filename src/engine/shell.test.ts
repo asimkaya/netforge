@@ -91,6 +91,26 @@ describe('shell', () => {
     ]);
   });
 
+  it('asks again for an old ARP entry, so an address that moved is found', () => {
+    const { net, sw, pc1, pc2 } = lab();
+    sh(net, pc1, 'ping -c 1 192.168.1.20');
+    net.scheduler.runUntil(net.scheduler.now + 30_000);
+    expect(sh(net, pc1, 'ip neigh').lines).toEqual([
+      `192.168.1.20 dev eth0 lladdr ${pc2.ports[0]?.mac} STALE`,
+    ]);
+    // .20 moves from pc2 to a new pc3, which sends no gratuitous ARP.
+    sh(net, pc2, 'ip addr del 192.168.1.20/24 dev eth0');
+    const pc3 = net.addDevice('pc');
+    net.connect(pc3, sw);
+    sh(net, pc3, 'ip addr add 192.168.1.20/24 dev eth0');
+    expect(sh(net, pc1, 'ping -c 1 192.168.1.20').lines[1]).toMatch(
+      /^64 bytes from 192.168.1.20: icmp_seq=1/,
+    );
+    expect(sh(net, pc1, 'ip neigh').lines).toEqual([
+      `192.168.1.20 dev eth0 lladdr ${pc3.ports[0]?.mac} REACHABLE`,
+    ]);
+  });
+
   it('reports unreachable hosts and missing routes', () => {
     const { net, pc1 } = lab();
     const lost = sh(net, pc1, 'ping -c 1 192.168.1.99').lines;

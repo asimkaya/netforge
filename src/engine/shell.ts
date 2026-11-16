@@ -10,7 +10,7 @@ import {
 import type { Device } from './device.ts';
 import { isHostname, resolve } from './dns.ts';
 import { normalizePath } from './fs.ts';
-import { DEFAULT_TTL } from './ip.ts';
+import { DEFAULT_TTL, neighborState } from './ip.ts';
 import type { Network } from './network.ts';
 import { hasCarrier, type Port } from './port.ts';
 import {
@@ -516,14 +516,16 @@ function ipAddr(
   if (error) io.out(error);
 }
 
-function ipNeigh(_net: Network, device: Device, args: string[], io: ShellIO): undefined {
+function ipNeigh(net: Network, device: Device, args: string[], io: ShellIO): undefined {
   const stack = device.ip;
   if (!stack) return;
   const [verb, ...rest] = args;
   if (verb === undefined || matches(verb, 'show') || matches(verb, 'list')) {
     for (const n of stack.neighbors.values()) {
       const lladdr = n.mac ? ` lladdr ${n.mac}` : '';
-      io.out(`${formatIp(n.ip)} dev ${n.port.name}${lladdr} ${n.state}`);
+      io.out(
+        `${formatIp(n.ip)} dev ${n.port.name}${lladdr} ${neighborState(n, net.scheduler.now)}`,
+      );
     }
     return;
   }
