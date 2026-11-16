@@ -1,3 +1,4 @@
+import { normalizePath } from './fs.ts';
 import { formatIp } from './addr.ts';
 import { TIMEOUT_S, type Conn, type Tuple } from './netfilter.ts';
 import { runNft } from './nft.ts';
@@ -39,7 +40,7 @@ export const nft: Command = (_net, device, args, io) => {
   }
   let text = words.join(' ');
   if (file !== null) {
-    const content = device.fs.read(file);
+    const content = device.fs.read(normalizePath(file) ?? '');
     if (content === undefined) {
       io.out(`Error: Could not process rule: No such file or directory`);
       io.out(`  ${file}`);

@@ -1,3 +1,4 @@
+import { normalizePath } from './fs.ts';
 import { formatCidr, formatIp, networkOf, parseCidr, parseIp, type Cidr } from './addr.ts';
 import type { Device } from './device.ts';
 import type { Network } from './network.ts';
@@ -104,7 +105,7 @@ function wgSet(device: Device, args: string[], io: ShellIO): void {
       }
       i++;
     } else if (key === 'private-key') {
-      const text = value === undefined ? undefined : device.fs?.read(value);
+      const text = value === undefined ? undefined : device.fs?.read(normalizePath(value) ?? '');
       if (text === undefined) {
         io.out('fopen: No such file or directory');
         return;

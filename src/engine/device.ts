@@ -9,7 +9,7 @@ import type { Process, ShellIO } from './shell.ts';
 import { startSshd } from './ssh.ts';
 import { Dnsmasq } from './dnsmasq.ts';
 import { DhcpRelay } from './dhcrelay.ts';
-import { FileSystem } from './fs.ts';
+import { FileSystem, normalizePath } from './fs.ts';
 import { Httpd } from './http.ts';
 import { startPop3, startSmtp } from './mail.ts';
 import { startHostapd, type HostapdConfig } from './wifi.ts';
@@ -228,7 +228,7 @@ export class Device {
     if (this.bird) return 'bird: I found another BIRD running.';
     const i = args.indexOf('-c');
     const path = i >= 0 ? args[i + 1] : BIRD_CONF;
-    const text = path === undefined ? undefined : this.fs.read(path);
+    const text = path === undefined ? undefined : this.fs.read(normalizePath(path) ?? '');
     if (text === undefined) {
       return `bird: Unable to open configuration file ${path ?? ''}: No such file or directory`;
     }
@@ -266,7 +266,7 @@ export class Device {
     if (v6.radvd) return 'radvd: another radvd is already running';
     const i = args.indexOf('-C');
     const path = i >= 0 ? args[i + 1] : RADVD_CONF;
-    const text = path === undefined ? undefined : this.fs.read(path);
+    const text = path === undefined ? undefined : this.fs.read(normalizePath(path) ?? '');
     if (text === undefined) return `radvd: can't open ${path ?? ''}: No such file or directory`;
     const config = parseRadvd(text);
     if (typeof config === 'string') return config;

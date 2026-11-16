@@ -131,6 +131,16 @@ describe('WireGuard', () => {
     ]);
   });
 
+  it('reads key and config files by relative path, from the home folder', () => {
+    const { net, rA } = sites();
+    sh(net, rA, 'wg genkey | tee privatekey');
+    sh(net, rA, 'ip link add wg0 type wireguard');
+    expect(sh(net, rA, 'wg set wg0 private-key ./privatekey')).toEqual([]);
+    sh(net, rA, 'echo "table inet t { }" > rules.nft');
+    expect(sh(net, rA, 'nft -f rules.nft')).toEqual([]);
+    expect(sh(net, rA, 'nft list tables')).toEqual(['table inet t']);
+  });
+
   it('retries a handshake the other side missed', () => {
     const { net, rA, rB, pcA } = sites();
     tunnel(net, rA, rB, ['10.8.0.1', '10.8.0.2'], ['192.0.2.100', '198.51.100.100']);
