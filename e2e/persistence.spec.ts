@@ -47,3 +47,27 @@ test('importing a broken file shows an error and keeps the lab', async ({ page }
   await expect(page.getByRole('status')).toContainText('network.devices');
   await expect(page.getByTestId('device-pc1')).toBeVisible();
 });
+
+test('a save that cannot be opened is offered as a download', async ({ page }) => {
+  await page.goto('/');
+  // Write a save from a "newer version" straight into idb-keyval's store.
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        const open = indexedDB.open('keyval-store');
+        open.onupgradeneeded = () => open.result.createObjectStore('keyval');
+        open.onsuccess = () => {
+          const tx = open.result.transaction('keyval', 'readwrite');
+          tx.objectStore('keyval').put('{"format":"netforge-lab","version":999}', 'autosave');
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(new Error('write failed'));
+        };
+      }),
+  );
+  await page.reload();
+  await expect(page.getByRole('status')).toContainText('could not be opened');
+  await page.getByRole('button', { name: 'Lab menu' }).click();
+  const download = page.waitForEvent('download');
+  await page.getByRole('menuitem', { name: 'Download unreadable save' }).click();
+  expect(await readFile(await (await download).path(), 'utf8')).toContain('"version":999');
+});

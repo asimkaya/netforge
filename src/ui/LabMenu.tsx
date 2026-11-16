@@ -4,7 +4,13 @@ import { redo, undo, useHistory } from './history.ts';
 import { getLab, loadLab, notify, openLab } from './lab.ts';
 import { ProjectError, parseProject, serializeProject } from './project.ts';
 import { LONG_LINK, encodeLab, shareUrl } from './share.ts';
-import { downloadLab, downloadLinuxScript, confirmReplace } from './storage.ts';
+import {
+  confirmReplace,
+  downloadLab,
+  downloadLinuxScript,
+  downloadUnreadableSave,
+  unreadableSave,
+} from './storage.ts';
 import { checkReportFile, downloadReport } from './reportActions.ts';
 import { setTheme, useTheme } from './themeMode.ts';
 
@@ -167,6 +173,16 @@ export function LabMenu() {
               >
                 Import
               </button>
+              {unreadableSave !== null && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={item}
+                  onClick={pick(downloadUnreadableSave)}
+                >
+                  Download unreadable save
+                </button>
+              )}
               <hr className="my-1 border-(--nf-border)" />
               <button type="button" role="menuitem" className={item} onClick={pick(downloadReport)}>
                 Download progress report
