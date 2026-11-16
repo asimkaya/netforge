@@ -451,12 +451,12 @@ export function runCommand(id: string, line: string): void {
   if (!device) return;
   if (s.process) {
     // Typed ahead: echo it now, run it when the current command exits.
-    s.lines.push(line);
+    addLines(s, line);
     s.queue.push(line);
     emit();
     return;
   }
-  s.lines.push(`${prompt(device.name)}${line}`);
+  addLines(s, `${prompt(device.name)}${line}`);
   s.failed = null;
   s.interrupted = false;
   if (state.why?.terminal === id) state = { ...state, why: null };
@@ -465,7 +465,7 @@ export function runCommand(id: string, line: string): void {
   if (trimmed === 'clear') {
     s.lines = [];
   } else if (trimmed) {
-    state.commands = [...state.commands, { device: id, line: trimmed }];
+    state.commands = [...state.commands.slice(1 - MAX_COMMANDS), { device: id, line: trimmed }];
     // A command may exit before run() returns (ping with no route): then it must not
     // be kept as the running process.
     let exited = false;
@@ -474,7 +474,7 @@ export function runCommand(id: string, line: string): void {
     const proc = run(state.net, device, trimmed, {
       history: s.history,
       out: (text) => {
-        s.lines.push(text);
+        addLines(s, text);
         output.push(text);
         if (output.length > MAX_CAPTURED) output.shift();
         emit();
@@ -513,7 +513,7 @@ export function completeInput(id: string, input: string): string {
   let common = first;
   for (const c of found) while (!c.startsWith(common)) common = common.slice(0, -1);
   if (found.length > 1 && common === last) {
-    session(id).lines.push(`${prompt(device.name)}${input}`, found.join('  '));
+    addLines(session(id), `${prompt(device.name)}${input}`, found.join('  '));
     emit();
   }
   const done = found.length === 1 && !common.endsWith('/') ? ' ' : '';
@@ -523,7 +523,7 @@ export function completeInput(id: string, input: string): string {
 export function interruptCommand(id: string): void {
   const s = sessions.get(id);
   if (!s?.process) return;
-  s.lines.push('^C');
+  addLines(s, '^C');
   s.interrupted = true;
   s.queue = [];
   if (s.process.signal) {
@@ -542,7 +542,7 @@ export function sendInput(id: string, line: string): void {
   const proc = s?.process;
   if (!s || !proc?.input) return;
   const secret = proc.secret?.() ?? false;
-  s.lines.push(`${proc.prompt?.() ?? ''}${secret ? '' : line}`);
+  addLines(s, `${proc.prompt?.() ?? ''}${secret ? '' : line}`);
   if (!secret && line.trim()) s.history.push(line.trim());
   proc.input(line);
   emit();
@@ -550,6 +550,15 @@ export function sendInput(id: string, line: string): void {
 
 /** Lines of output kept to decide whether a command failed. */
 const MAX_CAPTURED = 400;
+/** Terminal scrollback per device, like a terminal emulator's; older lines are dropped. */
+export const MAX_TERMINAL_LINES = 2000;
+/** Commands kept for task checks; a long-running lab must not grow this forever. */
+const MAX_COMMANDS = 500;
+
+function addLines(s: TerminalSession, ...lines: string[]): void {
+  s.lines.push(...lines);
+  if (s.lines.length > MAX_TERMINAL_LINES) s.lines.splice(0, s.lines.length - MAX_TERMINAL_LINES);
+}
 
 /** Explains the failed command of a terminal in a panel there, and points at the culprit. */
 export function explainLastFailure(id: string): void {

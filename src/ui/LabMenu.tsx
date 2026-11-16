@@ -3,7 +3,7 @@ import { Network } from '../engine/network.ts';
 import { redo, undo, useHistory } from './history.ts';
 import { getLab, loadLab, notify, openLab } from './lab.ts';
 import { ProjectError, parseProject, serializeProject } from './project.ts';
-import { LONG_LINK, encodeLab, shareUrl } from './share.ts';
+import { LONG_LINK, MAX_DECODED_BYTES, encodeLab, shareUrl } from './share.ts';
 import {
   confirmReplace,
   downloadLab,
@@ -75,6 +75,10 @@ export function LabMenu() {
   }, []);
 
   const importFile = async (file: File) => {
+    if (file.size > MAX_DECODED_BYTES) {
+      notify(`${file.name} is too big for a lab file (2 MB at most).`);
+      return;
+    }
     try {
       const project = parseProject(await file.text());
       if (!confirmReplace()) return;

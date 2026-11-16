@@ -48,6 +48,17 @@ test('importing a broken file shows an error and keeps the lab', async ({ page }
   await expect(page.getByTestId('device-pc1')).toBeVisible();
 });
 
+test('importing a file over 2 MB is refused before it is read', async ({ page }) => {
+  await addAndAddress(page);
+  await page.getByLabel('Import lab file').setInputFiles({
+    name: 'huge.json',
+    mimeType: 'application/json',
+    buffer: Buffer.alloc(2_000_001, ' '),
+  });
+  await expect(page.getByRole('status')).toContainText('huge.json is too big');
+  await expect(page.getByTestId('device-pc1')).toBeVisible();
+});
+
 test('a save that cannot be opened is offered as a download', async ({ page }) => {
   await page.goto('/');
   // Write a save from a "newer version" straight into idb-keyval's store.

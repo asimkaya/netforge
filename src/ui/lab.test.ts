@@ -1,9 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { Network } from '../engine/network.ts';
 import type { CustomTask } from '../tasks/custom.ts';
-import { getLab, loadLab, openLab } from './lab.ts';
+import { MAX_TERMINAL_LINES, getLab, loadLab, openLab, runCommand, session } from './lab.ts';
 
 const task: CustomTask = { id: 'custom-fix-it', title: 'Fix it', summary: '', steps: [], done: '' };
+
+describe('terminal', () => {
+  it('keeps the last MAX_TERMINAL_LINES lines of output', () => {
+    const net = new Network();
+    const pc = net.addDevice('pc');
+    loadLab({ net, layout: {}, tasks: { active: null, steps: {} } });
+    for (let i = 0; i < 1100; i++) runCommand(pc.id, 'echo hi');
+    const lines = session(pc.id).lines;
+    expect(lines).toHaveLength(MAX_TERMINAL_LINES);
+    expect(lines.at(-1)).toBe('hi');
+    expect(getLab().commands.length).toBeLessThanOrEqual(500);
+  });
+});
 
 describe('openLab', () => {
   it("keeps this browser's progress and takes the file's custom tasks", () => {
