@@ -25,8 +25,14 @@ export interface WgPeer {
   txBytes: number;
   /** Packets waiting for the handshake to finish. */
   queue: Ipv4Packet[];
-  initiated: boolean;
+  /** When the last handshake initiation was sent (virtual ms), or null. */
+  initiatedAt: number | null;
 }
+
+/** WireGuard sends a new initiation when the last one got no answer for this long. */
+const REKEY_TIMEOUT_MS = 5000;
+/** Packets kept while waiting for a handshake; older ones are dropped (wireguard-go: 1024). */
+const MAX_QUEUED = 1024;
 
 // ----------------------------------------------------------------- keys
 
@@ -139,7 +145,7 @@ export class WireGuard {
         rxBytes: 0,
         txBytes: 0,
         queue: [],
-        initiated: false,
+        initiatedAt: null,
       };
       this.peers.push(p);
     }
@@ -183,8 +189,12 @@ export class WireGuard {
     if (!peer?.endpoint || !this.privateKey || !this.#socket) return;
     if (peer.lastHandshake === null) {
       peer.queue.push(packet);
-      if (!peer.initiated) {
-        peer.initiated = true;
+      if (peer.queue.length > MAX_QUEUED) peer.queue.shift();
+      // Retry like REKEY_TIMEOUT, but only when there is traffic, so an idle tunnel keeps
+      // no timer running.
+      const now = this.fabric.scheduler.now;
+      if (peer.initiatedAt === null || now - peer.initiatedAt >= REKEY_TIMEOUT_MS) {
+        peer.initiatedAt = now;
         this.#message(peer, { type: 'initiation' });
       }
       return;
@@ -227,16 +237,14 @@ export class WireGuard {
       return;
     }
     const now = this.fabric.scheduler.now;
-    if (m.type === 'initiation') {
-      peer.endpoint = { ip: from, port: d.srcPort };
+    if (m.type === 'initiation' || m.type === 'response') {
+      if (m.type === 'initiation') {
+        peer.endpoint = { ip: from, port: d.srcPort };
+        this.#message(peer, { type: 'response' });
+      }
+      // Either side's handshake opens the session, so packets queued here can go now.
       peer.lastHandshake = now;
-      this.#message(peer, { type: 'response' });
-      this.fabric.changed();
-      return;
-    }
-    if (m.type === 'response') {
-      peer.lastHandshake = now;
-      peer.initiated = false;
+      peer.initiatedAt = null;
       const queued = peer.queue.splice(0);
       for (const packet of queued) this.#data(peer, packet);
       this.fabric.changed();

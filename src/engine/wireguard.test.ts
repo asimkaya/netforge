@@ -131,6 +131,19 @@ describe('WireGuard', () => {
     ]);
   });
 
+  it('retries a handshake the other side missed', () => {
+    const { net, rA, rB, pcA } = sites();
+    tunnel(net, rA, rB, ['10.8.0.1', '10.8.0.2'], ['192.0.2.100', '198.51.100.100']);
+    sh(net, rA, 'wg-quick up wg0');
+    // rB has no tunnel yet, so the first initiation is lost.
+    expect(received(sh(net, pcA, 'ping -c 1 192.168.2.10'))).toBe(false);
+    sh(net, rB, 'wg-quick up wg0');
+    net.scheduler.runUntil(net.scheduler.now + 5000);
+    expect(received(sh(net, pcA, 'ping -c 1 192.168.2.10'))).toBe(true);
+    // The packets that waited for the handshake were sent.
+    expect(rA.wireguard(rA.port('wg0'))?.peers[0]?.queue).toEqual([]);
+  });
+
   it('only accepts and sends what the allowed IPs permit', () => {
     const { net, rA, rB, pcA } = sites();
     tunnel(net, rA, rB, ['10.8.0.1', '10.8.0.2'], ['192.0.2.100', '198.51.100.100']);
