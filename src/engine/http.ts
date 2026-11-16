@@ -69,10 +69,17 @@ export function respond(fs: FileSystem, home: string, request: string): string {
     `<HTML><HEAD><TITLE>${code} ${STATUS[code]}</TITLE></HEAD>\n<BODY><H1>${code} ${STATUS[code]}</H1></BODY></HTML>\n`;
   if (!method || !target?.startsWith('/')) return reply(400, page(400));
   if (method !== 'GET' && method !== 'HEAD') return reply(501, page(501));
-  const relative = decodeURIComponent(target.split('?')[0] ?? '/').replace(/^\/+/, '');
+  let relative: string;
+  try {
+    relative = decodeURIComponent(target.split('?')[0] ?? '/').replace(/^\/+/, '');
+  } catch {
+    return reply(400, page(400)); // a broken escape such as `/%`
+  }
   let path = normalizePath(relative || '.', home);
   if (path !== null && fs.isDir(path)) path = `${path === '/' ? '' : path}/index.html`;
-  const body = path === null || !path.startsWith(home) ? undefined : fs.read(path);
+  // Inside `home` only: `/var/www/html2` is not inside `/var/www/html`.
+  const inside = (p: string) => home === '/' || p === home || p.startsWith(`${home}/`);
+  const body = path !== null && inside(path) ? fs.read(path) : undefined;
   if (body === undefined) return reply(404, page(404), 'text/html', method === 'HEAD');
   return reply(200, body, contentType(path ?? ''), method === 'HEAD');
 }

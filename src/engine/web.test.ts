@@ -116,6 +116,19 @@ describe('HTTP', () => {
     );
   });
 
+  it('keeps a sibling folder out and answers a broken escape with 400', () => {
+    const { net, pc, srv } = lab();
+    srv.fs?.write('/var/www/html2/s.txt', 'sibling');
+    const fs = srv.fs ?? (undefined as never);
+    expect(respond(fs, '/var/www/html', 'GET /../html2/s.txt HTTP/1.1\r\n\r\n')).toMatch(
+      /^HTTP\/1.1 404/,
+    );
+    expect(respond(fs, '/var/www/html', 'GET /% HTTP/1.1\r\n\r\n')).toMatch(/^HTTP\/1.1 400/);
+    // Over the network too: the bad URL must not crash the simulation.
+    sh(net, srv, 'httpd');
+    expect(sh(net, pc, 'curl -I http://10.0.0.80/%')[0]).toBe('HTTP/1.1 400 Bad Request');
+  });
+
   it('resolves names and reports curl errors', () => {
     const { net, pc, srv } = lab();
     sh(net, srv, 'httpd');
