@@ -187,7 +187,7 @@ export const cat: Command = (_net, device, args, io) => {
     const text = path === null ? undefined : fs.read(path);
     if (path !== null && fs.isDir(path)) io.out(`cat: ${name}: Is a directory`);
     else if (text === undefined) io.out(`cat: ${name}: No such file or directory`);
-    else
+    else if (text !== '')
       text
         .replace(/\n$/, '')
         .split('\n')
@@ -224,11 +224,13 @@ export const rm: Command = (_net, device, args, io) => {
 export const mkdir: Command = (_net, device, args, io) => {
   const fs = needFs(device, 'mkdir', io);
   if (!fs) return;
+  const parents = args.includes('-p');
   for (const name of args.filter((a) => !a.startsWith('-'))) {
     const path = normalizePath(name);
-    if (path === null)
+    const parent = path?.slice(0, path.lastIndexOf('/')) || '/';
+    if (path === null || (!parents && !fs.isDir(parent)))
       io.out(`mkdir: cannot create directory '${name}': No such file or directory`);
-    else if (fs.isDir(path) && !args.includes('-p'))
+    else if (fs.read(path) !== undefined || (fs.isDir(path) && !parents))
       io.out(`mkdir: cannot create directory '${name}': File exists`);
     else fs.mkdir(path);
   }

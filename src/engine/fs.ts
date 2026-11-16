@@ -74,8 +74,9 @@ export class FileSystem {
     return removed;
   }
 
+  /** Adds a directory and its parents (`mkdir -p`). */
   mkdir(path: string): void {
-    this.dirs.add(path);
+    for (let dir = path; dir; dir = dir.slice(0, dir.lastIndexOf('/'))) this.dirs.add(dir);
     this.onChange();
   }
 

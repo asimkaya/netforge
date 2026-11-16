@@ -58,6 +58,20 @@ describe('shell words and files', () => {
     ]);
   });
 
+  it('makes directories like mkdir, with and without -p', () => {
+    const { net, pc } = lab();
+    expect(sh(net, pc, 'mkdir -p /a/b/c')).toEqual([]);
+    expect(sh(net, pc, 'ls /a')).toEqual(['b']);
+    expect(sh(net, pc, 'ls /a/b')).toEqual(['c']);
+    expect(sh(net, pc, 'mkdir /x/y')).toEqual([
+      "mkdir: cannot create directory '/x/y': No such file or directory",
+    ]);
+    sh(net, pc, 'touch f');
+    expect(sh(net, pc, 'mkdir f')).toEqual(["mkdir: cannot create directory 'f': File exists"]);
+    expect(sh(net, pc, 'mkdir -p f')).toEqual(["mkdir: cannot create directory 'f': File exists"]);
+    expect(sh(net, pc, 'cat f')).toEqual([]);
+  });
+
   it('refuses files that are too big', () => {
     const { pc } = lab();
     expect(pc.fs?.write('/root/big', 'x'.repeat(MAX_FILE_BYTES + 1))).toBe(
