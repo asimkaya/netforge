@@ -192,18 +192,16 @@ export function loadLab(project: Project, options: { keepWindows?: boolean } = {
 }
 
 /**
- * Opens a lab from outside (an imported file, a shared link, a report). It brings its custom
- * tasks, but this browser's progress on the other tasks stays: someone else's file must not
- * wipe the learner's finished chapters.
+ * Opens a lab from outside (an imported file, a shared link, a report) with its custom tasks
+ * and running task. Progress is merged: each task keeps the furthest step of this browser and
+ * the file, so someone else's file never wipes the learner's finished chapters, and your own
+ * export still carries your progress to another computer.
  */
 export function openLab(project: Project): void {
-  const { steps } = state.tasks;
-  const { active, custom } = project.tasks;
-  const keepsActive = custom?.some((t) => t.id === active) ?? false;
-  loadLab({
-    ...project,
-    tasks: { active: keepsActive ? active : null, steps: { ...steps }, ...(custom && { custom }) },
-  });
+  const steps = { ...state.tasks.steps };
+  for (const [id, n] of Object.entries(project.tasks.steps))
+    steps[id] = Math.max(steps[id] ?? 0, n);
+  loadLab({ ...project, tasks: { ...project.tasks, steps } });
 }
 
 export function addDevice(spec: SpecId, at: Point): void {

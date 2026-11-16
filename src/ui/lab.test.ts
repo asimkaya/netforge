@@ -19,7 +19,7 @@ describe('terminal', () => {
 });
 
 describe('openLab', () => {
-  it("keeps this browser's progress and takes the file's custom tasks", () => {
+  it('merges progress, keeping the furthest step of each task, and takes the custom tasks', () => {
     loadLab({
       net: new Network(),
       layout: {},
@@ -28,18 +28,12 @@ describe('openLab', () => {
     openLab({
       net: new Network(),
       layout: {},
-      tasks: { active: 'custom-fix-it', steps: { routing: 0 }, custom: [task] },
+      tasks: { active: 'custom-fix-it', steps: { routing: 0, vlans: 2 }, custom: [task] },
     });
     expect(getLab().tasks).toEqual({
       active: 'custom-fix-it',
-      steps: { 'first-ping': 3, routing: 5 },
+      steps: { 'first-ping': 3, routing: 5, vlans: 2 },
       custom: [task],
     });
-  });
-
-  it('does not keep a built-in task running on a lab it was not built for', () => {
-    loadLab({ net: new Network(), layout: {}, tasks: { active: 'routing', steps: {} } });
-    openLab({ net: new Network(), layout: {}, tasks: { active: 'routing', steps: {} } });
-    expect(getLab().tasks.active).toBeNull();
   });
 });
