@@ -191,6 +191,21 @@ export function loadLab(project: Project, options: { keepWindows?: boolean } = {
   emit();
 }
 
+/**
+ * Opens a lab from outside (an imported file, a shared link, a report). It brings its custom
+ * tasks, but this browser's progress on the other tasks stays: someone else's file must not
+ * wipe the learner's finished chapters.
+ */
+export function openLab(project: Project): void {
+  const { steps } = state.tasks;
+  const { active, custom } = project.tasks;
+  const keepsActive = custom?.some((t) => t.id === active) ?? false;
+  loadLab({
+    ...project,
+    tasks: { active: keepsActive ? active : null, steps: { ...steps }, ...(custom && { custom }) },
+  });
+}
+
 export function addDevice(spec: SpecId, at: Point): void {
   const device = state.net.addDevice(spec);
   update({

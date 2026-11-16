@@ -57,3 +57,26 @@ test('a damaged share link explains itself and changes nothing', async ({ page }
   await expect(page.getByRole('status')).toContainText('This shared link is damaged.');
   await expect(page.locator('.react-flow__node')).toHaveCount(0);
 });
+
+test('Undo brings back the lab a share link replaced', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.goto('/');
+  await add(page, 'Router');
+  await labMenu(page, 'Share link');
+  await expect(page.getByRole('status')).toContainText('Link copied');
+  const link = await page.evaluate(() => navigator.clipboard.readText());
+
+  // Replace the shared router with a PC, wait for autosave, then open the link over it.
+  await page.getByTestId('device-r1').click();
+  await page.keyboard.press('Delete');
+  await add(page, 'PC');
+  await page.waitForTimeout(800);
+  page.once('dialog', (dialog) => void dialog.accept());
+  await page.goto('about:blank'); // a hash-only change would not reload the app
+  await page.goto(link);
+  await expect(page.getByRole('status')).toContainText('Opened a shared lab.');
+  await expect(page.getByTestId('device-r1')).toBeVisible();
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(page.getByTestId('device-pc1')).toBeVisible();
+  await expect(page.getByTestId('device-r1')).toHaveCount(0);
+});

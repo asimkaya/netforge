@@ -19,9 +19,9 @@ const root = document.getElementById('root');
 if (!root) throw new Error('Root element #root not found');
 
 await restoreAutosave();
+startHistory();
 await openSharedLink();
 startAutosave();
-startHistory();
 registerServiceWorker();
 preloadViews();
 

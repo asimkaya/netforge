@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Network } from '../engine/network.ts';
 import { redo, undo, useHistory } from './history.ts';
-import { getLab, loadLab, notify } from './lab.ts';
+import { getLab, loadLab, notify, openLab } from './lab.ts';
 import { ProjectError, parseProject, serializeProject } from './project.ts';
 import { LONG_LINK, encodeLab, shareUrl } from './share.ts';
 import { downloadLab, downloadLinuxScript, confirmReplace } from './storage.ts';
@@ -72,7 +72,7 @@ export function LabMenu() {
     try {
       const project = parseProject(await file.text());
       if (!confirmReplace()) return;
-      loadLab(project);
+      openLab(project);
       notify(`Imported ${file.name}.`);
     } catch (error) {
       notify(error instanceof ProjectError ? error.message : 'Could not read that file.');

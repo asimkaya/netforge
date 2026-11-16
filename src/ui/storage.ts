@@ -1,6 +1,6 @@
 import { get, set } from 'idb-keyval';
 import { labScript } from '../engine/script.ts';
-import { getLab, loadLab, notify, subscribeLab } from './lab.ts';
+import { getLab, loadLab, notify, openLab, subscribeLab } from './lab.ts';
 import { parseProject, serializeProject } from './project.ts';
 import { SHARE_PREFIX, decodeLab } from './share.ts';
 
@@ -8,8 +8,6 @@ const AUTOSAVE_KEY = 'autosave';
 /** Where an autosave that failed to load is kept, so it is never silently overwritten. */
 const BROKEN_KEY = 'autosave-unreadable';
 const SAVE_DELAY_MS = 500;
-/** The lab that was open before a shared link replaced it. */
-const BEFORE_SHARE_KEY = 'before-shared-link';
 
 /** Restores the last session from IndexedDB, if any. */
 export async function restoreAutosave(): Promise<void> {
@@ -82,8 +80,9 @@ export function downloadLinuxScript(): void {
 }
 
 /**
- * Opens a lab from a `#lab=` link. Asks before replacing a lab that has devices, keeps a copy
- * of the replaced one, and removes the hash so a reload doesn't import it again.
+ * Opens a lab from a `#lab=` link. Asks before replacing a lab that has devices and removes the
+ * hash so a reload doesn't import it again. Call it after `startHistory`, so Undo brings back
+ * the replaced lab.
  */
 export async function openSharedLink(): Promise<void> {
   const { hash, pathname, search } = window.location;
@@ -98,8 +97,8 @@ export async function openSharedLink(): Promise<void> {
     ) {
       return;
     }
-    await set(BEFORE_SHARE_KEY, serializeProject(current)).catch(() => undefined);
-    loadLab({ ...project, tasks: current.tasks });
+    // Undo brings the replaced lab back (history records it just before the load).
+    openLab(project);
     notify('Opened a shared lab.');
   } catch (error) {
     // ProjectError and decode errors carry messages written for the user.

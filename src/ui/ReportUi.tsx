@@ -1,5 +1,5 @@
 import { useState, useSyncExternalStore, type FormEvent, type KeyboardEvent } from 'react';
-import { loadLab, notify } from './lab.ts';
+import { notify, openLab } from './lab.ts';
 import { parseProject } from './project.ts';
 import type { CheckedReport, ReportEntry } from './report.ts';
 import {
@@ -86,7 +86,7 @@ function Result({ checked }: { checked: CheckedReport }) {
   const { report, intact, code } = checked;
   const open = () => {
     if (!confirmReplace()) return;
-    loadLab(parseProject(checked.labText));
+    openLab(parseProject(checked.labText));
     show(null);
     notify('Opened the lab from the report.');
   };
