@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Network } from '../engine/network.ts';
+import { run } from '../engine/shell.ts';
 import { redo, startHistory, undo } from './history.ts';
 import { addDevice, getLab, loadLab, moveDevice, setTasks } from './lab.ts';
 import { emptyProgress } from './project.ts';
@@ -72,6 +73,29 @@ describe('undo and redo', () => {
     expect(names()).toEqual(['r1']);
     undo(); // the router is undone even though it was added a moment ago
     expect(names()).toEqual([]);
+  });
+
+  it('keeps Redo while a DHCP lease counts down', () => {
+    const net = new Network();
+    const [r1, pc] = [net.addDevice('router'), net.addDevice('pc')];
+    net.connect(r1, pc);
+    const sh = (d: typeof r1, line: string) => {
+      run(net, d, line, { out: () => {}, exit: () => {} });
+      net.scheduler.runUntil(net.scheduler.now + 10_000);
+    };
+    sh(r1, 'ip addr add 10.0.0.1/24 dev eth0');
+    sh(r1, 'dnsmasq --dhcp-range=10.0.0.100,10.0.0.200,1h');
+    sh(pc, 'dhclient eth0');
+    loadLab({ net, layout: {}, tasks: emptyProgress() });
+    addDevice('switch', { x: 0, y: 0 });
+    settle();
+    undo();
+    // Time passes: the lease's time left changes, and the lab reports a change.
+    getLab().net.scheduler.runUntil(getLab().net.scheduler.now + 60_000);
+    getLab().net.changed();
+    settle();
+    redo();
+    expect(names()).toContain('sw1');
   });
 
   it('starts over when another lab is loaded and leaves task progress alone', () => {

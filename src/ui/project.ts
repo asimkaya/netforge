@@ -41,7 +41,11 @@ export function emptyProgress(): TaskProgress {
   return { active: null, steps: {} };
 }
 
-export function serializeProject({ net, layout, notes = [], zones = [], tasks }: Project): string {
+/** The lab as a file. `space` 0 leaves out the indentation (smaller, for undo snapshots). */
+export function serializeProject(
+  { net, layout, notes = [], zones = [], tasks }: Project,
+  space = 2,
+): string {
   const file: ProjectFile = {
     format: PROJECT_FORMAT,
     version: PROJECT_VERSION,
@@ -51,7 +55,7 @@ export function serializeProject({ net, layout, notes = [], zones = [], tasks }:
     zones,
     tasks,
   };
-  return JSON.stringify(file, null, 2);
+  return JSON.stringify(file, null, space);
 }
 
 /** A problem with a lab file, worded for the user. */

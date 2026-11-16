@@ -19,7 +19,12 @@ const listeners = new Set<() => void>();
 /** The parts of the lab undo covers: devices, cables, settings, layout (not task progress). */
 function snapshot(): string {
   const { net, layout, notes, zones } = getLab();
-  return serializeProject({ net, layout, notes, zones, tasks: emptyProgress() });
+  return serializeProject({ net, layout, notes, zones, tasks: emptyProgress() }, 0);
+}
+
+/** A snapshot without what changes on its own as time runs (DHCP lease time left). */
+function settled(text: string): string {
+  return text.replace(/"seconds":\d+/g, '"seconds":0');
 }
 
 function notify(): void {
@@ -35,7 +40,7 @@ export function record(): void {
     current = next;
     return;
   }
-  if (next === current) return;
+  if (settled(next) === settled(current)) return;
   past = [...past, current].slice(-LIMIT);
   future = [];
   current = next;
