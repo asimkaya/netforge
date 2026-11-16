@@ -1347,6 +1347,7 @@ function runOne(net: Network, device: Device, line: string, io: ShellIO): Proces
     if (error) io.out(`bash: ${error}`);
   };
   const proc = command(net, device, args, {
+    ...io, // keeps stdin and history
     out: (l) => lines.push(l),
     exit: () => {
       save();

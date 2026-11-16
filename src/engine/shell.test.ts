@@ -185,6 +185,15 @@ describe('shell', () => {
     ]);
   });
 
+  it('writes piped and redirected input to a file with >', () => {
+    const { net, pc1 } = lab();
+    sh(net, pc1, 'echo foo > f');
+    expect(sh(net, pc1, 'cat f | grep foo > g').lines).toEqual([]);
+    expect(sh(net, pc1, 'cat g').lines).toEqual(['foo']);
+    sh(net, pc1, 'grep foo < f > h');
+    expect(sh(net, pc1, 'cat h').lines).toEqual(['foo']);
+  });
+
   it('answers pings to loopback without a cable or an address', () => {
     const net = new Network();
     const pc = net.addDevice('pc');
