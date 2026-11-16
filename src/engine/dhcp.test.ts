@@ -73,6 +73,25 @@ describe('DHCP', () => {
     expect([...new Set(kinds)]).toEqual(['discover', 'offer', 'request', 'ack']);
   });
 
+  it('does not hand an expired lease to a new client while other addresses are free', () => {
+    const { net, pc1, pc2 } = lab('192.168.1.100,192.168.1.101,2m');
+    sh(net, pc1, 'dhclient eth0');
+    net.scheduler.runUntil(net.scheduler.now + 5 * 60_000); // pc1's lease expires
+    expect(sh(net, pc2, 'dhclient eth0')).toContain('DHCPACK of 192.168.1.101 from 192.168.1.1');
+    // pc1 asks again and gets its own address back, without a NAK loop.
+    expect(sh(net, pc1, 'dhclient eth0')).toContain('DHCPACK of 192.168.1.100 from 192.168.1.1');
+  });
+
+  it('does not offer a client its old address once someone else holds it', () => {
+    const { net, pc1, pc2 } = lab('192.168.1.100,192.168.1.100,2m');
+    sh(net, pc1, 'dhclient eth0');
+    net.scheduler.runUntil(net.scheduler.now + 5 * 60_000);
+    sh(net, pc2, 'dhclient eth0'); // the pool is full, so pc2 gets the expired .100
+    const out = sh(net, pc1, 'dhclient eth0');
+    expect(out).not.toContain('DHCPNAK from 192.168.1.1');
+    expect(out.at(-1)).toBe('No DHCPOFFERS received.');
+  });
+
   it('gives each client its own address and remembers their names', () => {
     const { net, r1, pc1, pc2 } = lab();
     sh(net, pc1, 'dhclient eth0');

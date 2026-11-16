@@ -275,15 +275,17 @@ export class Dnsmasq {
   }
 
   #pick(range: DhcpRange, mac: Mac, requested: Ip | undefined): Ip | null {
+    const inRange = (ip: Ip) => ip >= range.start && ip <= range.end;
     const mine = this.leases.find((l) => l.mac === mac);
-    if (mine && mine.ip >= range.start && mine.ip <= range.end) return mine.ip;
-    if (
-      requested !== undefined &&
-      requested >= range.start &&
-      requested <= range.end &&
-      this.#free(requested, mac)
-    ) {
+    if (mine && inRange(mine.ip) && this.#free(mine.ip, mac)) return mine.ip;
+    if (requested !== undefined && inRange(requested) && this.#free(requested, mac)) {
       return requested;
+    }
+    // Clients here do not renew, so an expired lease may still be in use: hand out addresses
+    // nobody has had first, and reuse an expired one only when the pool is full.
+    const used = new Set(this.leases.filter((l) => l.mac !== mac).map((l) => l.ip));
+    for (let ip = range.start; ip <= range.end; ip++) {
+      if (!used.has(ip) && this.#free(ip, mac)) return ip;
     }
     for (let ip = range.start; ip <= range.end; ip++) if (this.#free(ip, mac)) return ip;
     return null;
