@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import type { Device } from '../engine/device.ts';
 import { Network } from '../engine/network.ts';
 import { deviceScript } from '../engine/script.ts';
+import { SHADOW } from '../engine/ssh.ts';
 import { SOLUTIONS } from '../tasks/solutions.ts';
 import { TASKS } from '../tasks/tasks.ts';
 import { Lab } from './labBuilder.ts';
@@ -52,6 +53,8 @@ function essence(net: Network) {
       Object.entries(files ?? {})
         // The export writes a key file for a WireGuard key that lived in no file.
         .filter(([path]) => !path.endsWith('.key'))
+        // Password hashes are state the export leaves out on purpose (see filesToWrite).
+        .filter(([path]) => path !== SHADOW)
         .map(([path, text]) => [path, text.replace(/\n$/, '')]),
     );
   return {

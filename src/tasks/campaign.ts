@@ -26,7 +26,7 @@ export const ACTS: Act[] = [
   {
     id: 'branches',
     title: 'Act 3: Beyond the office',
-    taskIds: ['ospf', 'nat', 'guest-wifi', 'vpn'],
+    taskIds: ['ospf', 'nat', 'guest-wifi', 'server-lockdown', 'vpn'],
   },
 ];
 

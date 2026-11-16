@@ -6,6 +6,7 @@ import { compile, type CustomTask } from './custom.ts';
 import type { Rule } from '../engine/netfilter.ts';
 import { peerOf, type Port } from '../engine/port.ts';
 import { isSwitchSpec, SPECS } from '../engine/specs.ts';
+import { DEFAULT_PASSWORD, SHADOW, hashPassword } from '../engine/ssh.ts';
 import { associatedAp } from '../engine/wifi.ts';
 
 export interface TaskContext {
@@ -422,6 +423,49 @@ function guestKeptOut(net: Network, h: Device): boolean {
   });
 }
 
+// ----------------------------------------------------------------- server lockdown
+
+/** The first IPv4 address of the device called `name`. */
+const ipOf = (net: Network, name: string): number | undefined =>
+  named(net, name)?.ip?.allAddrs()[0]?.ip;
+
+/** The filter chains on the input hook of a device: what may reach the device itself. */
+function inputChains(d: Device | undefined) {
+  return (d?.ip?.nf.tables ?? [])
+    .flatMap((t) => t.chains)
+    .filter((c) => c.base?.hook === 'input' && c.base.type === 'filter');
+}
+
+const acceptsPort = (r: Rule, port: number) =>
+  r.action.kind === 'accept' &&
+  r.matches.some(
+    (m) => m.kind === 'port' && m.field === 'dport' && !m.neg && m.ports.includes(port),
+  );
+
+/** The user ran `nc -z ... 22` on `name` and it connected to the server. */
+function reachedSsh(ctx: TaskContext, name: string): boolean {
+  const server = ipOf(ctx.net, 'srv1');
+  return (
+    typed(ctx, name, /^nc\s+-z\s+\S+\s+22\s*$/) &&
+    server !== undefined &&
+    !!named(ctx.net, name)?.ip?.tcp.connectedTo.has(server)
+  );
+}
+
+/** The server's firewall dropped an SSH connection attempt from someone other than `admin`. */
+function sshBlocked(net: Network, admin: string): boolean {
+  const server = named(net, 'srv1');
+  const allowed = ipOf(net, admin);
+  return net.drops.some(
+    (d) =>
+      d.device === server?.id &&
+      d.reason === 'netfilter' &&
+      d.packet?.proto === 'tcp' &&
+      d.packet.dstPort === 22 &&
+      parseIp(d.packet.src) !== allowed,
+  );
+}
+
 const named = (net: Network, name: string): Device | undefined =>
   [...net.devices.values()].find((d) => d.name === name);
 
@@ -683,7 +727,7 @@ const peerParts = (
 ];
 
 /**
- * The fourteen tasks are chapters of one network that keeps growing: each task's steps ask only
+ * The fifteen tasks are chapters of one network that keeps growing: each task's steps ask only
  * for what is new compared with the finished network of the one before (see solutions.ts,
  * which scripts every chapter). A step must not be true on that finished network, or the
  * chapter would complete the moment it starts.
@@ -2084,7 +2128,144 @@ export const TASKS: Task[] = [
         check: ({ net }) => guestBoxes(net).some((h) => guestKeptOut(net, h)),
       },
     ],
-    done: 'Sam: “Visitors have their own Wi-Fi and I keep my password, thank you!” The home router gave the guests a network of their own, so the office subnet and the guest subnet are never confused. NAT lets their traffic out to the Internet, and the firewall rule, placed above the accept rule, drops anything from the guest network to private office addresses, while replies from the Internet still come back. Next task: a second office, joined to this one through the Internet.',
+    done: 'Sam: “Visitors have their own Wi-Fi and I keep my password, thank you!” The home router gave the guests a network of their own, so the office subnet and the guest subnet are never confused. NAT lets their traffic out to the Internet, and the firewall rule, placed above the accept rule, drops anything from the guest network to private office addresses, while replies from the Internet still come back. Next task: the intranet server gets a lock of its own.',
+  },
+  {
+    id: 'server-lockdown',
+    title: 'Lock the server room door',
+    summary:
+      'Let the IT desk manage the intranet server remotely, then make sure nobody else can: a new password and a firewall on the server itself.',
+    brief: {
+      from: 'Alex, IT desk',
+      text: 'I would like to manage srv1 from my desk (pc4) instead of walking to it. But the server will soon hold HR files, so only my desk may log in. Everyone else just needs the intranet page.',
+    },
+    steps: [
+      {
+        title: 'Turn on remote login',
+        detail:
+          'An SSH server (`sshd`) lets you log in over the network and type commands as if you sat at the machine. Every service you start opens a door, a listening port. `ss -tln` lists the doors that are open.',
+        parts: [
+          {
+            text: 'Start the SSH server on srv1',
+            code: 'sshd',
+            on: 'srv1',
+            done: ({ net }) => !!named(net, 'srv1')?.sshd,
+          },
+          {
+            text: 'List the open ports on srv1: you will see 80 (web) and 22 (SSH)',
+            code: 'ss -tln',
+            on: 'srv1',
+            done: (ctx) => typed(ctx, 'srv1', /^ss\b.*-\w*l/),
+          },
+        ],
+      },
+      {
+        title: 'Check who can reach the new door',
+        detail:
+          'Right now SSH is open to the whole office, not only the IT desk. `nc -z` only checks whether a port answers: it connects and hangs up at once.',
+        parts: [
+          {
+            text: 'From pc1, check that port 22 on the server answers',
+            code: 'nc -z 192.168.1.5 22',
+            on: 'pc1',
+            done: (ctx) => reachedSsh(ctx, 'pc1'),
+          },
+        ],
+      },
+      {
+        title: 'Change the factory password',
+        detail:
+          'Every NetForge machine comes with the root password `netforge`, and anyone who reads a manual knows it. A default password is the first thing to change on any new device. Choose your own; the example below is only an example.',
+        hint: '`chpasswd` reads `user:password` lines. The password is stored only as a hash in `/etc/shadow`.',
+        parts: [
+          {
+            text: 'Give root on srv1 a new password',
+            code: 'echo root:Blue-Kettle-42 | chpasswd',
+            on: 'srv1',
+            done: ({ net }) => {
+              const shadow = named(net, 'srv1')?.fs?.read(SHADOW) ?? '';
+              const root = shadow.split('\n').find((l) => l.startsWith('root:'));
+              return !!root && root.split(':')[1] !== hashPassword(DEFAULT_PASSWORD);
+            },
+          },
+        ],
+      },
+      {
+        title: 'Close every door the server does not need',
+        detail:
+          'A firewall on the server itself filters what reaches it: the `input` hook. Start from “drop everything” (`policy drop`), then open only what is needed: answers to the server’s own connections, the web page for everyone, and SSH for the IT desk’s address alone.',
+        hint: 'Rules are read from the top and the first match wins. Pings to srv1 stop working too: no answer does not always mean a machine is off.',
+        parts: [
+          {
+            text: 'Make a table for the server’s filter',
+            code: 'nft add table inet filter',
+            on: 'srv1',
+            done: ({ net }) =>
+              (named(net, 'srv1')?.ip?.nf.tables ?? []).some((t) => t.name === 'filter'),
+          },
+          {
+            text: 'Add an input chain that drops everything by default',
+            code: 'nft add chain inet filter input { type filter hook input priority 0 ; policy drop ; }',
+            on: 'srv1',
+            done: ({ net }) =>
+              inputChains(named(net, 'srv1')).some((c) => c.base?.policy === 'drop'),
+          },
+          {
+            text: 'Let answers to the server’s own connections in',
+            code: 'nft add rule inet filter input ct state established,related accept',
+            on: 'srv1',
+            done: ({ net }) =>
+              inputChains(named(net, 'srv1')).some((c) =>
+                c.rules.some(
+                  (r) =>
+                    r.action.kind === 'accept' &&
+                    r.matches.some((m) => m.kind === 'ct' && m.states.includes('established')),
+                ),
+              ),
+          },
+          {
+            text: 'Keep the intranet page open for everyone',
+            code: 'nft add rule inet filter input tcp dport 80 accept',
+            on: 'srv1',
+            done: ({ net }) =>
+              inputChains(named(net, 'srv1')).some((c) => c.rules.some((r) => acceptsPort(r, 80))),
+          },
+          {
+            text: 'Open SSH for the IT desk (pc4) only',
+            code: 'nft add rule inet filter input ip saddr 192.168.2.10 tcp dport 22 accept',
+            on: 'srv1',
+            done: ({ net }) => {
+              const rules = inputChains(named(net, 'srv1')).flatMap((c) => c.rules);
+              const ssh = rules.filter((r) => acceptsPort(r, 22));
+              return (
+                ssh.length > 0 &&
+                ssh.every((r) => r.matches.some((m) => m.kind === 'saddr' && !m.neg))
+              );
+            },
+          },
+        ],
+      },
+      {
+        title: 'Try both doors again',
+        detail:
+          'The same check from pc1 now gets no answer: the server drops it without a word. Open “Why did this fail?” under the command to see which rule stopped it. The IT desk still gets in.',
+        parts: [
+          {
+            text: 'From pc1, check port 22 again: there must be no answer',
+            code: 'nc -z 192.168.1.5 22',
+            on: 'pc1',
+            done: ({ net }) => sshBlocked(net, 'pc4'),
+          },
+          {
+            text: 'From the IT desk, check that port 22 still answers',
+            code: 'nc -z 192.168.1.5 22',
+            on: 'pc4',
+            done: (ctx) => reachedSsh(ctx, 'pc4'),
+          },
+        ],
+      },
+    ],
+    done: 'Alex: “Only my desk can log in now, and nobody guesses the factory password anymore.” Each service is a door; the server now opens only the web page to everyone and SSH to one address, and drops the rest. A firewall on the server itself (input) works even when the traffic never crosses a router. Next task: a second office, joined to this one through the Internet.',
   },
   {
     id: 'vpn',

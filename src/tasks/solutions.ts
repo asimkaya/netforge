@@ -211,6 +211,21 @@ export const SOLUTIONS: Record<string, readonly Action[]> = {
     sh('home1', 'nft insert rule ip filter forward iifname "br0" ip daddr 192.168.0.0/16 drop'),
     { sh: 'phone2', lines: ['ping -c 1 192.168.1.5'], failing: true },
   ],
+  'server-lockdown': [
+    sh('srv1', 'sshd', 'ss -tln'),
+    sh('pc1', 'nc -z 192.168.1.5 22'),
+    sh('srv1', 'echo root:Blue-Kettle-42 | chpasswd'),
+    sh(
+      'srv1',
+      'nft add table inet filter',
+      'nft add chain inet filter input { type filter hook input priority 0 ; policy drop ; }',
+      'nft add rule inet filter input ct state established,related accept',
+      'nft add rule inet filter input tcp dport 80 accept',
+      'nft add rule inet filter input ip saddr 192.168.2.10 tcp dport 22 accept',
+    ),
+    { sh: 'pc1', lines: ['nc -z 192.168.1.5 22'], failing: true },
+    sh('pc4', 'nc -z 192.168.1.5 22'),
+  ],
   vpn: [
     add('router', 1000, 170),
     add('pc', 1060, 340),

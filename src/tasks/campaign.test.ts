@@ -29,7 +29,7 @@ describe('campaign', () => {
       (act1 ?? 0) + (act2 ?? 0),
       TASKS.length,
     ]);
-    expect(RANKS.map((r) => r.at)).toEqual([0, 2, 6, 10, 14]);
+    expect(RANKS.map((r) => r.at)).toEqual([0, 2, 6, 10, 15]);
     expect(rankOf(0)).toMatchObject({ rank: { title: 'Intern' }, needed: 2 });
     expect(rankOf(1).rank.title).toBe('Intern');
     expect(rankOf(2)).toMatchObject({ rank: { title: 'Junior Admin' }, needed: 4 });
@@ -37,8 +37,8 @@ describe('campaign', () => {
     expect(rankOf(6).rank.title).toBe('Network Technician');
     expect(rankOf(9).rank.title).toBe('Network Technician');
     expect(rankOf(10).rank.title).toBe('Network Engineer');
-    expect(rankOf(13).next?.title).toBe('Network Architect');
-    expect(rankOf(14)).toMatchObject({
+    expect(rankOf(14).next?.title).toBe('Network Architect');
+    expect(rankOf(15)).toMatchObject({
       rank: { title: 'Network Architect' },
       next: null,
       needed: 0,
