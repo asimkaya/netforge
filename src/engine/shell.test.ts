@@ -91,6 +91,21 @@ describe('shell', () => {
     ]);
   });
 
+  it('treats a /31 peer as a host, not as the broadcast address', () => {
+    const net = new Network();
+    const [a, b] = [net.addDevice('pc'), net.addDevice('pc')];
+    net.connect(a, b);
+    sh(net, a, 'ip addr add 10.0.0.0/31 dev eth0');
+    sh(net, b, 'ip addr add 10.0.0.1/31 dev eth0');
+    net.trace = [];
+    expect(sh(net, a, 'ping -c 1 10.0.0.1').lines[1]).toMatch(/^64 bytes from 10.0.0.1/);
+    const echo = net.trace.find((e) => {
+      const p = e.frame.payload;
+      return p.kind === 'ipv4' && p.payload.kind === 'icmp';
+    });
+    expect(echo?.frame.dst).toBe(b.ports[0]?.mac);
+  });
+
   it('asks again for an old ARP entry, so an address that moved is found', () => {
     const { net, sw, pc1, pc2 } = lab();
     sh(net, pc1, 'ping -c 1 192.168.1.20');

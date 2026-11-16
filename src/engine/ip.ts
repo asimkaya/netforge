@@ -390,7 +390,7 @@ export class IpStack implements TcpHost {
       this.ownsIp(q.dst) ||
       q.dst === LIMITED_BROADCAST ||
       (q.dst === OSPF_ALL_ROUTERS && this.routing !== null) ||
-      this.addrsOn(port).some((a) => broadcastOf(a) === q.dst);
+      this.addrsOn(port).some((a) => a.prefix < 31 && broadcastOf(a) === q.dst);
     if (!this.nf.active) {
       if (isLocal(p)) this.#deliver(p, port);
       else if (this.forwarding && unicast) this.#forward(p, port, null);
@@ -568,7 +568,7 @@ export class IpStack implements TcpHost {
       port.tunnel.send(packet);
       return;
     }
-    if (!route.via && packet.dst === broadcastOf(route.dst)) {
+    if (!route.via && route.dst.prefix < 31 && packet.dst === broadcastOf(route.dst)) {
       this.#frame(port, BROADCAST_MAC, packet);
       return;
     }
