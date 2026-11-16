@@ -55,6 +55,17 @@ describe('SSH', () => {
     ]);
   });
 
+  it('exits nc once when it is interrupted on an open connection', () => {
+    const { net, pc, srv } = lab();
+    sh(net, srv, 'sshd');
+    let exits = 0;
+    const proc = run(net, pc, 'nc 10.0.0.2 22', { out: () => {}, exit: () => exits++ });
+    wait(net);
+    proc?.interrupt?.();
+    wait(net, 3000); // the server's FIN arrives after Ctrl-C
+    expect(exits).toBe(1);
+  });
+
   it('logs in with a password and runs commands on the other device', () => {
     const { net, pc, srv } = lab();
     expect(sh(net, srv, 'sshd')).toEqual([]);

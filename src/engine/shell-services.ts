@@ -275,6 +275,7 @@ export const nc: Command = (_net, device, args, io) => {
     hangUp();
   };
   const done = () => {
+    if (finished) return; // the peer's FIN after Ctrl-C must not exit a second time
     finished = true;
     hangUp();
     if (!sync) io.exit();
@@ -343,6 +344,8 @@ export const nc: Command = (_net, device, args, io) => {
   if (finished) return;
   return {
     interrupt: () => {
+      if (finished) return;
+      finished = true;
       cancel();
       io.exit();
     },
