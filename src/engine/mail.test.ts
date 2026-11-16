@@ -106,6 +106,18 @@ describe('mail', () => {
     expect(net.scheduler.pending).toBe(0);
   });
 
+  it('keeps a body line that starts with "From " inside its message', () => {
+    const { net, bob, mx } = lab();
+    sh(net, mx, 'postfix start');
+    sh(net, mx, 'dovecot');
+    send(net, bob, 'bob@lab', 'Rules', 'From now on, lock the door.\n>From the boss');
+    const got = fetch(net, bob, 'bob');
+    if (!got?.ok) throw new Error('fetch failed');
+    expect(got.messages.map((m) => m.body)).toEqual([
+      'From now on, lock the door.\n>From the boss',
+    ]);
+  });
+
   it('explains failures', () => {
     const { net, alice, mx } = lab();
     expect(send(net, alice, 'bob@lab', 'x', 'y')).toEqual({

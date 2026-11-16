@@ -37,7 +37,7 @@ export function parseMbox(text: string): MailMessage[] {
   return text
     .split(/^From \S+ .*\n/m)
     .filter((chunk) => chunk.trim())
-    .map((chunk) => parseMessage(chunk));
+    .map((chunk) => parseMessage(chunk.replace(/^>(>*From )/gm, '$1')));
 }
 
 export function parseMessage(raw: string): MailMessage {
@@ -75,7 +75,9 @@ export function startSmtp(device: Device, stack: IpStack, fs: FileSystem): (() =
           const message = text
             .replace(/\r\n\.\r\n$/, '')
             .replace(/\r\n/g, '\n')
-            .replace(/^\.\./gm, '.');
+            .replace(/^\.\./gm, '.')
+            // mboxrd: quote body lines that look like a message start ("From ...").
+            .replace(/^(>*From )/gm, '>$1');
           for (const rcpt of to) {
             const user = rcpt.split('@')[0] ?? rcpt;
             const box = `${MAIL_DIR}/${user}`;
@@ -170,6 +172,7 @@ export function startPop3(stack: IpStack, fs: FileSystem): (() => void) | string
           } else {
             const body = message
               .replace(/^From .*\n/, '')
+              .replace(/^>(>*From )/gm, '$1')
               .replace(/^\./gm, '..')
               .replace(/\n/g, CRLF);
             conn.send(`+OK ${body.length} octets${CRLF}${body}${CRLF}.${CRLF}`);
