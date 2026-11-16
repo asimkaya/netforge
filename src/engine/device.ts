@@ -129,6 +129,7 @@ export class Device {
   /** Called when the device is deleted: stops what would keep scheduling events. */
   dispose(): void {
     this.camera?.stop();
+    this.bird?.stop(); // its hello timer would run forever
   }
 
   /** Starts dnsmasq with command-line arguments. Returns its log lines or an error message. */

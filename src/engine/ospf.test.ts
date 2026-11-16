@@ -99,6 +99,14 @@ describe('OSPF with BIRD', () => {
     expect(net.trace.some((e) => e.frame.dst === '01:00:5e:00:00:05')).toBe(true);
   });
 
+  it('stops BIRD when its router is deleted', () => {
+    const { net, r1 } = triangle();
+    sh(net, r1, 'bird');
+    net.removeDevice(r1);
+    wait(net, 100);
+    expect(net.scheduler.pending).toBe(0);
+  });
+
   it('sends traffic over the cheaper of two links to the same router', () => {
     const net = new Network();
     const [r1, r2] = [net.addDevice('router'), net.addDevice('router')];
