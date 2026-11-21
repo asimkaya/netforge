@@ -14,3 +14,5 @@ Template: `# NNNN: Title`, then **Status**, **Context**, **Decision**, **Consequ
 | [0005](0005-local-first-no-accounts.md)     | Local-first storage, no accounts, static hosting               |
 | [0006](0006-device-specs-ports-and-apps.md) | Device specs, typed ports and apps backed by protocols         |
 | [0007](0007-dynamic-routing-with-bird.md)   | Dynamic routing with BIRD                                      |
+| [0008](0008-deferred-phase-6-items.md)      | Deferred Phase 6 items                                         |
+| [0009](0009-github-pages-hosting.md)        | Host on GitHub Pages                                           |

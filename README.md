@@ -2,7 +2,7 @@
 
 Build, wire and debug computer networks right in your browser. No install, no account.
 
-**[Try the live demo →](https://netforge-20l.pages.dev/)**
+**[Try the live demo →](https://asimkaya.github.io/netforge/)**
 
 ![A company network with VLANs, a firewall, Wi-Fi and a branch office](docs/screenshots/company.png)
 
@@ -59,11 +59,15 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request, and
 
 ## Deployment
 
-The site is a static build on Cloudflare Pages: <https://netforge-20l.pages.dev/>.
+The site is a static build on GitHub Pages: <https://asimkaya.github.io/netforge/>. A copy
+also runs on Cloudflare Pages (<https://netforge-20l.pages.dev/>), but some Turkish ISPs
+block `*.pages.dev` (see [ADR 0009](docs/adr/0009-github-pages-hosting.md)). The build uses
+relative URLs, so the same files work at a site root or under a subpath.
 
-Every push to `main` is deployed by the `deploy` job in
-[.github/workflows/ci.yml](.github/workflows/ci.yml), after lint, type check, unit tests
-and end-to-end tests pass. The job needs two repository secrets:
+Every push to `main` is deployed by [.github/workflows/ci.yml](.github/workflows/ci.yml),
+after lint, type check, unit tests and end-to-end tests pass. The `pages` job publishes to
+GitHub Pages (repository Settings → Pages → Source: _GitHub Actions_). The `deploy` job
+publishes to Cloudflare and needs two repository secrets:
 
 - `CLOUDFLARE_ACCOUNT_ID`: the account that owns the `netforge` Pages project.
 - `CLOUDFLARE_API_TOKEN`: an API token with the _Cloudflare Pages: Edit_ permission.
