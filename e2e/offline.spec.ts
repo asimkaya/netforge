@@ -5,20 +5,20 @@ test('the web app manifest names the app and has icons', async ({ page, request 
   await page.goto('/');
   await expect(page.locator('link[rel="manifest"]')).toHaveAttribute(
     'href',
-    '/manifest.webmanifest',
+    'manifest.webmanifest',
   );
   const manifest = await (await request.get('/manifest.webmanifest')).json();
   expect(manifest).toMatchObject({
     name: 'NetForge',
     short_name: 'NetForge',
-    start_url: '/',
+    start_url: './',
     display: 'standalone',
   });
   const icons = manifest.icons as { src: string; sizes: string; purpose?: string }[];
   expect(icons.map((i) => i.sizes)).toEqual(['192x192', '512x512', '512x512']);
   expect(icons.some((i) => i.purpose === 'maskable')).toBe(true);
   for (const icon of icons) {
-    const response = await request.get(icon.src);
+    const response = await request.get(`/${icon.src}`);
     expect(response.ok()).toBe(true);
     expect(response.headers()['content-type']).toContain('image/png');
   }

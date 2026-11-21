@@ -3,7 +3,7 @@
 // - install: cache the app shell and every script, style and font of the build, including
 //   the chunks of views that load later (Vite hashes their file names, so a cached copy never
 //   goes stale).
-// - fetch: /assets/* cache-first; page loads network-first with the cached shell as fallback.
+// - fetch: assets/* cache-first; page loads network-first with the cached shell as fallback.
 //   Cross-origin requests are never touched.
 // - update: a new worker waits until the page asks it to take over, so a lab that is open is
 //   never reloaded by surprise (see src/ui/offline.ts).
@@ -13,8 +13,11 @@
 const BUILD = '__BUILD__';
 const ASSETS = /* __ASSETS__ */ [];
 const CACHE = `netforge-${BUILD}`;
-const SHELL = ['/', '/index.html', '/favicon.svg', '/manifest.webmanifest'];
-const ICONS = ['/icons/icon-192.png', '/icons/icon-512.png', '/icons/icon-maskable-512.png'];
+// Paths are relative to this file, so the app works at the site root or under a subpath
+// (GitHub Pages serves it from /netforge/).
+const ASSETS_PATH = new URL('assets/', self.location.href).pathname;
+const SHELL = ['./', 'index.html', 'favicon.svg', 'manifest.webmanifest'];
+const ICONS = ['icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -40,7 +43,7 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (request.method !== 'GET' || url.origin !== self.location.origin) return;
   if (request.mode === 'navigate') event.respondWith(page(request));
-  else if (url.pathname.startsWith('/assets/')) event.respondWith(asset(request));
+  else if (url.pathname.startsWith(ASSETS_PATH)) event.respondWith(asset(request));
 });
 
 /** Asset file names carry a hash of their content: a cached copy is always right. */
@@ -54,14 +57,14 @@ async function asset(request) {
   return response;
 }
 
-/** The app is one page: every navigation is answered with the latest copy of /index.html. */
+/** The app is one page: every navigation is answered with the latest copy of index.html. */
 async function page(request) {
   try {
     const response = await fetch(request);
-    if (response.ok) (await caches.open(CACHE)).put('/index.html', response.clone());
+    if (response.ok) (await caches.open(CACHE)).put('index.html', response.clone());
     return response;
   } catch {
-    const cached = await caches.match('/index.html', { ignoreVary: true });
+    const cached = await caches.match('index.html', { ignoreVary: true });
     if (cached) return cached;
     return new Response('NetForge is offline and has not been opened online yet.', {
       status: 503,

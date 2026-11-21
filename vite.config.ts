@@ -22,7 +22,7 @@ function stampServiceWorker(): Plugin {
       const assets = readdirSync(join(out, 'assets')).sort();
       const id = createHash('sha256').update(assets.join()).digest('hex').slice(0, 10);
       // woff files are only a fallback for browsers without woff2, which cannot run the app.
-      const precache = assets.filter((f) => /\.(js|css|woff2)$/.test(f)).map((f) => `/assets/${f}`);
+      const precache = assets.filter((f) => /\.(js|css|woff2)$/.test(f)).map((f) => `assets/${f}`);
       const file = join(out, 'sw.js');
       const sw = readFileSync(file, 'utf8')
         .replace('__BUILD__', id)
@@ -33,6 +33,8 @@ function stampServiceWorker(): Plugin {
 }
 
 export default defineConfig({
+  // Relative URLs: the same build runs at a site root or under a subpath (GitHub Pages).
+  base: './',
   plugins: [react(), tailwindcss(), stampServiceWorker()],
   build: {
     rolldownOptions: {

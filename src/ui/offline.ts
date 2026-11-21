@@ -37,7 +37,7 @@ export function registerServiceWorker(): void {
   // Wait for the page to finish loading so the worker's downloads do not compete with it.
   const register = () => {
     serviceWorker
-      .register('/sw.js')
+      .register('sw.js')
       .then((registration) => {
         // With no controller this is the first visit: there is nothing to update.
         const check = () => {

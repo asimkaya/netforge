@@ -71,7 +71,7 @@ export function App() {
     <ReactFlowProvider>
       <div className="relative flex h-full flex-col">
         <header className="flex h-12 shrink-0 items-center gap-2 border-b border-(--nf-border) bg-(--nf-surface) px-4 max-sm:px-2">
-          <img src="/favicon.svg" alt="" className="h-6 w-6 shrink-0" />
+          <img src="favicon.svg" alt="" className="h-6 w-6 shrink-0" />
           <h1 className="font-label text-lg font-semibold max-sm:hidden">NetForge</h1>
           <div className="shrink-0 sm:ml-6">
             <ModeSwitch mode={mode} />
